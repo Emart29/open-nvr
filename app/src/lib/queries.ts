@@ -25,6 +25,7 @@ import { QueryClient, keepPreviousData, useQueries, useQuery } from '@tanstack/r
 import { apiService } from './apiService'
 import type { AspectOverride } from './aspect'
 import { todayLocalKey } from './time'
+import { alertsInboxService, type InboxAlert } from '../services/alertsInboxService'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -258,7 +259,90 @@ export function useSuricataStats(limit = 5000) {
     queryKey: ['suricata-stats', limit],
     queryFn: async () => {
       const { data } = await apiService.getSuricataStats({ limit })
-      return data as { by_severity?: Record<string, number> }
+      return data as {
+        by_severity?: Record<string, number>
+        total_alerts?: number
+        timeseries?: { ts: string; count: number }[]
+      }
     },
+  })
+}
+
+export type ResourceHistoryPoint = {
+  /** Unix seconds. */
+  ts: number
+  cpu_percent: number | null
+  memory_percent: number | null
+  disk_percent: number | null
+  disk_free: number | null
+}
+
+/**
+ * Host resource trend from the monitor's in-memory ring buffers (15s grain
+ * up to an hour, 5-minute averages beyond). Empty after a core restart —
+ * render "collecting" rather than a flat line.
+ */
+export function useSystemResourcesHistory(minutes = 60) {
+  return useQuery({
+    queryKey: ['system-resources-history', minutes],
+    queryFn: async () => {
+      const { data } = await apiService.getSystemResourcesHistory({ minutes })
+      return (data?.samples ?? []) as ResourceHistoryPoint[]
+    },
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  })
+}
+
+/** Core API liveness, version and uptime. A failure here usually means the
+ *  whole backend is unreachable, so every other query is failing with it.
+ *  Uses /api/v1/system/info rather than the bare /health route: nginx and
+ *  the dev proxy only forward /api to the core, so /health answers with the
+ *  SPA (or a 404) and says nothing about the backend. */
+export function useCoreHealth() {
+  return useQuery({
+    queryKey: ['core-health'],
+    queryFn: async () => {
+      const { data } = await apiService.getSiteInfo()
+      return data as { version?: string; uptime_s?: number; name?: string | null }
+    },
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    retry: 0,
+  })
+}
+
+/** AI engine (KAI-C) reachability. `kai_c_status` is 'ok' when up; the
+ *  core reports 'error' with a message when it cannot reach it. */
+export function useKaiCHealth() {
+  return useQuery({
+    queryKey: ['kaic-health'],
+    queryFn: async () => {
+      const { data } = await apiService.checkKaiCHealth()
+      return data as { kai_c_status?: string; adapters?: Record<string, unknown>; message?: string | null }
+    },
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: 0,
+  })
+}
+
+/**
+ * Unacknowledged operator alarms — the bell's badge and the dashboard's
+ * alarm feed read this one cache entry, so both agree and poll once.
+ *
+ * Keeps polling in a background tab: react-query otherwise pauses interval
+ * refetches while the document is hidden, and an alarm poll that stops when
+ * the operator switches tabs cannot ring the siren (see AlertBell).
+ */
+export function useUnackedAlerts() {
+  return useQuery({
+    queryKey: ['alerts-inbox-unacked'],
+    queryFn: async () => {
+      const { data } = await alertsInboxService.listInboxAlerts({ unacked: true, limit: 50 })
+      return data as { alerts: InboxAlert[]; unacked_count: number }
+    },
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
   })
 }

@@ -22,14 +22,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, BellOff, Check, CheckCheck } from 'lucide-react'
 import {
   alertsInboxService,
-  type InboxAlert,
   type RingConfig,
   type RingMode,
 } from '../services/alertsInboxService'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useTranslation } from '../i18n'
-
-const POLL_MS = 10_000
+import { useUnackedAlerts } from '../lib/queries'
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
 const RING_MODES: RingMode[] = ['none', 'ping', 'continuous']
@@ -202,24 +200,9 @@ export function AlertBell() {
   useAudioUnlock()
   const qc = useQueryClient()
 
-  const inbox = useQuery({
-    queryKey: ['alerts-inbox-unacked'],
-    queryFn: async () => {
-      const { data } = await alertsInboxService.listInboxAlerts({
-        unacked: true,
-        limit: 50,
-      })
-      return data as { alerts: InboxAlert[]; unacked_count: number }
-    },
-    refetchInterval: POLL_MS,
-    // The alarm poll MUST keep running in a background tab. React Query
-    // gates interval refetches on `focusManager.isFocused()` — which is
-    // `document.visibilityState !== 'hidden'` — so by default an operator
-    // who switches tabs stops fetching entirely: the siren never learns
-    // there is anything to sound, and the alarm only fires when they come
-    // back and look. That is the exact opposite of what an alarm is for.
-    refetchIntervalInBackground: true,
-  })
+  // Shared with the dashboard's alarm feed (lib/queries), which is also
+  // where the keep-polling-in-a-background-tab rationale lives.
+  const inbox = useUnackedAlerts()
 
   const ringCfg = useQuery({
     queryKey: ['alerts-inbox-ring-config'],

@@ -27,6 +27,13 @@
   --warn: #facc15;        /* yellow-400 */
   --danger: #f87171;      /* red-400    */
   --critical: #dc2626;    /* red-600, solid in both themes */
+  /* Chart series inks, in fixed order (never cycled): the first three
+     slots of the validated categorical palette, stepped for the dark
+     surface. Status meaning stays with --ok/--warn/--danger; these carry
+     identity only. */
+  --series-1: #3987e5;    /* blue   */
+  --series-2: #d95926;    /* orange */
+  --series-3: #199e70;    /* aqua   */
   --radius: 0px;          /* global corner radius for sharp UI */
   --radius-card: 0px;
   --radius-input: 0px;
@@ -66,6 +73,9 @@
   --warn: #a16207;        /* yellow-700 */
   --danger: #b91c1c;      /* red-700    */
   --critical: #dc2626;    /* red-600    */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
   --radius: 0px;
   --radius-card: 0px;
   --radius-input: 0px;
@@ -253,4 +263,64 @@ select optgroup {
 }
 .animate-slide-in-right {
   animation: slide-in-right 0.3s ease-out;
+}
+
+/* ---------------- Dashboard widget grid (react-grid-layout) ----------------
+   The library's own stylesheet paints a red drop placeholder and a
+   black-on-transparent resize corner that vanishes on the dark theme. */
+.dash-grid .react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.14;
+  border: 1px dashed var(--accent);
+  border-radius: 0;
+}
+.dash-grid .react-grid-item > .react-resizable-handle {
+  width: 16px;
+  height: 16px;
+  z-index: 5;
+}
+.dash-grid .react-grid-item > .react-resizable-handle::after {
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+.dash-editing .react-grid-item > .react-resizable-handle { opacity: 1; }
+/* Outside edit mode nothing moves: no animated reflow on window resize. */
+.dash-grid:not(.dash-editing) .react-grid-item { transition: none; }
+
+/* Vitals tiles on a short screen: the detail line is the first thing to
+   go, so the figure and its bar never collide. */
+.vital-tile { container-type: size; }
+@container (max-height: 84px) {
+  .vital-sub { display: none; }
+}
+@container (max-height: 64px) {
+  .vital-value { font-size: 18px !important; }
+}
+/* Too short for the bars and sparklines: keep the label and the figure. */
+@container (max-height: 50px) {
+  .vital-extra { display: none; }
+  .vital-value { font-size: 16px !important; }
+}
+
+/* Scrolls, but draws no bar: a strip of status chips that is merely a
+   little too wide for the row should not grow a scrollbar across it. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Live-wall tour: a hairline that fills over one tour interval. */
+@keyframes dash-tour-fill {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+.dash-tour-progress {
+  animation-name: dash-tour-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-tour-progress { animation: none; width: 0; }
 }
