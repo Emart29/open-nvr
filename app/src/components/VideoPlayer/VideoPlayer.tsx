@@ -89,6 +89,12 @@ export interface VideoPlayerProps {
   /** Draw Tier-0 bounding boxes with label + score over the video.
       Live mode only; costs nothing when false (no canvas, no socket). */
   showDetections?: boolean
+  /** 'full' (default) draws the title, LIVE badge and control bar and binds
+      keyboard shortcuts. 'none' is a bare feed for glance surfaces such as
+      the dashboard wall: the caller draws its own labels, and with several
+      players on one page a shortcut bound to the page body would toggle
+      every one of them at once. */
+  chrome?: 'full' | 'none'
 }
 
 export interface VideoPlayerHandle {
@@ -125,6 +131,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       displayAspectOverride,
       cameraId = null,
       showDetections = false,
+      chrome = 'full',
     },
     ref
   ) {
@@ -987,6 +994,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Keyboard shortcuts
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
+        if (chrome === 'none') return
         if (!containerRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return
 
         switch (e.key) {
@@ -1028,18 +1036,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       window.addEventListener('keydown', handleKeyDown)
       return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isPlaying, isMuted, isLive, currentTime, duration, volume])
+    }, [isPlaying, isMuted, isLive, currentTime, duration, volume, chrome])
 
     // Double-click for fullscreen
     const handleDoubleClick = () => handleFullscreen()
+    const bare = chrome === 'none'
 
     return (
       <div
         ref={containerRef}
         className={`relative bg-[var(--bg-2)] overflow-hidden group flex items-center justify-center ${className}`}
         style={{ containerType: 'size' }}
-        tabIndex={0}
-        onDoubleClick={handleDoubleClick}
+        tabIndex={bare ? undefined : 0}
+        onDoubleClick={bare ? undefined : handleDoubleClick}
       >
         {/* Chrome band — full tile width, exactly as tall as the video, and
             vertically centred on it (100cqw = tile width). It is transparent:
@@ -1101,7 +1110,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {/* Loading / reconnecting overlay */}
-        {(isLoading || isReconnecting) && (
+        {bare && (isLoading || isReconnecting) && !error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+            <div className="w-5 h-5 border-2 border-white/25 border-t-white/80 rounded-full animate-spin" />
+          </div>
+        )}
+        {bare && error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[#07090d] text-white/60">
+            <AlertCircle size={16} className="opacity-70" />
+            <div className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('video.noSignalShort')}</div>
+          </div>
+        )}
+        {!bare && (isLoading || isReconnecting) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
             <div className="w-10 h-10 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             {isReconnecting && (
@@ -1111,7 +1131,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {/* Error overlay */}
-        {error && (
+        {!bare && error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-white" style={{ background: '#1e3a8a' }}>
             {/* TV Static background */}
             <div 
@@ -1166,7 +1186,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             so a gutter wider than the LIVE badge means the two can never
             collide at any tile size; a percentage cap only holds until the
             tile gets small enough for the badge to outgrow its share. */}
-        {title && (
+        {!bare && title && (
           <div
             className={`absolute top-1.5 left-1/2 -translate-x-1/2 z-10 truncate text-sm @max-[300px]:text-xs leading-tight font-medium text-white/90 px-1.5 py-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] transition-opacity duration-700 group-hover:opacity-100 ${
               isLive && !error ? 'max-w-[calc(100%_-_110px)]' : 'max-w-[85%]'
@@ -1179,7 +1199,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {/* Live indicator — transparent: glowing dot + shadowed text so it
             doesn't overshadow the stream like the old solid red chip. Pinned
             to the band's corner so a long title can never run under it. */}
-        {isLive && !error && (
+        {!bare && isLive && !error && (
           <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 text-[10px] font-semibold tracking-wider text-red-400 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">
             <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse [box-shadow:0_0_5px_rgba(239,68,68,0.9)]" />
             LIVE
@@ -1187,7 +1207,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {/* Custom controls */}
-        <div className={`transition-opacity duration-200 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>
+        {!bare && <div className={`transition-opacity duration-200 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>
           <VideoControls
             videoRef={videoRef}
             isLive={isLive}
@@ -1214,7 +1234,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onTogglePtz={onTogglePtz}
             ptzActive={ptzActive}
           />
-        </div>
+        </div>}
         </div>
       </div>
     )

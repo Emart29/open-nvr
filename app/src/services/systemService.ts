@@ -22,6 +22,9 @@ export const systemService = {
   // Health & Stats
   getHealth: () => api.get('/health'),
   getDashboardStats: () => api.get('/api/v1/dashboard/stats'),
+  // Site identity, version and core uptime. Under /api, so it reaches the
+  // core through the same proxy as every other call (bare /health does not).
+  getSiteInfo: () => api.get('/api/v1/system/info'),
   getAlerts: (params: Record<string, any> = {}) => api.get('/api/v1/alerts/', { params }),
   
   // Power
