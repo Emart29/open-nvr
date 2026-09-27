@@ -14,9 +14,9 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22804254-blue.svg)](https://doi.org/10.5281/zenodo.22804254)
-[![Discord](https://img.shields.io/badge/Discord-join_the_community-5865F2?logo=discord&logoColor=white)](DISCORD_INVITE_URL)
+[![Discord](https://img.shields.io/badge/Discord-join_the_community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/sx7KarqKh9)
 
-### [▶ 90-second demo](docs/DEMO.md) · [⚡ Quick start](#get-it-running) · [🧩 Build an AI adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Build an app](docs/FIRST_DETECTOR.md) · [🏠 Home Assistant](docs/HOME_ASSISTANT_USER_GUIDE.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](DISCORD_INVITE_URL)
+### [▶ 90-second demo](docs/DEMO.md) · [⚡ Quick start](#get-it-running) · [🧩 Build an AI adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Build an app](docs/FIRST_DETECTOR.md) · [🏠 Home Assistant](docs/HOME_ASSISTANT_USER_GUIDE.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](https://discord.com/invite/sx7KarqKh9)
 
 <a href="https://opennvr.org/camera-agent">
   <img src=".github/demo-agent.gif" alt="Ask your cameras a question — the OpenNVR camera agent runs YOLOv8 on a live frame and answers locally, no cloud" width="760" />
@@ -313,7 +313,7 @@ Fourteen of the sixteen shipped examples are listed above; [`inference-listener`
 
 ## Community
 
-**Chat with us on Discord** — [join the OpenNVR server](DISCORD_INVITE_URL): questions, show what you built, help others get their cameras in. Bugs go in [Issues](https://github.com/open-nvr/open-nvr/issues), design questions in [Discussions](https://github.com/open-nvr/open-nvr/discussions), security reports via [private GHSA advisory](https://github.com/open-nvr/open-nvr/security/advisories/new) — see [SECURITY.md](SECURITY.md).
+**Chat with us on Discord** — [join the OpenNVR server](https://discord.com/invite/sx7KarqKh9): questions, show what you built, help others get their cameras in. Bugs go in [Issues](https://github.com/open-nvr/open-nvr/issues), design questions in [Discussions](https://github.com/open-nvr/open-nvr/discussions), security reports via [private GHSA advisory](https://github.com/open-nvr/open-nvr/security/advisories/new) — see [SECURITY.md](SECURITY.md).
 
 **Three ways to help the project grow, in order of value:** build an [app](docs/FIRST_DETECTOR.md) or an [adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) and tell us about it · [follow the open-nvr organisation](https://github.com/open-nvr) so new apps and adapters reach you · ⭐ star this repository. Issues labelled [good first issue](https://github.com/open-nvr/open-nvr/labels/good%20first%20issue) are picked to be finishable in an evening.
 
