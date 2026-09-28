@@ -705,6 +705,9 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
         _visit(db, event_id=i, camera_id=1, label="car", minutes_ago=60)
     from core.config import settings
     monkeypatch.setattr(settings, "events_enrichment_backfill", True, raising=False)
+    # WALL is stamped at collection; in a full run this test executes
+    # minutes later. A one-hour window keeps "young" young regardless.
+    monkeypatch.setattr(bf, "CATCH_UP_MIN_AGE_S", 3600.0)
     _run(asyncio.wait_for(bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up=False), 10))
     from services import site_settings
     assert site_settings.get_json(db, bf.STATE_KEY)["top"] == 3, "where history ended"
@@ -712,8 +715,8 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
 
     # Two newer visits: one old enough to be safely re-offered, one that
     # may still have a live enrichment in flight.
-    _visit(db, event_id=5, camera_id=1, label="car", minutes_ago=20)
-    _visit(db, event_id=6, camera_id=1, label="car", minutes_ago=0)
+    _visit(db, event_id=5, camera_id=1, label="car", minutes_ago=120)
+    _visit(db, event_id=6, camera_id=1, label="car", minutes_ago=30)
 
     state = _run(bf.catch_up_once(batch=10, pause=0))
     assert calls["caption"] == [5], "only the one older than the in-flight window"
@@ -726,8 +729,8 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
 
     # A drop in the catch-up holds top exactly as the walk holds its cursor.
     import services.caption_enrichment as cap_mod
-    _visit(db, event_id=7, camera_id=1, label="car", minutes_ago=0)
-    _visit(db, event_id=8, camera_id=1, label="car", minutes_ago=0)
+    _visit(db, event_id=7, camera_id=1, label="car", minutes_ago=30)
+    _visit(db, event_id=8, camera_id=1, label="car", minutes_ago=30)
     monkeypatch.setattr(cap_mod, "enrich_event_caption", _cap_stub(calls, {7}))
     state = _run(bf.catch_up_once(batch=10, pause=0))
     assert calls["caption"][-1] == 7 and state["top"] == 6, "held below the refused visit"
@@ -780,11 +783,12 @@ def test_catch_up_never_steps_over_a_younger_visit_with_a_lower_id(
     _visit(db, event_id=1, camera_id=1, label="car", minutes_ago=60)
     from core.config import settings
     monkeypatch.setattr(settings, "events_enrichment_backfill", True, raising=False)
+    monkeypatch.setattr(bf, "CATCH_UP_MIN_AGE_S", 3600.0)   # drift-proof, see above
     _run(asyncio.wait_for(bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up=False), 10))
     calls["caption"].clear()
-    # 120 started 9 min ago (young, held); 121 started 15 min ago (old).
-    _visit(db, event_id=120, camera_id=1, label="car", minutes_ago=9)
-    _visit(db, event_id=121, camera_id=1, label="car", minutes_ago=15)
+    # 120 started 30 min ago (young, held); 121 started 2 h ago (old).
+    _visit(db, event_id=120, camera_id=1, label="car", minutes_ago=30)
+    _visit(db, event_id=121, camera_id=1, label="car", minutes_ago=120)
     state = _run(bf.catch_up_once(batch=10, pause=0))
     assert calls["caption"] == [121]
     assert state["top"] == 119, "held below 120, which is still inside the in-flight window"
