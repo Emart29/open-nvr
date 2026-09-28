@@ -128,6 +128,7 @@ const NAV_LABEL_KEYS: Record<string, string> = {
 }
 
 // Accordion: at most one group is open at a time; its key is persisted.
+const SIDEBAR_OPEN_KEY = 'opennvr.sidebar.open'
 const OPEN_GROUP_KEY = 'opennvr.sidebar.openGroup'
 
 function loadOpenGroup(): string | null {
@@ -142,7 +143,13 @@ export function AppShell() {
   const { language, setLanguage, t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
   const { isFullscreen, toggle } = useFullscreen(rootRef as React.RefObject<HTMLDivElement>)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // Remembered across reloads, like the open group below.
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try { return localStorage.getItem(SIDEBAR_OPEN_KEY) !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(SIDEBAR_OPEN_KEY, sidebarOpen ? '1' : '0') } catch { /* storage unavailable */ }
+  }, [sidebarOpen])
   const { user, logout } = useAuth()
   const { hasPermission } = usePermissions()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -277,12 +284,15 @@ export function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleGroups])
 
+  // visibleGroups, not NAV_GROUPS: the Applications group is built at runtime
+  // from the installed apps, so scanning only the static groups meant an app
+  // page never opened its own group in the sidebar.
   const activeGroupKey = useMemo(() => {
-    for (const g of NAV_GROUPS) {
+    for (const g of visibleGroups) {
       if (g.items.some((i) => (i.to === '/' ? location.pathname === '/' : location.pathname.startsWith(i.to)))) return g.key
     }
     return null
-  }, [location.pathname])
+  }, [location.pathname, visibleGroups])
 
   function persistOpenGroup(key: string | null) {
     try {
