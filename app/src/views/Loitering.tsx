@@ -477,7 +477,7 @@ export function Loitering() {
             footer={
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Last 7 days across all zones: {week.stays} stays · average {mmss(week.avg)} · longest {mmss(week.longest)}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

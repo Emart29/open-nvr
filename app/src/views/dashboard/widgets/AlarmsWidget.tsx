@@ -54,7 +54,7 @@ export function AlarmsWidget({ editing, onRemove }: { editing?: boolean; onRemov
       editing={editing}
       onRemove={onRemove}
       meta={unacked ? <span className="font-mono tabular-nums">{t('dashboard.openCount', { n: unacked })}</span> : undefined}
-      actions={<Link to="/alarms" className="text-[11px] text-[var(--accent)] hover:underline px-1">{t('dashboard.viewAll')}</Link>}
+      actions={<Link to="/alerts-incidents" className="text-[11px] text-[var(--accent)] hover:underline px-1">{t('dashboard.viewAll')}</Link>}
     >
       {q.isPending ? (
         <div className="p-2 space-y-1.5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9" />)}</div>
@@ -74,7 +74,7 @@ export function AlarmsWidget({ editing, onRemove }: { editing?: boolean; onRemov
             return (
               <li key={a.id}>
                 <Link
-                  to="/alarms"
+                  to="/alerts-incidents"
                   className="flex items-start gap-2 pl-0 pr-2.5 py-1.5 hover:bg-[var(--panel)]"
                   title={alarmSeenTitle(a, fmt)}
                 >
@@ -95,7 +95,7 @@ export function AlarmsWidget({ editing, onRemove }: { editing?: boolean; onRemov
           })}
           {unacked > alerts.length && (
             <li className="px-3 py-1.5 text-[11px] text-[var(--text-dim)]">
-              <Link to="/alarms" className="hover:text-[var(--text)]">+{unacked - alerts.length} {t('dashboard.more')}</Link>
+              <Link to="/alerts-incidents" className="hover:text-[var(--text)]">+{unacked - alerts.length} {t('dashboard.more')}</Link>
             </li>
           )}
         </ul>

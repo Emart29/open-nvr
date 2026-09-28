@@ -219,7 +219,7 @@ export function VitalsWidget({ editing, onRemove }: { editing?: boolean; onRemov
               ? [critical ? `${critical} ${t('dashboard.sevCritical')}` : null, high ? `${high} ${t('dashboard.sevHigh')}` : null].filter(Boolean).join(' · ')
               : unacked ? t('dashboard.lowSeverityOnly') : t('dashboard.allClear'))
             : undefined}
-          onClick={() => navigate('/alarms')}
+          onClick={() => navigate('/alerts-incidents')}
         />
       </div>
     </WidgetFrame>

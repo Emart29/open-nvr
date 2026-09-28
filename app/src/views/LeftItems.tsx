@@ -519,7 +519,7 @@ export function LeftItems() {
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Longest alone today {mmss(state.longest_alone_s)} · settles after {mmss(state.settle_seconds)} ·
                 {' '}{state.fixtures ?? 0} fixture {state.fixtures === 1 ? 'spot' : 'spots'} marked.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

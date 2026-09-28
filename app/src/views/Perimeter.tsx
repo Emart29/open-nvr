@@ -544,7 +544,7 @@ export function Perimeter() {
                 Entry delay {mmss(state.entry_delay_seconds)} · exit delay {mmss(state.exit_delay_seconds)} ·
                 {' '}presence {mmss(state.min_presence_seconds)}
                 {state.escalate_after_seconds ? ` · escalates after ${mmss(state.escalate_after_seconds)}` : ''}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

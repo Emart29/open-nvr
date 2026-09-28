@@ -404,7 +404,7 @@ export function Tripwires() {
             footer={
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Last 7 days across all lines: {weekTotals.in} {labels.a_to_b} · {weekTotals.out} {labels.b_to_a}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />
