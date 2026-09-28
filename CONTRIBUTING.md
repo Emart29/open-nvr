@@ -141,10 +141,13 @@ def get_camera_by_id(camera_id: int, db: Session) -> Optional[Camera]:
 ### TypeScript (`app/`)
 
 - **ESLint** configured in `app/eslint.config.js`. `npm run lint` and
-  `npm run type-check`.
+  `npm run typecheck`; CI runs both before the build.
 - **No `any`** unless absolutely necessary (and noted in a comment).
 - **Functional components with hooks.** PascalCase files for components,
   camelCase for utilities.
+- **Screens use the shared components** — page header, buttons, dialogs,
+  confirmations, form fields, tables — and theme tokens only. See
+  [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md) for which to use when.
 
 ### Commit messages
 
