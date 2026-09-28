@@ -66,6 +66,8 @@ class EventsClient:
 
     def __init__(self, core_url: str, api_key: str | None = None, *,
                  http_get: HttpGetH | None = None) -> None:
+        #: The `pending` block of the last search that answered (see search()).
+        self.last_pending: dict | None = None
         self._base = core_url.rstrip("/")
         # The app's own key when it has one (scoped to its cameras), else
         # the explicit/site key — see credentials.py.
@@ -121,7 +123,14 @@ class EventsClient:
             if status != 200:
                 return None
             import json
-            rows = json.loads(body.decode("utf-8")).get("events", [])
+            payload = json.loads(body.decode("utf-8"))
+            rows = payload.get("events", [])
+            # What core is describing NOW because this query asked for a
+            # claim the visits did not have yet (core's `pending`). Kept
+            # on the client rather than changing the return type: an app
+            # built against the list-of-events contract keeps working,
+            # and one that wants to say "not yet" reads it here.
+            self.last_pending = payload.get("pending") if isinstance(payload, dict) else None
         except Exception:
             return None
         out = []

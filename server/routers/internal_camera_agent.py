@@ -36,9 +36,7 @@ from models import (
     EventText,
     SecuritySetting,
     TimelineEvent,
-    VisitDescriptor,
 )
-from services import search_metrics as metrics
 from services.app_keys import (
     AppPrincipal,
     app_camera_ids,
@@ -293,8 +291,8 @@ async def ingest_track_event(
     early_read = False
     if (row.label or "") in _VEHICLES \
             and payload.track_id and not row.plate_text:
-        from services.plate_attempt_cache import cache as _attempt_cache
         from services.descriptor_store import sync_plate_claim
+        from services.plate_attempt_cache import cache as _attempt_cache
         from services.plate_enrichment import (
             dedup_window_s,
             is_duplicate_sighting,
@@ -427,7 +425,8 @@ async def ingest_track_event(
     # registered and healthy, so a site with no VLM pays nothing and
     # loses nothing it had. Same three gates, same background shape.
     from services.descriptor_enrichment import (
-        enrich_event_descriptors, wants_descriptors,
+        enrich_event_descriptors,
+        wants_descriptors,
     )
 
     if wants_descriptors(row.label, evidence_rel,
@@ -446,7 +445,8 @@ async def ingest_track_event(
     # stack — and a silent no-op when no adapter advertises `embed`,
     # which is what most sites will be.
     from services.embed_enrichment import (
-        enrich_event_embedding, wants_embedding,
+        enrich_event_embedding,
+        wants_embedding,
     )
 
     if wants_embedding(row.label, evidence_rel,
@@ -757,6 +757,11 @@ async def internal_list_events(
             "Repeatable and ANDed. 'kind:value' scopes to one kind; a bare "
             "value matches any kind, which is the safe spelling."),
     ),
+    describe: bool = Query(
+        True,
+        description="With attr: queue the matching visits that carry no such "
+                    "claim yet for description now, and report it under "
+                    "`pending` (see /search)."),
     principal=Depends(_require_internal_key),
     db: Session = Depends(get_db),
 ):
@@ -814,10 +819,28 @@ async def internal_list_events(
         except Exception:  # noqa: BLE001 — a hint must never break a read
             described = None
 
+    # The agent asked "did a blue car come?": the visits in the window
+    # that nobody has asked a colour of yet are queued to be described
+    # now, and the answer says so — "not yet" is a different answer from
+    # "no" (services/enrichment_requests).
+    pending: dict | None = None
+    if attrs and describe:
+        from services.enrichment_requests import kinds_for_attrs, pending_for
+
+        try:
+            pending = await pending_for(
+                db, filters=dict(camera_id=camera_id, label=None, plate=plate,
+                                 from_=from_, to=to, scope=scope),
+                labels=[label] if label else None, camera_ids=None,
+                want_caption=False, want_kinds=kinds_for_attrs(attrs))
+        except Exception:  # noqa: BLE001 — a hint must never break a read
+            logger.debug("internal events: pending lookup failed", exc_info=True)
+            pending = None
     return {
         **({"attrs_applied": [f"{k}:{v}" if k else v for k, v in attrs]}
            if attrs else {}),
         **({"described": described} if described else {}),
+        **({"pending": pending} if pending else {}),
         "events": [
             {
                 "id": e.id,

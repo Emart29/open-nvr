@@ -1289,11 +1289,16 @@ class CameraTools:
                 # "No blue cars" and "nobody ever looked at what colour
                 # they were" are opposite answers behind an identical
                 # empty list, and only one of them is an answer.
+                # ...unless core is describing them right now because
+                # this very question asked: then "not yet" is the answer.
+                pending_note = self._pending_note()
                 return (f"No {label} visits described as "
-                        f"{' and '.join(attrs)}{window}. Note that only "
-                        "visits a skill has described can match that — if "
-                        "nothing here runs colour or type descriptions, "
-                        "this is not the same as there having been none."
+                        f"{' and '.join(attrs)}{window}."
+                        + (pending_note or
+                           " Note that only visits a skill has described can "
+                           "match that — if nothing here runs colour or type "
+                           "descriptions, this is not the same as there having "
+                           "been none.")
                         + self._in_progress_note(label, camera_arg, attrs))
             return (f"No {label} visits remembered{window}."
                     + self._in_progress_note(label, camera_arg))
@@ -1320,7 +1325,7 @@ class CameraTools:
         # extra read and turns "I saw someone at 16:25" into something the
         # operator can actually check.
         await self._attach_evidence_frames(events)
-        summary += live_note
+        summary += live_note + self._pending_note()
 
         # Face-match the evidence for person questions (best-effort, capped).
         if label == "person" and bool(args.get("identify_faces", True)):
@@ -1328,6 +1333,32 @@ class CameraTools:
             if names:
                 summary += " Recognised: " + ", ".join(sorted(names)) + "."
         return summary
+
+    def _pending_note(self) -> str:
+        """"Not yet" as a sentence. Core's `pending` (read off the events
+        client after a search) says how many matching visits nobody has
+        described yet and that they are being described now; the agent
+        says it in the answer so "no blue car" is never said about
+        visits nobody has looked at. Empty when nothing is pending."""
+        pending = getattr(self._events, "last_pending", None)
+        if not isinstance(pending, dict):
+            return ""
+        missing = int(pending.get("missing") or 0)
+        queued = int(pending.get("requested") or 0) + int(pending.get("already_queued") or 0)
+        if missing <= 0 or queued <= 0:
+            return ""
+        eta = float(pending.get("eta_s") or 0)
+        if eta >= 90:
+            when = f"about {max(1, round(eta / 60))} minutes"
+        elif eta > 0:
+            when = f"about {max(5, int(round(eta / 5.0) * 5))} seconds"
+        else:
+            when = "shortly"
+        more = f" (the newest {queued} first)" if missing > queued else ""
+        plural = missing != 1
+        return (f" {missing} visit{'s' if plural else ''} in that window "
+                f"{'have' if plural else 'has'} not been described yet — "
+                f"I'm describing them now{more}, {when}. Ask me again then.")
 
     def _events_supports(self, param: str) -> bool:
         """Does the installed app SDK's events client accept ``param``?

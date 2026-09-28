@@ -132,7 +132,8 @@ async def _resolve_caption_adapter() -> str | None:
 
 
 async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
-                        event_id: int | None = None) -> str | None:
+                        event_id: int | None = None, *,
+                        priority: str = "live") -> str | None:
     """One caption attempt through KAI-C. None on any failure."""
     from services.adapter_contract import build_infer_payload
 
@@ -149,7 +150,7 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
     from services.enrichment_gate import infer_through_gate
 
     body = await infer_through_gate(adapter, payload, kind="caption", log=logger,
-                                    caller="caption enrichment")
+                                    caller="caption enrichment", priority=priority)
     if body is DROPPED:
         return DROPPED
     if body is None:
@@ -215,14 +216,47 @@ def _note_unassigned(camera_id: int | None) -> None:
         )
 
 
+def _mark_attempted(event_id: int) -> None:
+    """The call was made and yielded no caption. Not a failure worth a
+    log line each time, but worth a mark: "looked and found nothing" is
+    a different row from "never looked" — the same distinction the
+    descriptor enricher keeps in ran_tasks."""
+    from core.database import SessionLocal
+    from models import TimelineEvent
+
+    db = SessionLocal()
+    try:
+        row = db.get(TimelineEvent, int(event_id))
+        if row is None:
+            return
+        seen = dict(row.payload or {})
+        ran = sorted({*(seen.get("enriched_by") or []), CAPTION_SKILL})
+        seen["enriched_by"] = ran
+        row.payload = seen
+        db.commit()
+    except Exception:                              # noqa: BLE001
+        logger.debug("caption enrichment: could not mark %s attempted", event_id,
+                     exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def enrich_event_caption(event_id: int,
-                               evidence_jpeg: bytes | None = None) -> str | None:
+                               evidence_jpeg: bytes | None = None, *,
+                               priority: str = "live") -> str | None:
     """Background task: describe the visit's best frame, once.
 
     Returns ``"dropped"`` when the call never reached the adapter (the
     gate refused it) — the backfill holds its cursor on that — and None
     otherwise, whether a caption was written or there was nothing to
     write.
+
+    ``priority="requested"`` is the on-demand lane: somebody asked a
+    question this visit could answer. It ignores the site-wide
+    EVENTS_CAPTION_ENRICHMENT switch — that switch says whether EVERY
+    visit is described unasked, and this one was asked for — and gets
+    the governor's requested priority.
 
     Three phases, and the split is not stylistic — ``plate_enrichment``
     learned it the hard way. READ what is needed with a short session,
@@ -234,7 +268,7 @@ async def enrich_event_caption(event_id: int,
     """
     from core.config import settings
 
-    if not getattr(settings, "events_caption_enrichment", True):
+    if priority != "requested" and not getattr(settings, "events_caption_enrichment", True):
         return
 
     # ── Phase 1: read, briefly ──────────────────────────────────────
@@ -255,6 +289,12 @@ async def enrich_event_caption(event_id: int,
         from models import EventText
 
         if db.get(EventText, row.id) is not None:
+            return
+        # Looked, and the captioner had nothing to say (an empty answer,
+        # a frame it could not read): recorded on the row like the
+        # descriptor enricher's ran_tasks, so the requested lane and the
+        # catch-up do not ask about the same visit forever.
+        if CAPTION_SKILL in ((row.payload or {}).get("enriched_by") or []):
             return
         evidence_path = row.evidence_path
         # Same derivation plate_enrichment uses (f"cam{camera_id}") — the
@@ -282,10 +322,12 @@ async def enrich_event_caption(event_id: int,
     adapter = await _resolve_caption_adapter()
     if adapter is None:
         return
-    caption = await _caption_jpeg(jpeg, adapter, camera_handle, event_id=event_id)
+    caption = await _caption_jpeg(jpeg, adapter, camera_handle, event_id=event_id,
+                                  priority=priority)
     if caption is DROPPED:
         return "dropped"
     if not caption:
+        _mark_attempted(event_id)
         return
 
     # ── Phase 3: reopen and write ───────────────────────────────────

@@ -376,7 +376,7 @@ def _asked_questions(label: str, *, people: bool, monkeypatch,
 
     asked: list[str] = []
 
-    async def _ask(jpeg, adapter, question, handle, event_id):
+    async def _ask(jpeg, adapter, question, handle, event_id, **kw):
         asked.append(question)
         return answer    # None by default: nothing stored, we count questions
 

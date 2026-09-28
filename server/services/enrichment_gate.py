@@ -398,7 +398,8 @@ def _reset_for_tests() -> None:
 async def infer_through_gate(adapter: str, body: dict[str, Any], *,
                              kind: str, log: logging.Logger, caller: str,
                              what: str = "",
-                             interactive: bool = False) -> dict[str, Any] | None:
+                             interactive: bool = False,
+                             priority: str = "live") -> dict[str, Any] | None:
     """POST one infer request to KAI-C through the governor and the
     adapter's gate, and return the decoded JSON body, or None.
 
@@ -440,7 +441,7 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
 
     gate = gate_for(adapter)
     admitted = (await gate.admit() if interactive
-                else await admit_live(gate, kind))
+                else await admit_live(gate, kind, priority))
     if not admitted:
         return DROPPED
     limit = timeout_s()

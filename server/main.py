@@ -798,6 +798,22 @@ async def lifespan(app: FastAPI):
     spawn_background(background_enrichment_backfill(),
                      name="enrichment-backfill")
 
+    # The requested lane: visits a search asked about, described now
+    # rather than whenever the backfill reaches them (#583). One worker,
+    # in order, through the same enrichers and the same governor.
+    async def background_enrichment_requests():
+        try:
+            from services.enrichment_requests import run_requests_worker
+
+            await run_requests_worker()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            main_logger.error(f"Enrichment requests worker failed: {e}", exc_info=True)
+
+    spawn_background(background_enrichment_requests(),
+                     name="enrichment-requests")
+
     # Home Assistant MQTT discovery (HA-402): one bridge per enabled MQTT
     # integration with discovery on. No integration, nothing runs.
     async def background_mqtt_bridges():

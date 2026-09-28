@@ -232,7 +232,7 @@ def test_the_three_enrichers_and_the_backfill_go_through_the_governor():
 
     root = pathlib.Path(__file__).resolve().parents[1] / "services"
     gate_src = (root / "enrichment_gate.py").read_text()
-    assert "await admit_live(gate, kind)" in gate_src, "the shared call bypasses the governor"
+    assert "await admit_live(gate, kind, priority)" in gate_src, "the shared call bypasses the governor"
     for name, kind in (("caption_enrichment.py", "caption"),
                        ("descriptor_enrichment.py", "vqa"),
                        ("embed_enrichment.py", "embed")):
@@ -320,3 +320,25 @@ def test_the_search_query_is_embedded_even_when_the_box_is_paused(signals, monke
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
     vector, adapter = _run(emb.embed_text("white van"))
     assert vector == [1.0, 0.0] and adapter == "clip"
+
+
+# ── the requested lane's priority ─────────────────────────────────────
+
+def test_a_requested_visit_keeps_the_full_line_in_live_only_but_not_paused(signals):
+    signals["cpu"] = 80
+    gate = eg.AdapterGate("m", max_inflight=1, queue_depth=8, breaker_timeouts=5)
+
+    async def scenario():
+        assert await gov.admit_live(gate, "caption") is True            # holds the slot
+        assert await gov.admit_live(gate, "caption") is False           # live: no line
+        w = asyncio.ensure_future(gov.admit_live(gate, "caption", "requested"))
+        await asyncio.sleep(0)
+        assert gate.waiting == 1, "somebody is waiting on this one: it may queue"
+        gate.release("ok"); await asyncio.sleep(0)
+        assert w.result() is True
+        gate.release("ok")
+        signals["cpu"] = None; signals["cpu_high"] = True
+        assert await gov.admit_live(gate, "vqa", "requested") is False, (
+            "PAUSED refuses the requested lane too — the box is losing")
+
+    _run(scenario())

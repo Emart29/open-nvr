@@ -92,3 +92,20 @@ def test_blank_attrs_are_dropped_rather_than_sent():
 
     url, _ = calls[0]
     assert url.count("attr=") == 1 and "attr=blue" in url
+
+
+def test_search_keeps_cores_pending_block_beside_the_rows():
+    """core's `pending` says what it is describing NOW because this query
+    asked for a claim the visits did not have. Kept on the client, not in
+    the return type, so the list-of-events contract stands."""
+    body = json.dumps({"events": [], "pending": {"missing": 3, "requested": 3,
+                                                 "already_queued": 0, "eta_s": 45.0}}).encode()
+    c, _ = _client([(200, body)])
+    assert c.last_pending is None
+    rows = asyncio.run(c.search(label="car", attrs=["blue"]))
+    assert rows == []
+    assert c.last_pending["missing"] == 3 and c.last_pending["eta_s"] == 45.0
+    # ...and a later answer without one clears it
+    c2, _ = _client([(200, json.dumps({"events": []}).encode())])
+    asyncio.run(c2.search(label="car"))
+    assert c2.last_pending is None

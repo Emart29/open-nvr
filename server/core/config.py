@@ -521,6 +521,12 @@ class Settings(BaseSettings):
     # time (may wrap midnight: "22:00-06:00"). Empty = whenever idle.
     # Malformed = ignored with one warning, never silently off.
     events_enrichment_backfill_window: str = ""
+    # The requested lane (services/enrichment_requests.py): a search whose
+    # question needs a caption or a claim the matching visits do not have
+    # yet queues up to this many of them, newest first, and says so in
+    # its answer. "Last month" on a busy site is thousands; the answer to
+    # that is a narrower window, not a queue that runs until tomorrow.
+    events_enrichment_request_cap: int = 50
     # Apps allowed to run on EVERY camera without an operator pick
     # (manifest all_cameras: true). A pick is also what an app may READ,
     # so honouring the flag from any manifest would let a third-party

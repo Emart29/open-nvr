@@ -279,7 +279,8 @@ async def _plan_skills(label: str | None) -> list[dict[str, Any]]:
 
 
 async def _ask(jpeg: bytes, adapter: str, question: str,
-               camera_handle: str, event_id: int) -> str | None:
+               camera_handle: str, event_id: int, *,
+               priority: str = "live") -> str | None:
     """One VQA question. None on any failure."""
 
 
@@ -303,7 +304,8 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     from services.enrichment_gate import infer_through_gate
 
     payload = await infer_through_gate(adapter, body, kind="vqa", log=logger,
-                                       caller="descriptor enrichment")
+                                       caller="descriptor enrichment",
+                                       priority=priority)
     if payload is DROPPED:
         return DROPPED
     if payload is None:
@@ -317,7 +319,8 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-async def enrich_event_descriptors(event_id: int) -> str | None:
+async def enrich_event_descriptors(event_id: int, *,
+                                   priority: str = "live") -> str | None:
     """Background task: ask the box what it can say about this visit.
 
     Three phases, for the reason ``plate_enrichment`` documents: READ
@@ -327,7 +330,8 @@ async def enrich_event_descriptors(event_id: int) -> str | None:
     """
     from core.config import settings
 
-    if not getattr(settings, "events_descriptor_enrichment", True):
+    if priority != "requested" and not getattr(
+            settings, "events_descriptor_enrichment", True):
         return
 
     # ── Phase 1: read, briefly ──────────────────────────────────────
@@ -413,7 +417,7 @@ async def enrich_event_descriptors(event_id: int) -> str | None:
     for kind in sorted(kinds):
         spec = KIND_QUESTIONS[kind]
         answer = await _ask(jpeg, adapter, spec["question"],
-                            camera_handle, event_id)
+                            camera_handle, event_id, priority=priority)
         if answer is DROPPED:
             # Never reached the adapter. Not "looked and found nothing":
             # nobody looked, and recording VQA as ran would make the
