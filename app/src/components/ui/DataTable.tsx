@@ -344,7 +344,7 @@ export function DataTable<T>({
     // Deliberately no `overflow-hidden` on the shell: it would clip the
     // scroller it contains, which is the exact bug the Alerts &
     // Incidents table shipped with.
-    <div className={clsx('border border-[var(--border)] rounded',
+    <div className={clsx('border border-[var(--border)] rounded-[var(--radius-card)]',
                          fillParent && 'flex min-h-0 flex-1 flex-col')}>
       {toolbar && (
         <div className="shrink-0 border-b border-[var(--border)]">{toolbar}</div>

@@ -69,7 +69,7 @@ export function SparkRow({ label, points, latest, labelClass = 'w-14' }: { label
 
 export function MetricPanel({ title, decision, children }: { title: string; decision: string; children: ReactNode }) {
   return (
-    <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+    <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3">
       <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)] mb-2 font-mono">{title}</div>
       {children}
       <div className="mt-2 text-[11px] text-[var(--text-dim)]">Decision: {decision}</div>
@@ -84,9 +84,9 @@ export function StatTile({ label, value, sub, warn, crit }: {
   warn?: boolean
   crit?: boolean
 }) {
-  const valueClass = crit ? 'text-red-400' : warn ? 'text-amber-400' : 'text-[var(--text)]'
+  const valueClass = crit ? 'text-[var(--danger)]' : warn ? 'text-[var(--warn)]' : 'text-[var(--text)]'
   return (
-    <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+    <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3">
       <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)] font-mono">{label}</div>
       <div className={`font-mono text-lg font-bold tabular-nums mt-1 ${valueClass}`}>{value}</div>
       {sub && <div className="text-[11px] text-[var(--text-dim)] mt-0.5">{sub}</div>}
@@ -105,10 +105,10 @@ export function UsageBar({ used, total, warnAt = 0.8, critAt = 0.9 }: {
   critAt?: number
 }) {
   const frac = total > 0 ? Math.min(1, used / total) : 0
-  const color = frac >= critAt ? 'bg-red-500' : frac >= warnAt ? 'bg-amber-500' : 'bg-[var(--accent)]'
+  const color = frac >= critAt ? 'bg-[var(--danger)]' : frac >= warnAt ? 'bg-[var(--warn)]' : 'bg-[var(--accent)]'
   return (
-    <div className="h-2 rounded bg-[var(--panel-2)] overflow-hidden">
-      <div className={`h-full rounded ${color}`} style={{ width: `${Math.max(2, frac * 100)}%` }} />
+    <div className="h-2 bg-[var(--panel-2)] overflow-hidden">
+      <div className={`h-full ${color}`} style={{ width: `${Math.max(2, frac * 100)}%` }} />
     </div>
   )
 }

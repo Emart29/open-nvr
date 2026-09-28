@@ -74,19 +74,19 @@ export function Modal({
           scrolls in the body instead of being clipped by
           overflow-hidden. A side panel is full-height and bounded by
           the viewport width, so it never runs off a laptop screen. */}
-      <div className={`relative z-10 flex flex-col overflow-hidden border-neutral-700 bg-[var(--panel-2)] shadow-xl ${
+      <div className={`relative z-10 flex flex-col overflow-hidden border-[var(--border)] bg-[var(--panel-2)] shadow-xl ${
         side
           ? `h-full max-w-[95vw] border-l ${widthClassName || 'w-[760px]'}`
           : `max-h-[85vh] border ${widthClassName || 'w-[720px]'}`}`}>
-        <div className="flex items-center justify-between gap-2 border-b border-neutral-700 px-4 py-2">
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2">
           <h2 className="text-sm font-semibold flex items-center gap-2">{title}</h2>
-          <button className="grid h-8 w-8 place-items-center rounded text-[var(--text-dim)] hover:bg-[var(--bg-2)] hover:text-[var(--text)]" onClick={onClose} aria-label={t('shared.close')} title={t('shared.close')}>✕</button>
+          <button className="grid h-8 w-8 place-items-center text-[var(--text-dim)] hover:bg-[var(--bg-2)] hover:text-[var(--text)]" onClick={onClose} aria-label={t('shared.close')} title={t('shared.close')}>✕</button>
         </div>
         <div className={`flex-1 min-h-0 overflow-auto thin-scroll ${bodyClassName || 'p-4'}`}>
           {children}
         </div>
         {footer && (
-          <div className="border-t border-neutral-700 px-4 py-3">
+          <div className="border-t border-[var(--border)] px-4 py-3">
             {footer}
           </div>
         )}
