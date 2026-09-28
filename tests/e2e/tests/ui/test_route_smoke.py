@@ -39,12 +39,7 @@ pytestmark = pytest.mark.ui
 KNOWN_5XX: dict[str, str] = {}
 
 # Routes whose layout is wider than the 1400px test window today.
-KNOWN_OVERFLOW: dict[str, str] = {
-    "/settings/media-source/media-server-manager": (
-        "3039px wide: its config tables do not scroll inside their own box. "
-        "Fixed in the settings wave of the GUI refactor; remove this entry then."
-    ),
-}
+KNOWN_OVERFLOW: dict[str, str] = {}
 
 # How long a page gets to settle: its first fetches fire on mount, and a 5xx
 # that arrives after the assertion would be missed.

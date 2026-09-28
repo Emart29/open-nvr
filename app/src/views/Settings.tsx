@@ -153,10 +153,10 @@ export function Settings() {
         ))}
       </div>
 
-      <div className="flex">
+      <div className="flex flex-col md:flex-row">
         {/* Dynamic Submenu (hidden for WebRTC tab) */}
         {submenu.length > 0 && (
-          <aside className="w-64 bg-[var(--bg-2)] p-3 text-sm">
+          <aside className="w-full md:w-64 shrink-0 bg-[var(--bg-2)] p-3 text-sm">
             {submenu.map((s) => {
               const active = location.pathname === `/settings/${tabDef.key}/${s.slug}`
               return (
@@ -173,7 +173,7 @@ export function Settings() {
         )}
 
         {/* Content Area */}
-        <div className={`p-4 bg-[var(--panel)] flex-1`}>
+        <div className="p-4 bg-[var(--panel)] flex-1 min-w-0">
           <nav aria-label="Breadcrumb" className="text-xs text-[var(--text-dim)] mb-3">
             {t('settings.breadcrumb')} <span className="mx-1">/</span> {t(SETTINGS_LABEL_KEYS[tabDef.label] ?? tabDef.label)}
             {activeSubKey && (

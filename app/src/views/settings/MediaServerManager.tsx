@@ -314,7 +314,7 @@ function StreamsTab({ activePaths, onPushStream }: { activePaths: any[]; onPushS
           No active streams found. Push an RTSP stream to get started.
         </div>
       ) : (
-        <div className="bg-[var(--panel-2)] border border-[var(--border)] overflow-hidden">
+        <div className="bg-[var(--panel-2)] border border-[var(--border)] overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-[var(--panel)] border-b border-[var(--border)]">
               <tr>
@@ -372,7 +372,7 @@ function RecordingsTab({ recordings }: { recordings: any[] }) {
           No recordings found via media server API.
         </div>
       ) : (
-        <div className="bg-[var(--panel-2)] border border-[var(--border)] overflow-hidden">
+        <div className="bg-[var(--panel-2)] border border-[var(--border)] overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-[var(--panel)] border-b border-[var(--border)]">
               <tr>
