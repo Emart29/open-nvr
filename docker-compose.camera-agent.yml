@@ -65,6 +65,8 @@ services:
       # English-only Whisper: faster on CPU and avoids the multilingual
       # model hallucinating foreign-language tokens on noisy/quiet audio.
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base.en}
+      # CTranslate2 threads on CPU; empty = all cores. Adapter 1.0.1+.
+      - OPENNVR_WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-}
     volumes:
       - opennvr_whisper_models:/app/model_weights/whisper
     networks:
@@ -157,6 +159,12 @@ services:
         condition: service_completed_successfully
     environment:
       - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+      # The voice used when a request names none (the agent names one),
+      # and the ONNX thread cap per synthesis: one utterance fanning
+      # across every core is what starved the detector on a 4-core box.
+      # Both honoured by adapter releases from 1.0.1 on.
+      - OPENNVR_PIPER_VOICE=${PIPER_VOICE:-en_US-lessac-medium}
+      - OPENNVR_PIPER_THREADS=${PIPER_THREADS:-2}
     volumes:
       # The adapter resolves MODEL_WEIGHTS_DIR/piper -> /app/model_weights/piper.
       # Custom/extra voices: drop .onnx + .onnx.json pairs into the
