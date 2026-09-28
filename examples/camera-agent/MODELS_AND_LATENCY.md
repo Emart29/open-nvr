@@ -357,11 +357,14 @@ machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
 | 32 GB, Apple Silicon | `qwen2.5:3b` | — | `moondream` | `small.en` |
 | detection failed | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
 
-The same hardware line decides whether core describes every recorded
+The resolved captioner decides whether core describes every recorded
 visit in the background (`EVENTS_CAPTION_ENRICHMENT`,
-`EVENTS_DESCRIPTOR_ENRICHMENT`): on by default with a CUDA GPU, asked
-and defaulting off without one. Visits recorded while it is off can be
-described later with `EVENTS_ENRICHMENT_BACKFILL=true`.
+`EVENTS_DESCRIPTOR_ENRICHMENT`): on without asking when it is
+`ollamavlm` on a CUDA Ollama, asked and defaulting off for every CPU
+captioner — including the in-container `moondream` a CUDA box falls
+back to when RAM is short. Visits recorded while it is off can be
+described later by setting both flags back to true together with
+`EVENTS_ENRICHMENT_BACKFILL=true` (the backfill honours the same flags).
 
 Detection failing sizes DOWN, never up: an unknown machine is treated as
 a small one, because the cost of guessing high is an install that does

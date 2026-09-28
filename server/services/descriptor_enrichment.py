@@ -303,9 +303,10 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     import base64
 
     body["frame_b64"] = base64.b64encode(jpeg).decode("ascii")
-    started = time.monotonic()
+    started = 0.0
     try:
         async with _VQA_CONCURRENCY:
+            started = time.monotonic()            # after the slot, see caption_enrichment
             async with httpx.AsyncClient(timeout=VQA_TIMEOUT_S,
                                          trust_env=False) as client:
                 resp = await client.post(
@@ -313,7 +314,7 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
                     json=body,
                     headers={"X-Internal-Api-Key": settings.internal_api_key},
                 )
-    except httpx.TimeoutException:
+    except (httpx.ReadTimeout, httpx.WriteTimeout):
         # Same distinction as caption_enrichment: the adapter is up and
         # busy, not gone. Two questions per vehicle visit make this the
         # heavier of the two callers when the model is slow (#583).

@@ -204,9 +204,10 @@ async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | Non
 
     import httpx
 
-    started = time.monotonic()
+    started = 0.0
     try:
         async with _EMBED_CONCURRENCY:
+            started = time.monotonic()            # after the slot, see caption_enrichment
             async with httpx.AsyncClient(timeout=EMBED_TIMEOUT_S,
                                          trust_env=False) as client:
                 resp = await client.post(
@@ -214,7 +215,7 @@ async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | Non
                     json=payload,
                     headers={"X-Internal-Api-Key": settings.internal_api_key},
                 )
-    except httpx.TimeoutException:
+    except (httpx.ReadTimeout, httpx.WriteTimeout):
         # Same rule as the caption and descriptor enrichers (#583): a
         # timeout means the adapter is up and too slow, not gone.
         logger.warning(

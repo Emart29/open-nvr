@@ -222,6 +222,22 @@ def test_a_timeout_is_logged_as_a_timeout_with_the_limit(monkeypatch, caplog):
     assert "unreachable" not in line, "a timeout must not read as a network fault"
 
 
+def test_a_connect_timeout_is_unreachable_not_slow(monkeypatch, caplog):
+    """httpx.ConnectTimeout is a TimeoutException too — a host that never
+    answered the SYN. Filing it under "the captioner is slower than the
+    visit rate" would send the operator to look at model speed while
+    KAI-C is down: the inverse of the misdiagnosis #583 fixed."""
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="caption_enrichment"):
+        assert _run_caption_with(monkeypatch, httpx.ConnectTimeout("")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "unreachable" in line and "ConnectTimeout" in line, line
+    assert "slower than the visit rate" not in line
+
+
 def test_a_refused_connection_is_still_unreachable(monkeypatch, caplog):
     import logging
 

@@ -148,9 +148,13 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         params["event_id"] = int(event_id)
     payload = build_infer_payload(task=CAPTION_TASK, jpeg_bytes=jpeg,
                                   params=params)
-    started = time.monotonic()
+    started = 0.0
     try:
         async with _CAPTION_CONCURRENCY:
+            # The clock starts once a slot is held: "timed out after 31s
+            # (limit 15s)" — half of it spent waiting for the semaphore —
+            # reads as a contradiction and hides which half was slow.
+            started = time.monotonic()
             async with httpx.AsyncClient(timeout=CAPTION_TIMEOUT_S,
                                          trust_env=False) as client:
                 resp = await client.post(
@@ -158,8 +162,12 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
                     json=payload,
                     headers={"X-Internal-Api-Key": settings.internal_api_key},
                 )
-    except httpx.TimeoutException:
-        # A timeout is NOT "unreachable". The adapter answered /health,
+    except (httpx.ReadTimeout, httpx.WriteTimeout):
+        # Read/write timeouts ONLY: the connection was made and the
+        # adapter went quiet computing. A ConnectTimeout is a host that
+        # never answered the SYN — genuinely unreachable — and a
+        # PoolTimeout is our own client; both stay on the branch below.
+        # A timeout here is NOT "unreachable". The adapter answered /health,
         # took the request, and is still computing the answer nobody will
         # read — the box lost the CPU and gained nothing (#583). Logging
         # it as a connectivity problem sent an operator to check the

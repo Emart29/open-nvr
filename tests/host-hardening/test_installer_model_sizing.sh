@@ -254,28 +254,94 @@ adapter=$(cut -d'|' -f3 <<<"$got"); vlm=$(cut -d'|' -f2 <<<"$got")
     || fail "CUDA box lost the Ollama vision path (got: ${got})"
 
 start_test "every suggestion carries a reason the operator is shown"
+missing=""
 for spec in "8 4 cpu" "32 16 cpu" "32 12 metal" "8 8 cuda" "32 12 cuda"; do
+    unset SUGGEST_CAPTION_REASON            # a stale one from the last spec must not count
     size $spec >/dev/null
-    [[ -n "${SUGGEST_CAPTION_REASON:-}" ]] || { fail "no SUGGEST_CAPTION_REASON for ${spec}"; break; }
-done && pass
+    [[ -n "${SUGGEST_CAPTION_REASON:-}" ]] || missing="${missing} ${spec};"
+done
+[[ -z "$missing" ]] && pass || fail "no SUGGEST_CAPTION_REASON for:${missing}"
 
 # ── Background visit descriptions default by hardware (#583) ──
-start_test "visit descriptions default ON with a CUDA GPU"
-HW_ACCEL=cuda; [[ "$(suggest_enrichment_default)" == "true" ]] && pass \
-    || fail "a GPU box should keep enrichment on"
+start_test "visit descriptions default ON only for a GPU captioner"
+HW_ACCEL=cuda
+[[ "$(suggest_enrichment_default ollamavlm)" == "true" ]] && pass \
+    || fail "ollamavlm on a CUDA Ollama keeps up; enrichment should stay on"
+
+start_test "a CUDA box whose captioner runs on CPU gets the CPU answer"
+# Too little RAM beside the LLM → the in-container moondream (onnxruntime,
+# no GPU); or the operator typed blip. Either way the GPU is not what
+# captions, so "a GPU keeps up" would be false — and it was said.
+HW_ACCEL=cuda
+a=$(suggest_enrichment_default moondream); b=$(suggest_enrichment_default blip)
+[[ "$a" == "false" && "$b" == "false" ]] && pass \
+    || fail "CUDA+moondream='${a}' CUDA+blip='${b}' — those captioners run on CPU"
 
 start_test "visit descriptions default OFF on CPU and Metal"
-HW_ACCEL=cpu;   a=$(suggest_enrichment_default)
-HW_ACCEL=metal; b=$(suggest_enrichment_default)
+HW_ACCEL=cpu;   a=$(suggest_enrichment_default moondream)
+HW_ACCEL=metal; b=$(suggest_enrichment_default moondream)
 [[ "$a" == "false" && "$b" == "false" ]] && pass \
     || fail "CPU='${a}' Metal='${b}' — the captioner cannot keep up with a busy camera there"
 
-start_test "install.ps1 mirrors the CUDA-only rule for ollamavlm"
+# ── configure_enrichment_flags against a .env ──
+# Stub the installer's I/O so the REAL function runs: env_get/env_set on
+# an in-memory .env, explain silenced, ask_yes_no answering "Enter" (the
+# default). The field bug this defends: on a fresh install .env has just
+# been copied from .env.example, whose EVENTS_CAPTION_ENRICHMENT=true then
+# looked like "the operator's last answer" and the CPU default never ran.
+# (Plain variables through indirection, not an associative array: the
+# macOS bash is 3.2 and this test runs there too.)
+env_get() { local v="FAKE_$1"; printf '%s' "${!v:-}"; }
+env_set() { printf -v "FAKE_$1" '%s' "$2"; }
+explain() { :; }
+ok() { :; }
+ask_yes_no() { [[ "${2:-n}" == "y" ]]; }
+flags_after() {   # <fresh> <accel> <adapter> <caption> <descriptor> → "caption|descriptor"
+    FAKE_CAPTION_ADAPTER="$3"
+    FAKE_EVENTS_CAPTION_ENRICHMENT="$4"
+    FAKE_EVENTS_DESCRIPTOR_ENRICHMENT="$5"
+    FRESH_ENV="$1"; HW_ACCEL="$2"
+    configure_enrichment_flags >/dev/null
+    printf '%s|%s' "$FAKE_EVENTS_CAPTION_ENRICHMENT" "$FAKE_EVENTS_DESCRIPTOR_ENRICHMENT"
+}
+
+start_test "fresh CPU install: the example's 'true' is not the operator's answer"
+got=$(flags_after true cpu moondream true true)
+[[ "$got" == "false|false" ]] && pass \
+    || fail "fresh CPU install pressing Enter left enrichment '${got}' — the #583 configuration"
+
+start_test "fresh CUDA install with ollamavlm: on, unasked"
+got=$(flags_after true cuda ollamavlm true true)
+[[ "$got" == "true|true" ]] && pass || fail "got '${got}'"
+
+start_test "fresh CUDA install that fell back to the CPU moondream: off by default"
+got=$(flags_after true cuda moondream true true)
+[[ "$got" == "false|false" ]] && pass || fail "got '${got}'"
+
+start_test "reconfigure keeps the operator's previous yes"
+got=$(flags_after false cpu moondream true true)
+[[ "$got" == "true|true" ]] && pass || fail "a reconfigure flattened a deliberate 'on' to '${got}'"
+
+start_test "reconfigure never flattens a split pair it cannot ask about"
+got=$(flags_after false cuda ollamavlm true false)
+[[ "$got" == "true|false" ]] && pass || fail "captions-on/descriptors-off became '${got}'"
+unset -f env_get env_set explain ok ask_yes_no
+
+start_test "install.ps1 mirrors the GPU-captioner rule"
 if grep -q "accel -eq 'cuda' -and \$pick" scripts/install.ps1 \
-   && grep -q "enrichSuggest = if (\$accel -eq 'cuda') { 'true' } else { 'false' }" scripts/install.ps1; then
+   && grep -q "enrichSuggest = if (\$accel -eq 'cuda' -and \$captionAdapter -eq 'ollamavlm')" scripts/install.ps1 \
+   && grep -q 'if ($script:FreshEnv) { $enrichCurrent = ' scripts/install.ps1; then
     pass
 else
-    fail "install.ps1 no longer gates ollamavlm and the enrichment default on CUDA"
+    fail "install.ps1 no longer mirrors: CUDA-only ollamavlm, enrichment on only for a GPU captioner, fresh .env ignored"
+fi
+
+start_test "install.ps1 probes NVIDIA whichever way the LLM runs"
+if grep -q "nvidia-smi -L" scripts/install.ps1 \
+   && ! grep -B3 "nvidia-smi -L" scripts/install.ps1 | grep -q "llmWhere -eq 'host'"; then
+    pass
+else
+    fail "install.ps1 only detects CUDA when the LLM runs on the host — an RTX box on the bundled container is sized as CPU"
 fi
 
 start_test "install.ps1 carries the same budget arithmetic"

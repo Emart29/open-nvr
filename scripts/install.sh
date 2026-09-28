@@ -289,8 +289,13 @@ prepare_environment() {
         [[ -f .env.example ]] || die ".env.example is missing"
         cp .env.example .env
         ok "Created .env from .env.example"
+        # Everything in .env right now is the example file's default, not
+        # an answer the operator gave. Prompts that "keep the current
+        # value" must know the difference (configure_enrichment_flags).
+        FRESH_ENV=true
     else
         ok "Using existing .env; existing values will be preserved"
+        FRESH_ENV=false
     fi
 
     # Secrets — generated automatically. Never prompted unless the value is
@@ -549,45 +554,72 @@ suggest_models() {
     fi
 }
 
-# suggest_enrichment_default → "true" | "false": should core describe every
-# recorded visit (captions + colour/type descriptors) on this machine?
+# suggest_enrichment_default <caption_adapter> → "true" | "false": should
+# core describe every recorded visit (captions + colour/type descriptors)
+# on this machine, with this captioner?
 #
-# The enrichers are ON by default in code, which is right for a GPU box
-# and wrong for a CPU one: every finished visit is one caption plus two
-# VQA questions, and a captioner that takes seconds per image on the cores
-# the detector and recorder also need cannot keep up with a busy camera.
-# The result on the field box was ~2 cores burnt continuously for zero
-# captions saved (#583). Frigate ships its equivalent off and per-camera
-# opt-in for the same reason. A GPU changes the arithmetic, so it stays
-# on there. Everything recorded while it is off is still enrichable later
-# (EVENTS_ENRICHMENT_BACKFILL) — nothing is lost, only deferred.
+# The enrichers are ON by default in code, which is right when the
+# captioner runs on a GPU and wrong when it runs on CPU: every finished
+# visit is one caption plus two VQA questions, and a captioner that takes
+# seconds per image on the cores the detector and recorder also need
+# cannot keep up with a busy camera. The result on the field box was ~2
+# cores burnt continuously for zero captions saved (#583). Frigate ships
+# its equivalent off and per-camera opt-in for the same reason.
+#
+# "On a GPU" means the RESOLVED adapter, not the box: the only captioner
+# that uses the GPU is ollamavlm proxying to a CUDA Ollama. A CUDA box
+# that got the in-container moondream (too little RAM beside the LLM) or
+# whose operator typed blip runs its captions on CPU like any other, and
+# gets the CPU answer. Everything recorded while the flags are off is
+# still describable later: turn both back on together with
+# EVENTS_ENRICHMENT_BACKFILL=true and the sweep works through it.
 suggest_enrichment_default() {
-    if [[ "$HW_ACCEL" == "cuda" ]]; then echo "true"; else echo "false"; fi
+    local adapter="${1:-}"
+    if [[ "$HW_ACCEL" == "cuda" && "$adapter" == "ollamavlm" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
 }
 
 # configure_enrichment_flags → writes EVENTS_CAPTION_ENRICHMENT and
 # EVENTS_DESCRIPTOR_ENRICHMENT. One question, both flags: they ride the
 # same adapter and fail the same way, and an operator asked twice about
-# "descriptors" and "captions" cannot tell them apart. A value already in
-# .env wins over the hardware default (reconfigure keeps the last answer);
-# a CUDA box is not asked at all — on is right there and a prompt would
-# only invite turning off the thing that makes search work.
+# "descriptors" and "captions" cannot tell them apart.
+#
+# What counts as "the operator's last answer": a value in a .env that
+# existed before this run. On a fresh install .env was just copied from
+# .env.example (prepare_environment sets FRESH_ENV), so the "true" found
+# there is the example file's default and is ignored — otherwise the
+# hardware default would never apply to the one install it was written
+# for. A deliberately split pair (captions on, descriptors off) is kept
+# as it is and said so; one yes/no cannot express it, and a reconfigure
+# must not flatten a choice it cannot ask about. A GPU captioner is not
+# asked at all: on is right there, and a prompt would only invite
+# turning off the thing that makes search work.
 configure_enrichment_flags() {
-    local suggested current default
-    suggested=$(suggest_enrichment_default)
-    current=$(env_get EVENTS_CAPTION_ENRICHMENT)
-    if [[ "$suggested" == "true" && -z "$current" ]]; then
+    local adapter suggested cur_c cur_d default
+    adapter=$(env_get CAPTION_ADAPTER)
+    suggested=$(suggest_enrichment_default "$adapter")
+    cur_c=$(env_get EVENTS_CAPTION_ENRICHMENT)
+    cur_d=$(env_get EVENTS_DESCRIPTOR_ENRICHMENT)
+    if [[ "${FRESH_ENV:-false}" == "true" ]]; then cur_c=""; cur_d=""; fi
+    if [[ -n "$cur_c" && -n "$cur_d" && "$cur_c" != "$cur_d" ]]; then
+        ok "Keeping your split setting: captions=${cur_c}, descriptors=${cur_d} (edit .env to change)"
+        return 0
+    fi
+    if [[ "$suggested" == "true" && -z "$cur_c" ]]; then
         env_set EVENTS_CAPTION_ENRICHMENT true
         env_set EVENTS_DESCRIPTOR_ENRICHMENT true
-        ok "Visit descriptions (captions + colour/type) ON — a GPU keeps up with the visit rate"
+        ok "Visit descriptions (captions + colour/type) ON — ${adapter} on the GPU keeps up with the visit rate"
         return 0
     fi
     default="n"
-    [[ "${current:-$suggested}" == "true" ]] && default="y"
+    [[ "${cur_c:-$suggested}" == "true" ]] && default="y"
     printf '\n'
-    explain "Describe every recorded visit in the background (a caption plus colour/type questions per visit) so search matches words like 'white van'. Without a CUDA GPU the captioner takes seconds per image and a busy camera outruns it: the work then burns CPU the detector and recorder need and saves nothing. Leave it off on this machine unless traffic is light; anything recorded meanwhile can be described later with EVENTS_ENRICHMENT_BACKFILL=true." \
+    explain "Describe every recorded visit in the background (a caption plus colour/type questions per visit) so search matches words like 'white van'. Here the captioner (${adapter:-moondream}) runs on the CPU: it takes seconds per image and a busy camera outruns it, so the work burns CPU the detector and recorder need and saves nothing. Leave it off unless traffic is light. Anything recorded meanwhile can be described later: set both flags to true together with EVENTS_ENRICHMENT_BACKFILL=true." \
         "no" "$default" \
-        "Hardware detected: ${HW_ACCEL}. Turn on later by setting EVENTS_CAPTION_ENRICHMENT=true and EVENTS_DESCRIPTOR_ENRICHMENT=true in .env."
+        "Hardware detected: ${HW_ACCEL}, captioner: ${adapter:-moondream}. Turn on later by setting EVENTS_CAPTION_ENRICHMENT=true and EVENTS_DESCRIPTOR_ENRICHMENT=true in .env."
     if ask_yes_no "Describe every recorded visit in the background?" "$default"; then
         env_set EVENTS_CAPTION_ENRICHMENT true
         env_set EVENTS_DESCRIPTOR_ENRICHMENT true
@@ -1251,11 +1283,13 @@ choose_example() {
         # background, for EVERY finished visit (a caption + two colour/type
         # questions) so search can match "white van" and the agent can
         # answer "did a blue car come?". On a CUDA box that costs ~1-2 s a
-        # visit and stays on. On CPU the same work takes seconds per image
-        # and cannot keep up with a busy camera: the field box spent two
-        # cores on it, continuously, and saved nothing (#583). So it is
-        # offered here with the reason, defaulting off, and an existing
-        # .env keeps whatever the operator chose last time.
+        # visit and stays on. With a CPU captioner — which is every
+        # adapter except ollamavlm on a CUDA Ollama — the same work takes
+        # seconds per image and cannot keep up with a busy camera: the
+        # field box spent two cores on it, continuously, and saved
+        # nothing (#583). So it is offered here with the reason,
+        # defaulting off, and a pre-existing .env keeps the last answer.
+        # After CAPTION_ADAPTER on purpose: the answer depends on it.
         configure_enrichment_flags
     fi
     if [[ "$EXAMPLE_NAME" != "camera-agent" ]]; then
