@@ -28,6 +28,9 @@ import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
 import { CameraOff, Pencil, Trash2, Unplug, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, PageHeader, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
+import { Checkbox, Field, Input, Select } from '../components/ui/form'
+import { FilterBar, IconButton } from '../components/ui/layout'
+import { Pagination } from '../components/ui/Pagination'
 import type { BadgeVariant } from '../components/ui'
 import { AddCameraDialog } from '../components/AddCameraDialog'
 import { QrScanner } from '../components/QrScanner'
@@ -493,7 +496,6 @@ export function Cameras() {
     resetForm()
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / limit))
   const hasNext = cameras.length === limit
 
   return (
@@ -524,38 +526,38 @@ export function Cameras() {
 
       {/* Filters. Bulk actions appear here only with a selection, so the row
           stays quiet in the common case. */}
-      <div className="flex items-center gap-2 text-sm flex-wrap">
-        <input
-          className="bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 rounded"
+      <FilterBar
+        actions={canManageCameras && selected.size > 0 ? (
+          <>
+            <Button size="sm" variant="danger" onClick={onBulkDelete} disabled={mutating}>
+              Delete Selected ({selected.size})
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowBulkAssign((s) => !s)} disabled={mutating}>
+              Assign Permissions
+            </Button>
+          </>
+        ) : undefined}
+      >
+        <Input
+          className="w-56"
           placeholder={t('camera.search')}
           value={query}
           onChange={(e) => { setPage(1); setQuery(e.target.value) }}
         />
-        <label className="inline-flex items-center gap-1">
-          <input type="checkbox" className="accent-[var(--accent)]" checked={activeOnly} onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }} /> {t('camera.activeOnly')}
-        </label>
-        <select className="bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1 rounded" value={limit} onChange={(e) => { setPage(1); setLimit(Number(e.target.value)) }}>
-          {[10, 20, 50].map(n => <option key={n} value={n}>{n}/page</option>)}
-        </select>
-        {canManageCameras && selected.size > 0 && (
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="danger" onClick={onBulkDelete} disabled={mutating}>
-              Delete Selected ({selected.size})
-            </Button>
-            <Button variant="outline" onClick={() => setShowBulkAssign((s) => !s)} disabled={mutating}>
-              Assign Permissions
-            </Button>
-          </div>
-        )}
-      </div>
+        <Checkbox
+          label={t('camera.activeOnly')}
+          checked={activeOnly}
+          onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }}
+        />
+      </FilterBar>
 
       {/* Bulk Assign Panel */}
       {canManageCameras && showBulkAssign && selected.size > 0 && (
         <div className="border border-[var(--border)] bg-[var(--panel-2)] p-3 text-sm flex items-center gap-3 flex-wrap">
           <div className="text-[var(--text-dim)]">Assign to user</div>
           <div className="relative">
-            <input
-              className="bg-[var(--panel)] border border-[var(--border)] px-2 py-1 w-56"
+            <Input
+              className="w-56"
               placeholder="Type username or email"
               value={userQuery}
               onChange={(e) => { setUserQuery(e.target.value); setBulkUserId('') }}
@@ -582,14 +584,10 @@ export function Cameras() {
               </div>
             )}
           </div>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" className="accent-[var(--accent)]" checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} /> can_view
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" className="accent-[var(--accent)]" checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} /> can_manage
-          </label>
-          <button className="px-3 py-1 bg-[var(--accent)] text-white" onClick={onBulkAssign} disabled={mutating || bulkUserId === ''}>Apply to {selected.size} selected</button>
-          <button className="px-3 py-1 bg-[var(--panel)] border border-[var(--border)]" onClick={() => setShowBulkAssign(false)}>Cancel</button>
+          <Checkbox label={t('camera.canView')} checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} />
+          <Checkbox label={t('camera.canManage')} checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} />
+          <Button size="sm" variant="primary" onClick={onBulkAssign} disabled={mutating || bulkUserId === ''}>Apply to {selected.size} selected</Button>
+          <Button size="sm" variant="outline" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
         </div>
       )}
 
@@ -712,33 +710,35 @@ export function Cameras() {
                   <TD>
                     <div className="flex items-center justify-end gap-1">
                       {canManageCameras && (
-                        <button className={ICON_BTN} onClick={() => startEdit(c)} title={t('camera.edit')} aria-label={`${t('camera.edit')} ${c.name}`}>
+                        <IconButton variant="outline" onClick={() => startEdit(c)} title={t('camera.edit')} label={`${t('camera.edit')} ${c.name}`}>
                           <Pencil size={15} />
-                        </button>
+                        </IconButton>
                       )}
                       {/* Recording is automatic on an NVR — no manual
                           start/stop control. The Recording column shows its
                           live status, derived from the newest written
                           segment rather than the config flag. */}
                       {c.mediamtx_provisioned === true && (
-                        <button
-                          className={`${ICON_BTN} border-[var(--accent)]/50 text-[var(--accent)] hover:bg-[var(--accent)]/10`}
+                        <IconButton
+                          variant="outline"
+                          className="!text-[var(--accent)] !border-[color-mix(in_oklab,var(--accent)_50%,var(--border))]"
                           onClick={() => navigate(`/live?camera=${c.id}`)}
                           title={t('camera.viewLive')}
-                          aria-label={`View ${c.name} live`}
+                          label={`View ${c.name} live`}
                         >
                           <Video size={15} />
-                        </button>
+                        </IconButton>
                       )}
                       {canManageCameras && (
-                        <button
-                          className={`${ICON_BTN} hover:border-red-600 hover:bg-red-900/30 hover:text-red-400`}
+                        <IconButton
+                          variant="outline"
+                          className="hover:!text-[var(--danger)] hover:!border-[var(--danger)]"
                           onClick={() => onDelete(c)}
                           title={t('camera.delete')}
-                          aria-label={`Delete ${c.name}`}
+                          label={`Delete ${c.name}`}
                         >
                           <Trash2 size={15} />
-                        </button>
+                        </IconButton>
                       )}
                     </div>
                   </TD>
@@ -749,18 +749,20 @@ export function Cameras() {
         </Table>
       )}
 
-      {/* Pagination */}
-      <div className="flex items-center gap-2 text-sm">
-        <Button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>{t('camera.prev')}</Button>
-        {/* activeOnly filters client-side of the count the backend returns, so
-            totalPages would lie — fall back to the hasNext probe there. */}
-        {activeOnly ? (
-          <span>Page {page}</span>
-        ) : (
-          <span>Page {page} / {totalPages}</span>
-        )}
-        <Button disabled={activeOnly ? !hasNext : page >= totalPages} onClick={() => setPage((p) => p + 1)}>{t('camera.next')}</Button>
-      </div>
+      {/* activeOnly filters client-side of the count the backend returns, so
+          the total would lie -- pass none and let the hasNext probe decide. */}
+      <Pagination
+        page={page}
+        pageSize={limit}
+        total={activeOnly ? undefined : total}
+        hasNext={hasNext}
+        rowCount={cameras.length}
+        pageSizeOptions={[10, 20, 50]}
+        onPageChange={setPage}
+        onPageSizeChange={(n) => { setPage(1); setLimit(n) }}
+        isFetching={camsQuery.isFetching}
+        label={t('camera.camerasNoun')}
+      />
 
       {/* Edit Camera Dialog */}
       {canManageCameras && showEditDialog && editing && (
@@ -773,19 +775,18 @@ export function Cameras() {
           <form onSubmit={onUpdate} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Name">
-                <input className={EDIT_INPUT} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
               </Field>
               <Field label="IP address">
-                <input className={EDIT_INPUT} value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} onBlur={() => syncIdentity('ip_address')} required />
+                <Input value={form.ip_address} onChange={(e) => setForm({ ...form, ip_address: e.target.value })} onBlur={() => syncIdentity('ip_address')} required />
               </Field>
               {/* Editable again: a port typed here is no longer discarded — it
                   is written into the RTSP URL on blur, which is what MediaMTX
                   actually pulls. The URL still wins on save, so the two cannot
                   drift apart the way they used to. */}
               <Field label="Port">
-                <input
+                <Input
                   type="number"
-                  className={EDIT_INPUT}
                   value={form.port}
                   onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
                   onBlur={() => syncIdentity('port')}
@@ -795,27 +796,29 @@ export function Cameras() {
                 />
               </Field>
               <Field label="Username">
-                <input className={EDIT_INPUT} value={form.username || ''} onChange={(e) => setForm({ ...form, username: e.target.value })} onBlur={() => syncIdentity('username')} />
+                <Input value={form.username || ''} onChange={(e) => setForm({ ...form, username: e.target.value })} onBlur={() => syncIdentity('username')} />
               </Field>
               <Field label="Password">
-                <input type="password" className={EDIT_INPUT} value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} onBlur={() => syncIdentity('password')} placeholder="Leave blank to keep existing" />
+                <Input type="password" value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} onBlur={() => syncIdentity('password')} placeholder="Leave blank to keep existing" />
               </Field>
               <Field label="Location">
-                <input className={EDIT_INPUT} value={form.location || ''} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+                <Input value={form.location || ''} onChange={(e) => setForm({ ...form, location: e.target.value })} />
               </Field>
               <Field label="VLAN">
-                <input className={EDIT_INPUT} value={form.vlan || ''} onChange={(e) => setForm({ ...form, vlan: e.target.value })} />
+                <Input value={form.vlan || ''} onChange={(e) => setForm({ ...form, vlan: e.target.value })} />
               </Field>
               <Field label="Description">
-                <input className={EDIT_INPUT} value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                <Input value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </Field>
             </div>
 
             <Field label="RTSP URL">
-              <div className="flex gap-2">
-                <input className={`flex-1 ${EDIT_INPUT}`} value={form.rtsp_url || ''} onChange={(e) => setForm({ ...form, rtsp_url: e.target.value })} onBlur={() => syncIdentity('rtsp_url')} />
-                <button type="button" className="px-3 py-2 border border-[var(--border)] bg-[var(--panel-2)] rounded text-xs whitespace-nowrap" onClick={() => setScanQr(true)} title="Scan the QR from the OpenNVR Cam app">Scan QR</button>
-              </div>
+              {(id, describedBy) => (
+                <div className="flex gap-2">
+                  <Input id={id} aria-describedby={describedBy} className="flex-1" value={form.rtsp_url || ''} onChange={(e) => setForm({ ...form, rtsp_url: e.target.value })} onBlur={() => syncIdentity('rtsp_url')} />
+                  <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setScanQr(true)} title="Scan the QR from the OpenNVR Cam app">Scan QR</Button>
+                </div>
+              )}
             </Field>
             {/* A camera saved before the fields were kept in step can open with
                 the two already disagreeing. Say so rather than picking a winner:
@@ -823,13 +826,13 @@ export function Cameras() {
                 streaming perfectly from the URL's host while the IP column holds
                 the wrong address, and silently "fixing" that would kill it. */}
             {urlHostMismatch && (
-              <p className="text-xs text-amber-400/90 -mt-2">
+              <p className="text-xs text-[var(--warn)] -mt-2">
                 The IP address ({form.ip_address}) and the RTSP URL host ({urlHostMismatch}) disagree.
                 Editing either field updates the other — change the one that is wrong.
               </p>
             )}
             <Field label="Substream URL">
-              <input className={EDIT_INPUT} value={form.substream_url || ''} onChange={(e) => setForm({ ...form, substream_url: e.target.value })} placeholder="Optional low-res feed for the camera agent's live view" />
+              <Input value={form.substream_url || ''} onChange={(e) => setForm({ ...form, substream_url: e.target.value })} placeholder="Optional low-res feed for the camera agent's live view" />
             </Field>
 
             {/* Display only — it never re-encodes and never re-provisions the
@@ -837,19 +840,19 @@ export function Cameras() {
                 no aspect ratio (Dahua/CP Plus "1080N" = 960x1080 for a 16:9
                 scene); Native is the escape hatch if detection guesses wrong. */}
             <Field label="Display aspect ratio">
+              {(id) => (
               <div className="space-y-1">
-                <select
-                  className={EDIT_INPUT}
+                <Select
+                  id={id}
                   value={form.display_aspect_choice || 'auto'}
                   onChange={(e) => setForm({ ...form, display_aspect_choice: e.target.value })}
                 >
                   {ASPECT_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
-                </select>
+                </Select>
                 {form.display_aspect_choice === 'custom' && (
-                  <input
-                    className={EDIT_INPUT}
+                  <Input
                     value={form.display_aspect_custom || ''}
                     onChange={(e) => setForm({ ...form, display_aspect_custom: e.target.value })}
                     placeholder="e.g. 16:9"
@@ -860,9 +863,11 @@ export function Cameras() {
                   stored exactly as the camera sends them.
                 </p>
               </div>
+              )}
             </Field>
 
             <Field label="Skills">
+              {() => (
               <div className="space-y-2">
                 {/* Skills follow apps: a camera carries exactly the model
                     skills the enabled apps using it bring, so there is
@@ -881,23 +886,22 @@ export function Cameras() {
                   </p>
                 )}
               </div>
+              )}
             </Field>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="accent-[var(--accent)]" checked={!!form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active
-            </label>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="accent-[var(--accent)] mt-1" checked={form.detection_enabled !== false} onChange={(e) => setForm({ ...form, detection_enabled: e.target.checked })} />
-              <span>
-                {t('cameras.detectionEnabled')}
-                <span className="block text-xs text-[var(--text-dim)]">{t('cameras.detectionOffHint')}</span>
-              </span>
-            </label>
+            <div className="flex flex-col gap-2">
+              <Checkbox label="Active" checked={!!form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+              <Checkbox
+                label={t('cameras.detectionEnabled')}
+                hint={t('cameras.detectionOffHint')}
+                checked={form.detection_enabled !== false}
+                onChange={(e) => setForm({ ...form, detection_enabled: e.target.checked })}
+              />
+            </div>
 
             <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
-              <button type="button" className="px-4 py-2 border border-[var(--border)] bg-[var(--panel-2)] rounded" onClick={closeEditDialog}>Cancel</button>
-              <button type="submit" className="px-4 py-2 bg-[var(--accent)] text-white rounded disabled:opacity-60" disabled={saving}>{saving ? 'Updating…' : 'Update camera'}</button>
+              <Button variant="outline" onClick={closeEditDialog}>Cancel</Button>
+              <Button type="submit" variant="primary" disabled={saving}>{saving ? 'Updating…' : 'Update camera'}</Button>
             </div>
           </form>
 
@@ -923,27 +927,6 @@ export function Cameras() {
         </Modal>
       )}
     </section>
-  )
-}
-
-const EDIT_INPUT =
-  'bg-[var(--panel-2)] border border-[var(--border)] px-3 py-2 rounded text-sm'
-
-// A plain button rather than the Button primitive, deliberately. Button bakes
-// in px-3 py-1.5, and clsx is not tailwind-merge — both classes reach the DOM
-// and Tailwind emits utilities in ascending order, so .px-3 lands after
-// .px-1.5 and wins at equal specificity. A className can therefore only make
-// a Button bigger, never smaller, and three full-size buttons overflow this
-// column.
-const ICON_BTN =
-  'inline-flex items-center justify-center rounded border border-[var(--border)] bg-[var(--panel-2)] p-1.5 text-[var(--text-dim)] transition-colors hover:bg-[var(--panel)] hover:text-[var(--text)]'
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[var(--text-dim)]">{label}</span>
-      {children}
-    </label>
   )
 }
 
