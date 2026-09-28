@@ -748,9 +748,24 @@ def test_the_loop_stays_on_as_the_catch_up_after_history(session_local, calls, m
         return {}
 
     monkeypatch.setattr(bf, "catch_up_once", _catch_up)
-    with pytest.raises(asyncio.TimeoutError):
-        _run(asyncio.wait_for(
-            bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up_interval=0.01), 0.3))
+
+    async def scenario():
+        # Not a fixed time budget — under a loaded full-suite run two
+        # passes did not fit in 300 ms. Wait for the passes, then cancel.
+        task = asyncio.ensure_future(
+            bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up_interval=0.01))
+        try:
+            for _ in range(1000):
+                if passes["n"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert not task.done() or task.cancelled(), "the loop never returns on its own"
+
+    _run(scenario())
     assert calls["caption"] == [1], "history was walked first"
     assert passes["n"] >= 2, "then the catch-up keeps running"
 
