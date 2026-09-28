@@ -101,7 +101,7 @@ const SETTINGS_REDIRECTS: Record<string, string> = {
 }
 
 const SETTINGS_LABEL_KEYS: Record<string, string> = {
-  'Camera-Config': 'nav.configuration', 'Device Settings': 'settings.deviceSettings', 'Streaming & Recording': 'settings.streamingRecording', Zones: 'settings.zones',
+  'Camera-Config': 'settings.cameraConfig', 'Device Settings': 'settings.deviceSettings', 'Streaming & Recording': 'settings.streamingRecording', Zones: 'settings.zones',
   Recording: 'settings.recording', 'Deleted Cameras': 'settings.deletedCameras', 'Media-Source': 'settings.mediaSource',
   Settings: 'settings.settings', 'Media Server Manager': 'settings.mediaServerManager', Firewall: 'settings.firewall', 'API Tokens': 'settings.apiTokens',
   'More Settings': 'settings.moreSettings', WebRTC: 'settings.webrtc', 'Window Settings': 'settings.windowSettings',
@@ -123,9 +123,11 @@ export function Settings() {
   }, [location.pathname])
 
   useEffect(() => {
-    // if no tab in URL, push default
+    // No tab in the URL: open the first tab's first sub-page. This used to
+    // push /settings/webrtc, which is not a tab key -- the page then fell
+    // back to Camera-Config with no tab highlighted and a doubled breadcrumb.
     if (!location.pathname.match(/\/settings\//)) {
-      navigate('/settings/webrtc', { replace: true })
+      navigate('/settings/camera-config/device', { replace: true })
     }
   }, [location.pathname, navigate])
 

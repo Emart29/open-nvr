@@ -248,6 +248,7 @@ export const translations: TranslationCatalog = {
   'settings.uplink': 'Uplink',
   'settings.systemHealth': 'System Health',
   'settings.breadcrumb': 'Configuration',
+  'settings.cameraConfig': 'Camera Config',
   'settings.optionsWillAppear': 'Configuration options will appear here.',
   'settings.failedLoadMediaSource': 'Could not load media source settings', 'settings.failedSaveMediaSource': 'Could not save media source settings', 'settings.mediaSourceTitle': 'Media source settings', 'settings.playbackBase': 'Playback base', 'settings.baseUrl': 'Base URL', 'settings.accessToken': 'Access token (query/bearer)', 'settings.streamPrefix': 'Stream prefix', 'settings.pathMode': 'Path mode', 'settings.publishingProxy': 'Publishing / RTSP proxy', 'settings.rtspPublishUrl': 'RTSP publish URL', 'settings.rtspProxyEnabled': 'RTSP proxy enabled', 'settings.ffmpegBinary': 'FFmpeg binary', 'settings.mediaServerApi': 'Media server admin API', 'settings.recordingsPath': 'Recordings path', 'settings.playbackProtocols': 'Playback protocols', 'settings.enableHls': 'Enable HLS', 'settings.enableLlHls': 'Enable low-latency HLS', 'settings.transcoding': 'Transcoding', 'settings.enableTranscoding': 'Enable transcoding',
   'settings.failedLoadWebrtc': 'Could not load WebRTC settings',
