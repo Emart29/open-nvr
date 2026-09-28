@@ -243,3 +243,80 @@ def test_the_three_enrichers_and_the_backfill_go_through_the_governor():
     bf = (root / "enrichment_backfill.py").read_text()
     assert "wait_for_backfill_slot(starting=True)" in bf, "a pass must wait for the idle period"
     assert "wait_for_backfill_slot()" in bf, "and every item re-checks the live conditions"
+
+
+# ── review round three (#592) ─────────────────────────────────────────
+
+def test_a_stale_latency_figure_stops_throttling(signals, clock, monkeypatch):
+    """The EWMA only moves on calls. After a breaker episode it sits at
+    ~90 s; if that alone kept the box LIVE-ONLY, the backfill — which
+    needs NORMAL — could never run, and nothing would refresh the figure
+    because nothing was being sent. It expires."""
+    from core.config import settings
+    monkeypatch.setattr(settings, "events_enrichment_slow_call_s", 10.0, raising=False)
+    gate = eg.gate_for("moondream-vlm")
+    _run(gate.admit()); gate.release("timeout", elapsed_s=90.0)
+    g = gov.governor()
+    assert g.evaluate() is State.LIVE_ONLY
+    clock["t"] += gov.SLOW_SIGNAL_TTL_S + 1
+    g._calmer_since = None
+    g.evaluate(); clock["t"] += gov.STABLE_S + 1
+    assert g.evaluate() is State.NORMAL, "a figure nobody refreshed in 5 min says nothing about now"
+
+
+def test_a_long_silence_counts_as_calm(signals, clock):
+    """evaluate() runs on admissions. A box paused at 14:00 whose alert
+    cleared at 14:05 and saw no visit until 17:00 has been calm for
+    hours; its first visit must not be the one that is dropped."""
+    signals["cpu_high"] = True
+    g = gov.governor()
+    assert g.evaluate() is State.PAUSED
+    signals["cpu_high"] = False
+    clock["t"] += 3 * 3600
+    assert g.evaluate() is State.NORMAL, "three silent hours are not zero seconds of calm"
+
+
+def test_snapshot_never_moves_the_governor(signals):
+    g = gov.governor()
+    signals["cpu"] = 95
+    snap = g.snapshot()
+    assert snap["state"] == "normal", "a status read does not evaluate"
+    assert g.state is State.NORMAL and signals["edges"] == []
+    assert g.evaluate() is State.LIVE_ONLY
+
+
+def test_the_search_query_is_embedded_even_when_the_box_is_paused(signals, monkeypatch):
+    """embed_text is a person waiting on an answer, not background work.
+    PAUSED refuses enrichment; it must not refuse the operator."""
+    import httpx
+
+    from services import embed_enrichment as emb
+
+    signals["cpu_high"] = True
+    assert gov.governor().evaluate() is State.PAUSED
+
+    async def _adapter():
+        return "clip"
+
+    monkeypatch.setattr(emb, "_resolve_embed_adapter", _adapter)
+
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"result": {"embedding": [1.0, 0.0]}}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
+    vector, adapter = _run(emb.embed_text("white van"))
+    assert vector == [1.0, 0.0] and adapter == "clip"

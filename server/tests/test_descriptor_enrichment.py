@@ -296,7 +296,8 @@ def test_the_vqa_call_sends_no_task_key_and_reads_answer(monkeypatch):
 
 
 def _asked_questions(label: str, *, people: bool, monkeypatch,
-                     answer=None, out: dict | None = None) -> list[str]:
+                     answer=None, out: dict | None = None,
+                     answered_kinds: tuple[str, ...] = ()) -> list[str]:
     """Run the real enricher over one visit and report what it ASKED.
 
     The kind selection is the whole cost story, and it lives inside
@@ -340,6 +341,12 @@ def _asked_questions(label: str, *, people: bool, monkeypatch,
                          ended_at=now + timedelta(seconds=5),
                          evidence_path="e.jpg"))
     db.commit()
+    if answered_kinds:
+        from models import VisitDescriptor
+        for k in answered_kinds:
+            db.add(VisitDescriptor(event_id=1, kind=k, value="white",
+                                   source_task=VQA_TASK, source_adapter="moondream"))
+        db.commit()
 
     class _Shared:
         def __init__(self, s):
@@ -545,3 +552,12 @@ def test_questions_that_were_answered_are_still_recorded_as_ran(monkeypatch):
                      answer="the answer is blue", out=out)
     assert out["result"] is None
     assert "vqa" in out["enriched_by"]
+
+
+def test_a_retry_after_a_partial_drop_does_not_re_ask_what_was_answered(monkeypatch):
+    """colour answered, vehicle_type DROPPED: VQA is left un-ran so the
+    visit is retried — and the retry must not pay for colour again."""
+    asked = _asked_questions("truck", people=False, monkeypatch=monkeypatch,
+                             answered_kinds=("colour",))
+    assert len(asked) == 1
+    assert "colour" not in asked[0].lower() or "type" in asked[0].lower()

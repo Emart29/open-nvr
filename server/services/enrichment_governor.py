@@ -64,6 +64,11 @@ ALERT_TYPE = "enrichment_throttled"
 #: How long the calmer condition must hold before the state steps down.
 STABLE_S = 30.0
 
+#: A latency figure older than this says nothing about now. The EWMA
+#: only moves on calls; after a breaker episode it sits at ~90 s until
+#: the next call, and the next call was the thing it was blocking.
+SLOW_SIGNAL_TTL_S = 300.0
+
 Kind = Literal["caption", "vqa", "embed"]
 
 
@@ -130,8 +135,11 @@ def slowest_adapter() -> tuple[str, float] | None:
     budget = slow_call_s()
     for snap in gate_mod.snapshot_all():
         lat = snap.get("latency_ewma_s")
+        age = snap.get("latency_age_s")
         if lat is None or lat < budget:
             continue
+        if age is not None and age > SLOW_SIGNAL_TTL_S:
+            continue                  # stale: nobody has asked it lately
         if worst is None or lat > worst[1]:
             worst = (snap["adapter"], float(lat))
     return worst
@@ -157,6 +165,7 @@ class Governor:
         self._since = _now()          # when the current state began
         self._calmer_since: float | None = None
         self._last_wanted = State.NORMAL
+        self._last_eval = _now()
 
     def _wanted(self) -> tuple[State, str]:
         """What the signals say right now, before hysteresis."""
@@ -177,11 +186,20 @@ class Governor:
     def evaluate(self) -> State:
         wanted, reason = self._wanted()
         now = _now()
+        gap = now - self._last_eval
+        self._last_eval = now
         if _RANK[wanted] > _RANK[self.state]:
             self._set(wanted, reason, now)
         elif _RANK[wanted] < _RANK[self.state]:
-            # Calmer. Step down only once it has stayed calmer a while.
-            if self._calmer_since is None or wanted != self._last_wanted:
+            # Calmer. Step down only once it has stayed calmer a while —
+            # measured from when calm was first SEEN, since the signals
+            # are only read here. The exception is a long silence: this
+            # runs on admissions, and a box with no visits for three
+            # hours after a pause has been calm for three hours, not for
+            # zero. Its first visit must not be the one that is dropped.
+            if gap >= STABLE_S:
+                self._set(wanted, reason, now)
+            elif self._calmer_since is None or wanted != self._last_wanted:
                 self._calmer_since = now
             elif now - self._calmer_since >= STABLE_S:
                 self._set(wanted, reason, now)
@@ -219,13 +237,20 @@ class Governor:
         return _now() - self._since
 
     def snapshot(self) -> dict[str, Any]:
+        """Read-only: reports the state as last evaluated and never
+        advances it. A status endpoint polling this must not be what
+        moves the governor or records system events."""
         return {"state": self.state.value, "reason": self.reason,
                 "stable_for_s": round(self.stable_for(), 1),
                 "cpu_percent": host_cpu_percent(),
                 "soft_cpu_percent": soft_cpu_percent(),
                 "slow_call_s": slow_call_s(),
                 "backfill_window": window_text(),
-                "backfill_allowed": backfill_allowed(self, starting=True)}
+                "backfill_allowed": (
+                    self.state is State.NORMAL
+                    and self.stable_for() >= backfill_idle_s()
+                    and gate_mod.all_idle()
+                    and in_window(parse_window(window_text())))}
 
 
 _governor: Governor | None = None

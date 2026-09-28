@@ -345,14 +345,33 @@ async def catch_up_once(batch: int = DEFAULT_BATCH,
     descriptor_on = bool(getattr(settings, "events_descriptor_enrichment", True))
     embed_on = bool(getattr(settings, "events_embed_enrichment", False))
 
+    from sqlalchemy import func
+
+    from models import TimelineEvent
+
     db = SessionLocal()
     try:
         state = dict(read_state(db))
+        if "top" not in state:
+            # A box whose walk finished before "top" existed: start from
+            # where history ends NOW, not from id 0 — a catch-up that
+            # re-offers 200k visits oldest-first reaches the dropped
+            # ones at the top of the table in days.
+            state["top"] = int(db.query(func.max(TimelineEvent.id)).scalar() or 0)
+            _write_state(db, state)
+            return state
         top = int(state.get("top") or 0)
         cutoff = datetime.now(UTC) - timedelta(seconds=CATCH_UP_MIN_AGE_S)
         items = plan_batch(db, None, batch,
                            bool(getattr(settings, "events_descriptor_people", False)),
                            after_id=top, older_than=cutoff)
+        # Ids are assigned when a track ENDS; started_at is when it began.
+        # A long visit can carry a lower id than a short one that started
+        # later, so the youngest visit still inside the in-flight window
+        # may sit BELOW something handled now. top must not step over it.
+        youngest_held = db.query(func.min(TimelineEvent.id)).filter(
+            TimelineEvent.id > top,
+            TimelineEvent.started_at >= cutoff).scalar()
     finally:
         db.close()
     if not items:
@@ -363,6 +382,12 @@ async def catch_up_once(batch: int = DEFAULT_BATCH,
                               pause=pause)
     handled = res["handled"]
     new_top = max(handled) if handled else top
+    if youngest_held is not None:
+        # Anything handled above it is re-offered later and short-
+        # circuits inside the enrichers for one row read — cheaper than
+        # a visit that is never looked at again.
+        new_top = min(new_top, int(youngest_held) - 1)
+    new_top = max(new_top, top)
 
     db = SessionLocal()
     try:

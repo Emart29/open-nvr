@@ -351,6 +351,16 @@ async def enrich_event_descriptors(event_id: int) -> str | None:
         evidence_path = row.evidence_path
         already = set((row.payload or {}).get("enriched_by") or [])
         camera_handle = f"cam{row.camera_id}"
+        # Kinds VQA already answered on this visit. A pass whose other
+        # question was DROPPED leaves VQA un-ran (so it is asked again),
+        # and the retry must not pay for the answers it already has.
+        from models import VisitDescriptor
+
+        answered = {
+            k for (k,) in db.query(VisitDescriptor.kind)
+            .filter(VisitDescriptor.event_id == row.id,
+                    VisitDescriptor.source_task == VQA_TASK).all()
+        }
     finally:
         db.close()
 
@@ -383,7 +393,7 @@ async def enrich_event_descriptors(event_id: int) -> str | None:
     # spends an inference to store nonsense.
     for_label = LABEL_KINDS.get(label, ())
     kinds = [k for k in (vqa.get("descriptor_kinds") or [])
-             if k in KIND_QUESTIONS and k in for_label]
+             if k in KIND_QUESTIONS and k in for_label and k not in answered]
     if not kinds:
         return
 
