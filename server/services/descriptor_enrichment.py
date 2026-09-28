@@ -59,7 +59,6 @@ dropped. A claim that cannot be filtered on is not worth the row.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -280,9 +279,7 @@ async def _plan_skills(label: str | None) -> list[dict[str, Any]]:
 async def _ask(jpeg: bytes, adapter: str, question: str,
                camera_handle: str, event_id: int) -> str | None:
     """One VQA question. None on any failure."""
-    from core.config import settings
 
-    import httpx
 
     # Deliberately NO "task" key. The camera agent learned this the hard
     # way: a VQA adapter (moondream) only answers when the task is not
@@ -301,46 +298,13 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     body["frame_b64"] = base64.b64encode(jpeg).decode("ascii")
     # Same gate the captioner uses — on most boxes it is the same model
     # answering both, and one slow model gets one budget (#583).
-    from services.enrichment_gate import gate_for, timeout_s
+    from services.enrichment_gate import infer_through_gate
 
-    gate = gate_for(adapter)
-    if not await gate.admit():
+    payload = await infer_through_gate(adapter, body, log=logger,
+                                       caller="descriptor enrichment")
+    if payload is None:
         return None
-    limit = timeout_s()
-    started = time.monotonic()
-    outcome = "error"
-    try:
-        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
-            resp = await client.post(
-                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                json=body,
-                headers={"X-Internal-Api-Key": settings.internal_api_key},
-            )
-        outcome = "ok"
-    except (httpx.ReadTimeout, httpx.WriteTimeout):
-        # Same distinction as caption_enrichment: the adapter is up and
-        # busy, not gone. Two questions per vehicle visit make this the
-        # heavier of the two callers when the model is slow (#583).
-        outcome = "timeout"
-        logger.warning(
-            "descriptor enrichment: %s timed out after %.1fs (limit %.0fs) — "
-            "the VQA adapter is slower than the visit rate; see #583",
-            adapter, time.monotonic() - started, limit)
-        return None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("descriptor enrichment: %s unreachable (%s: %s)",
-                       adapter, type(exc).__name__, exc)
-        return None
-    finally:
-        gate.release(outcome)
-    if resp.status_code != 200:
-        logger.warning("descriptor enrichment: %s returned %s",
-                       adapter, resp.status_code)
-        return None
-    try:
-        result = (resp.json() or {}).get("result") or {}
-    except Exception:  # noqa: BLE001
-        return None
+    result = (payload or {}).get("result") or {}
     # VQA adapters answer in `answer`; a captioner that ignored the
     # question would reply in `caption`, and that is NOT an answer to
     # what was asked — taking it would store the scene description as

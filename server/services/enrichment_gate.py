@@ -321,6 +321,71 @@ def _reset_for_tests() -> None:
     _gates.clear()
 
 
+# ── the one call the enrichers make ───────────────────────────────
+
+async def infer_through_gate(adapter: str, body: dict[str, Any], *,
+                             log: logging.Logger, caller: str,
+                             what: str = "") -> dict[str, Any] | None:
+    """POST one infer request to KAI-C through the adapter's gate and
+    return the decoded JSON body, or None.
+
+    None covers every way it can not happen, each logged in the caller's
+    voice (``caller`` is the log prefix, ``log`` the caller's logger so
+    the line lands where an operator grepping for that enricher looks):
+    dropped at the gate, timed out, unreachable, a non-200, or a body
+    that is not JSON. The caller decides what the body means.
+
+    Only ReadTimeout/WriteTimeout count as "timed out": the connection
+    was made and the adapter went quiet computing — the #583 shape. A
+    ConnectTimeout is a host that never answered the SYN, a PoolTimeout
+    is our own client; both are "unreachable" and count as an error,
+    not a timeout, for the breaker.
+
+    The slot is held until the adapter ANSWERED or core gave up — never
+    released early to let the next request pile onto a model still busy
+    with this one. That early release was the original defect.
+    """
+    import httpx
+
+    from core.config import settings
+
+    gate = gate_for(adapter)
+    if not await gate.admit():
+        return None
+    limit = timeout_s()
+    suffix = f" for {what}" if what else ""
+    started = time.monotonic()
+    outcome: Outcome = "error"
+    try:
+        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
+            resp = await client.post(
+                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
+                json=body,
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
+            )
+        outcome = "ok"
+    except (httpx.ReadTimeout, httpx.WriteTimeout):
+        outcome = "timeout"
+        log.warning(
+            "%s: %s timed out after %.1fs (limit %.0fs)%s — the adapter is "
+            "slower than the visit rate; see #583",
+            caller, adapter, time.monotonic() - started, limit, suffix)
+        return None
+    except Exception as exc:                      # noqa: BLE001
+        log.warning("%s: %s unreachable (%s: %s)", caller, adapter,
+                    type(exc).__name__, exc)
+        return None
+    finally:
+        gate.release(outcome)
+    if resp.status_code != 200:
+        log.warning("%s: %s returned %s%s", caller, adapter, resp.status_code, suffix)
+        return None
+    try:
+        return resp.json()
+    except Exception:                             # noqa: BLE001
+        return None
+
+
 # ── the operator-visible side ─────────────────────────────────────
 
 def _notify(gate: AdapterGate, *, active: bool) -> None:

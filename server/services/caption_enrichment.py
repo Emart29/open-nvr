@@ -38,7 +38,6 @@ and refine ranking; it can never remove a result that returns today.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 logger = logging.getLogger("caption_enrichment")
@@ -133,69 +132,23 @@ async def _resolve_caption_adapter() -> str | None:
 async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
                         event_id: int | None = None) -> str | None:
     """One caption attempt through KAI-C. None on any failure."""
-    from core.config import settings
     from services.adapter_contract import build_infer_payload
 
-    import httpx
 
     params: dict[str, Any] = {"camera_id": camera_handle}
     if event_id is not None:
         params["event_id"] = int(event_id)
     payload = build_infer_payload(task=CAPTION_TASK, jpeg_bytes=jpeg,
                                   params=params)
-    # Admission first, and a refusal is a plain None: the visit keeps no
-    # caption today and the backfill finds it later. Nothing here ever
-    # waits past the gate's short line, and nothing ever queues without
-    # bound — that was the #583 failure.
-    from services.enrichment_gate import gate_for, timeout_s
+    # One call, through the adapter's gate: admission (a refusal is a
+    # plain None — the visit keeps no caption today and the backfill
+    # finds it later), the timeout-vs-unreachable distinction, and the
+    # slot held until the adapter answered all live in the gate (#583).
+    from services.enrichment_gate import infer_through_gate
 
-    gate = gate_for(adapter)
-    if not await gate.admit():
-        return None
-    limit = timeout_s()
-    started = time.monotonic()
-    outcome = "error"
-    try:
-        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
-            resp = await client.post(
-                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                json=payload,
-                headers={"X-Internal-Api-Key": settings.internal_api_key},
-            )
-        outcome = "ok"
-    except (httpx.ReadTimeout, httpx.WriteTimeout):
-        # Read/write timeouts ONLY: the connection was made and the
-        # adapter went quiet computing. A ConnectTimeout is a host that
-        # never answered the SYN — genuinely unreachable — and a
-        # PoolTimeout is our own client; both stay on the branch below
-        # and count as "error", not "timeout", for the breaker.
-        # A timeout here is NOT "unreachable". The adapter answered /health,
-        # took the request, and is still computing the answer nobody will
-        # read — the box lost the CPU and gained nothing (#583). Logging
-        # it as a connectivity problem sent an operator to check the
-        # network while moondream sat at 290% of a core.
-        outcome = "timeout"
-        logger.warning(
-            "caption enrichment: %s timed out after %.1fs (limit %.0fs) — "
-            "the captioner is slower than the visit rate; see #583",
-            adapter, time.monotonic() - started, limit)
-        return None
-    except Exception as exc:                      # noqa: BLE001
-        logger.warning("caption enrichment: %s unreachable (%s: %s)",
-                       adapter, type(exc).__name__, exc)
-        return None
-    finally:
-        # The slot is held until the adapter ANSWERED or core gave up —
-        # never released early to let the next request pile onto a model
-        # still busy with this one.
-        gate.release(outcome)
-    if resp.status_code != 200:
-        logger.warning("caption enrichment: %s returned %s",
-                       adapter, resp.status_code)
-        return None
-    try:
-        body = resp.json()
-    except Exception:                             # noqa: BLE001
+    body = await infer_through_gate(adapter, payload, log=logger,
+                                    caller="caption enrichment")
+    if body is None:
         return None
     result = (body or {}).get("result")
     if not isinstance(result, dict):

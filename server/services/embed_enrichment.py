@@ -55,7 +55,6 @@ needs no special registration.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -196,47 +195,13 @@ def _vector_from(body: Any) -> list[float] | None:
 
 async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | None:
     """One embedding attempt through KAI-C. None on any failure."""
-    from core.config import settings
 
-    import httpx
 
-    from services.enrichment_gate import gate_for, timeout_s
+    from services.enrichment_gate import infer_through_gate
 
-    gate = gate_for(adapter)
-    if not await gate.admit():
-        return None
-    limit = timeout_s()
-    started = time.monotonic()
-    outcome = "error"
-    try:
-        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
-            resp = await client.post(
-                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                json=payload,
-                headers={"X-Internal-Api-Key": settings.internal_api_key},
-            )
-        outcome = "ok"
-    except (httpx.ReadTimeout, httpx.WriteTimeout):
-        # Same rule as the caption and descriptor enrichers (#583): a
-        # timeout means the adapter is up and too slow, not gone.
-        outcome = "timeout"
-        logger.warning(
-            "embed enrichment: %s timed out after %.1fs (limit %.0fs) for %s",
-            adapter, time.monotonic() - started, limit, what)
-        return None
-    except Exception as exc:                      # noqa: BLE001
-        logger.warning("embed enrichment: %s unreachable (%s: %s)",
-                       adapter, type(exc).__name__, exc)
-        return None
-    finally:
-        gate.release(outcome)
-    if resp.status_code != 200:
-        logger.warning("embed enrichment: %s returned %s for %s",
-                       adapter, resp.status_code, what)
-        return None
-    try:
-        body = resp.json()
-    except Exception:                             # noqa: BLE001
+    body = await infer_through_gate(adapter, payload, log=logger,
+                                    caller="embed enrichment", what=what)
+    if body is None:
         return None
     return _vector_from(body)
 
