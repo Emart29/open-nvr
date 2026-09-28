@@ -40,6 +40,13 @@ not two. Plate OCR is deliberately NOT behind this — it is fast, once
 per track, and losing a plate read is a worse outcome than losing a
 sentence.
 
+What the bound covers, honestly: what the ENRICHERS send. The agent's
+scene descriptions, the plate sweep and the KAI-C service post to the
+same adapters outside this module, so an operator asking "what do you
+see?" while a caption is in flight puts two requests on a one-slot
+model. The gate keeps enrichment from being the thing that piles on;
+it does not make the adapter's total load observable from here.
+
 The backfill asks :func:`wait_all_idle` before every item, so the back
 catalogue is only swept when nothing live is waiting and no adapter is
 in cooldown. Live always wins; history has waited this long.
@@ -66,6 +73,33 @@ COOLDOWN_MAX_S = 600.0
 
 #: How often :func:`wait_all_idle` re-checks.
 _IDLE_POLL_S = 0.5
+
+#: TCP connect ceiling, separate from the per-call limit. The 90 s limit
+#: is for a model computing; a host that never answers the SYN should
+#: cost 5 s, not hold the adapter's only slot for a minute and a half.
+CONNECT_TIMEOUT_S = 5.0
+
+#: KAI-C registration names that differ from their registry id.
+_REGISTRY_ALIASES = {"clip": "clip-embeddings"}
+
+
+class _Dropped:
+    """The value :func:`infer_through_gate` returns when the call was
+    never made — refused at the gate. Distinct from None (made, and
+    failed) so a caller can tell "nobody looked" from "looked and found
+    nothing": the backfill holds its cursor on the first and advances
+    past the second."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "DROPPED"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+DROPPED = _Dropped()
 
 
 def _now() -> float:
@@ -96,12 +130,18 @@ def breaker_timeouts() -> int:
 def max_inflight_for(adapter: str) -> int:
     """The adapter's own ``scheduling.max_inflight`` from the registry.
 
-    Matched on the registry id first (moondream-vlm, blip-scene-caption
-    both register under their id), then on a prefix either way (the
-    clip adapter registers as ``clip``, its entry is ``clip-embeddings``).
+    Matched on the registry id exactly (moondream-vlm, blip-scene-caption
+    register under their id) or through one named alias (the clip
+    adapter registers as ``clip``; its entry is ``clip-embeddings``).
+    Nothing fuzzier: a prefix match handed an empty or one-letter name
+    the FIRST entry's budget, which is a detector's, not a captioner's.
     Unknown adapters get 1: the registry's own default, and the only
     safe guess for a model nobody declared a budget for.
     """
+    name = (adapter or "").lower().strip()
+    if not name:
+        return 1
+    name = _REGISTRY_ALIASES.get(name, name)
     try:
         from routers.adapters_catalog import load_adapters_index
 
@@ -109,13 +149,8 @@ def max_inflight_for(adapter: str) -> int:
     except Exception as exc:                      # noqa: BLE001
         logger.debug("enrichment gate: registry unreadable (%s)", exc)
         return 1
-    name = (adapter or "").lower()
     for entry in entries:
         if entry.id.lower() == name:
-            return max(1, int(entry.scheduling.max_inflight))
-    for entry in entries:
-        eid = entry.id.lower()
-        if eid.startswith(name) or name.startswith(eid):
             return max(1, int(entry.scheduling.max_inflight))
     return 1
 
@@ -152,8 +187,20 @@ class AdapterGate:
     def is_open(self) -> bool:
         return self.open_until is not None
 
+    @property
+    def cooling(self) -> bool:
+        """Open AND still refusing: the cooldown has not expired, or the
+        one probe is out. An open breaker whose cooldown has passed is
+        waiting for a caller to be its probe — the next admit() — and
+        with no live traffic that caller may be the backfill, so it
+        must not read as busy: that is how a breaker that tripped at
+        night stayed "paused" until morning with nothing ever probing."""
+        if not self.is_open:
+            return False
+        return self._probe_out or _now() < (self.open_until or 0.0)
+
     def idle(self) -> bool:
-        return self.inflight == 0 and self.waiting == 0 and not self.is_open
+        return self.inflight == 0 and self.waiting == 0 and not self.cooling
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -168,6 +215,7 @@ class AdapterGate:
             "timeouts": self.timeouts,
             "errors": self.errors,
             "breaker_open": self.is_open,
+            "breaker_cooling": self.cooling,
             "breaker_trips": self.trips,
             "cooldown_s": self.cooldown_s if self.is_open else 0.0,
         }
@@ -329,11 +377,18 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
     """POST one infer request to KAI-C through the adapter's gate and
     return the decoded JSON body, or None.
 
-    None covers every way it can not happen, each logged in the caller's
-    voice (``caller`` is the log prefix, ``log`` the caller's logger so
-    the line lands where an operator grepping for that enricher looks):
-    dropped at the gate, timed out, unreachable, a non-200, or a body
+    :data:`DROPPED` means the call was never made (refused at the gate).
+    None covers every way a call that WAS made failed, each logged in
+    the caller's voice (``caller`` is the log prefix, ``log`` the
+    caller's logger so the line lands where an operator grepping for
+    that enricher looks): timed out, unreachable, a non-200, or a body
     that is not JSON. The caller decides what the body means.
+
+    Only a 200 is "ok" to the breaker. A 503 from KAI-C or a crashed
+    adapter is an answer in the HTTP sense and nothing else: it must not
+    reset the timeout streak, and it must not close an open breaker —
+    that is how a probe answered "busy" in 50 ms once resumed full
+    traffic against a model still saturated.
 
     Only ReadTimeout/WriteTimeout count as "timed out": the connection
     was made and the adapter went quiet computing — the #583 shape. A
@@ -351,19 +406,22 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
 
     gate = gate_for(adapter)
     if not await gate.admit():
-        return None
+        return DROPPED
     limit = timeout_s()
     suffix = f" for {what}" if what else ""
     started = time.monotonic()
     outcome: Outcome = "error"
     try:
-        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
+        async with httpx.AsyncClient(
+                timeout=httpx.Timeout(limit, connect=CONNECT_TIMEOUT_S),
+                trust_env=False) as client:
             resp = await client.post(
                 f"{settings.kai_c_url}/api/v1/infer/{adapter}",
                 json=body,
                 headers={"X-Internal-Api-Key": settings.internal_api_key},
             )
-        outcome = "ok"
+        if resp.status_code == 200:
+            outcome = "ok"
     except (httpx.ReadTimeout, httpx.WriteTimeout):
         outcome = "timeout"
         log.warning(
@@ -418,7 +476,12 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
 
             await asyncio.to_thread(
                 record_system_event_edge,
-                event_type=ALERT_TYPE, active=active, severity="warning",
+                # One edge PER ADAPTER: system events dedupe on the type
+                # alone, so a shared type made clip's trip vanish behind
+                # moondream's and moondream's recovery announce "resumed"
+                # while clip stayed paused.
+                event_type=f"{ALERT_TYPE}:{gate.adapter}", active=active,
+                severity="warning",
                 description=description, data=data)
         except Exception:                          # noqa: BLE001
             logger.debug("enrichment gate: system event write failed", exc_info=True)
@@ -426,7 +489,7 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
             from services.event_bus_service import publish_system_alert
 
             await publish_system_alert(
-                alert_type=ALERT_TYPE,
+                alert_type=f"{ALERT_TYPE}:{gate.adapter}",
                 state="active" if active else "inactive",
                 severity="warning" if active else "info",
                 payload={"description": description, **data})

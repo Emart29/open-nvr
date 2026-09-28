@@ -42,6 +42,8 @@ from typing import Any
 
 logger = logging.getLogger("caption_enrichment")
 
+from services.enrichment_gate import DROPPED  # noqa: E402
+
 #: The taxonomy task a captioner advertises (server/config/tasks.yml).
 #: Both BLIP Scene Caption and Moondream VLM advertise it, which is why
 #: the adapter is resolved by task below instead of being named here the
@@ -148,6 +150,8 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
 
     body = await infer_through_gate(adapter, payload, log=logger,
                                     caller="caption enrichment")
+    if body is DROPPED:
+        return DROPPED
     if body is None:
         return None
     result = (body or {}).get("result")
@@ -211,8 +215,14 @@ def _note_unassigned(camera_id: int | None) -> None:
         )
 
 
-async def enrich_event_caption(event_id: int, evidence_jpeg: bytes | None = None) -> None:
+async def enrich_event_caption(event_id: int,
+                               evidence_jpeg: bytes | None = None) -> str | None:
     """Background task: describe the visit's best frame, once.
+
+    Returns ``"dropped"`` when the call never reached the adapter (the
+    gate refused it) — the backfill holds its cursor on that — and None
+    otherwise, whether a caption was written or there was nothing to
+    write.
 
     Three phases, and the split is not stylistic — ``plate_enrichment``
     learned it the hard way. READ what is needed with a short session,
@@ -273,6 +283,8 @@ async def enrich_event_caption(event_id: int, evidence_jpeg: bytes | None = None
     if adapter is None:
         return
     caption = await _caption_jpeg(jpeg, adapter, camera_handle, event_id=event_id)
+    if caption is DROPPED:
+        return "dropped"
     if not caption:
         return
 

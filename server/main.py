@@ -775,9 +775,12 @@ async def lifespan(app: FastAPI):
     # they shipped has a row in events and nothing in event_text or
     # visit_descriptors — and the first search an operator runs after
     # upgrading is against yesterday, which returns nothing. This walks
-    # history newest-first and hands each visit to the SAME enricher,
-    # then RETURNS: it is finite work, not a consumer, which is why it is
-    # spawned directly rather than supervised by run_consumer_forever.
+    # history newest-first and hands each visit to the SAME enricher.
+    # When history is done it stays on as a slow catch-up for the visits
+    # the enrichment gate dropped under load (#583) — the one path that
+    # makes "described later" true — so it is long-lived now, but still
+    # spawned directly: a pass that fails is logged and the next one
+    # runs, which is all a supervisor would do.
     async def background_enrichment_backfill():
         try:
             from services.enrichment_backfill import run_backfill_loop

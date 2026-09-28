@@ -63,6 +63,7 @@ __all__ = ["EMBED_SKILL", "EMBED_TASK", "EMBEDDABLE_LABELS",
            "embed_text", "enrich_event_embedding", "wants_embedding"]
 
 from services.embedding_store import EMBED_TASK
+from services.enrichment_gate import DROPPED
 
 #: Aliases an adapter might advertise instead of the canonical name.
 #: Mirrors the captioner's tolerance for the same reason: refusing to
@@ -201,6 +202,8 @@ async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | Non
 
     body = await infer_through_gate(adapter, payload, log=logger,
                                     caller="embed enrichment", what=what)
+    if body is DROPPED:
+        return DROPPED
     if body is None:
         return None
     return _vector_from(body)
@@ -227,11 +230,13 @@ async def embed_text(text: str) -> tuple[list[float] | None, str | None]:
         return None, None
     payload = {"task": EMBED_TASK, "text": text}
     vector = await _infer(adapter, payload, what="a text query")
+    if vector is DROPPED:
+        vector = None                 # a search query is not retried later
     return vector, (adapter if vector else None)
 
 
 async def enrich_event_embedding(event_id: int,
-                                 evidence_jpeg: bytes | None = None) -> None:
+                                 evidence_jpeg: bytes | None = None) -> str | None:
     """Background task: embed the visit's best frame, once.
 
     Three phases. The middle one waits on a semaphore and then on a 15s
@@ -291,6 +296,8 @@ async def enrich_event_embedding(event_id: int,
         task=EMBED_TASK, jpeg_bytes=jpeg,
         params={"camera_id": camera_handle, "event_id": int(event_id)})
     vector = await _infer(adapter, payload, what=f"event {event_id}")
+    if vector is DROPPED:
+        return "dropped"
     if not vector:
         return
 

@@ -70,10 +70,16 @@ def test_the_budget_is_the_adapters_own_declaration(monkeypatch):
             self.scheduling = _S()
 
     monkeypatch.setattr(cat, "load_adapters_index",
-                        lambda: [_E("moondream-vlm", 1), _E("clip-embeddings", 3)])
+                        lambda: [_E("yolov8-object-detection", 4),
+                                 _E("moondream-vlm", 1), _E("clip-embeddings", 3)])
     assert eg.max_inflight_for("moondream-vlm") == 1
     assert eg.max_inflight_for("clip") == 3, "the clip adapter registers as 'clip'"
     assert eg.max_inflight_for("ollamavlm") == 1, "unknown adapters get the registry default"
+    # Exact or aliased, never fuzzy: a prefix match handed these the
+    # detector's budget of 4.
+    assert eg.max_inflight_for("") == 1
+    assert eg.max_inflight_for("yolo") == 1
+    assert eg.max_inflight_for("moondream") == 1
 
 
 def test_the_shipped_registry_gives_every_captioner_one_slot():
@@ -241,14 +247,18 @@ def test_the_captioner_stops_sending_once_the_breaker_trips(monkeypatch, clock):
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
 
+    results = []
+
     async def go():
         for _ in range(4):
-            assert await cap._caption_jpeg(b"jpeg", "moondream-vlm", "cam1", event_id=1) is None
+            results.append(await cap._caption_jpeg(b"jpeg", "moondream-vlm", "cam1", event_id=1))
 
     _run(go())
     assert posts["n"] == 2, "two timeouts tripped it; the next two were dropped at the gate"
     gate = eg.gate_for("moondream-vlm")
     assert gate.is_open and gate.dropped_open == 2
+    assert results == [None, None, eg.DROPPED, eg.DROPPED], (
+        "a call that was made and failed is None; one never made is DROPPED")
 
 
 def test_caption_and_vqa_share_one_gate_per_adapter():
@@ -290,7 +300,119 @@ def test_a_trip_records_the_system_event_and_publishes_on_the_bus(monkeypatch, c
     _run(scenario())
 
     assert [e["active"] for e in edges] == [True, False]
-    assert all(e["event_type"] == eg.ALERT_TYPE for e in edges)
+    # Per adapter: system events dedupe on the type, and two adapters
+    # sharing one type made the second trip vanish and the first
+    # recovery announce "resumed" for both.
+    assert all(e["event_type"] == f"{eg.ALERT_TYPE}:moondream-vlm" for e in edges)
     assert edges[0]["data"]["adapter"] == "moondream-vlm"
     assert "too slow" in edges[0]["description"]
     assert [p["state"] for p in pushes] == ["active", "inactive"]
+
+
+# ── review round two (#591) ───────────────────────────────────────────
+
+def test_a_non_200_answer_is_neither_a_recovery_nor_a_reset(_quiet_notify, clock, monkeypatch):
+    """A 503 from KAI-C is an HTTP answer, not the adapter keeping up.
+    It must not zero the timeout streak, and while the breaker is open a
+    probe answered 'busy' in 50 ms must not resume full traffic."""
+    import httpx
+
+    from core.config import settings
+    from services import caption_enrichment as cap
+
+    monkeypatch.setattr(settings, "events_enrichment_breaker_timeouts", 2, raising=False)
+    script = {"seq": []}
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+        @staticmethod
+        def json():
+            return {"result": {"caption": "x"}}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            step = script["seq"].pop(0)
+            if step == "timeout":
+                raise httpx.ReadTimeout("")
+            return _Resp(step)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
+
+    async def call():
+        return await cap._caption_jpeg(b"jpeg", "moondream-vlm", "cam1", event_id=1)
+
+    gate = eg.gate_for("moondream-vlm")
+    # timeout, 503, timeout: the 503 in the middle must not break the run
+    script["seq"] = ["timeout", 503, "timeout"]
+    _run(call()); _run(call()); _run(call())
+    assert gate.is_open, "two timeouts with a 503 between them is still two timeouts"
+    # cooldown over; the probe gets a 503 → stays open, backs off further
+    clock["t"] += eg.COOLDOWN_BASE_S + 1
+    script["seq"] = [503]
+    assert _run(call()) is None
+    assert gate.is_open and gate.cooldown_s > eg.COOLDOWN_BASE_S * 2
+    assert _quiet_notify == [("moondream-vlm", True)], "no 'resumed' was announced"
+    # ...and a real 200 closes it
+    clock["t"] += eg.COOLDOWN_MAX_S + 1
+    script["seq"] = [200]
+    assert _run(call()) == "x"
+    assert not gate.is_open
+
+
+def test_an_expired_cooldown_with_no_traffic_reads_as_idle(clock):
+    """The breaker only moves inside admit(). With cameras quiet after a
+    trip, nothing calls admit(), so 'open' would be forever — and the
+    backfill, the one caller that could probe, was the one told to wait."""
+    gate = eg.gate_for("moondream-vlm")
+    gate.breaker_timeouts = 1
+    _run(gate.admit()); gate.release("timeout")
+    assert gate.is_open and gate.cooling and not gate.idle()
+    clock["t"] += eg.COOLDOWN_BASE_S + 1
+    assert gate.is_open and not gate.cooling and gate.idle(), (
+        "cooldown over, nobody probing: the next caller may be the backfill")
+    _run(asyncio.wait_for(eg.wait_all_idle(poll_s=0.01), timeout=1))
+
+
+def test_a_connect_timeout_is_short_and_is_not_a_breaker_timeout(monkeypatch, caplog):
+    """The 90 s limit is for a model computing. A host that never answers
+    the SYN must cost the connect ceiling, log as unreachable, and count
+    as an error — not pin the adapter's only slot for 90 s per call."""
+    import logging
+
+    import httpx
+
+    from services import caption_enrichment as cap
+
+    seen = {}
+
+    class _Client:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            raise httpx.ConnectTimeout("")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client(**kw))
+    gate = eg.gate_for("moondream-vlm")
+    gate.breaker_timeouts = 1
+    with caplog.at_level(logging.WARNING, logger="caption_enrichment"):
+        assert _run(cap._caption_jpeg(b"jpeg", "moondream-vlm", "cam1", event_id=1)) is None
+    assert isinstance(seen["timeout"], httpx.Timeout)
+    assert seen["timeout"].connect == eg.CONNECT_TIMEOUT_S
+    assert seen["timeout"].read == eg.timeout_s()
+    assert "unreachable" in caplog.text and "ConnectTimeout" in caplog.text
+    assert not gate.is_open and gate.errors == 1 and gate.timeouts == 0

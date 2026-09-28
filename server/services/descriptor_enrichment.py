@@ -64,6 +64,8 @@ from typing import Any
 
 logger = logging.getLogger("descriptor_enrichment")
 
+from services.enrichment_gate import DROPPED  # noqa: E402
+
 #: The canonical task name (server/config/tasks.yml). The plan reports
 #: canonical names since the alias fix, so this matches whether the
 #: adapter advertises "vqa" or "visual_qa".
@@ -302,6 +304,8 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
 
     payload = await infer_through_gate(adapter, body, log=logger,
                                        caller="descriptor enrichment")
+    if payload is DROPPED:
+        return DROPPED
     if payload is None:
         return None
     result = (payload or {}).get("result") or {}
@@ -313,7 +317,7 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-async def enrich_event_descriptors(event_id: int) -> None:
+async def enrich_event_descriptors(event_id: int) -> str | None:
     """Background task: ask the box what it can say about this visit.
 
     Three phases, for the reason ``plate_enrichment`` documents: READ
@@ -395,10 +399,17 @@ async def enrich_event_descriptors(event_id: int) -> None:
         return
 
     claims: list[Claim] = []
+    dropped = 0
     for kind in sorted(kinds):
         spec = KIND_QUESTIONS[kind]
         answer = await _ask(jpeg, adapter, spec["question"],
                             camera_handle, event_id)
+        if answer is DROPPED:
+            # Never reached the adapter. Not "looked and found nothing":
+            # nobody looked, and recording VQA as ran would make the
+            # drop permanent — every later pass would skip this visit.
+            dropped += 1
+            continue
         if not answer:
             continue
         value = normalise_answer(kind, answer)
@@ -430,10 +441,14 @@ async def enrich_event_descriptors(event_id: int) -> None:
         # ran_tasks is written even when nothing was extracted: "looked
         # and found nothing" must be distinguishable from "never looked",
         # which is the distinction every attribute scheme gets wrong.
-        apply_descriptors(db, row, claims, [VQA_TASK])
+        # Unless a question was DROPPED: then nobody has looked yet, the
+        # claims that did come back are kept, and VQA is left un-ran so
+        # the backfill asks again.
+        apply_descriptors(db, row, claims, [VQA_TASK] if not dropped else [])
         db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("descriptor enrichment: write failed for %s", event_id)
         db.rollback()
     finally:
         db.close()
+    return "dropped" if dropped else None
