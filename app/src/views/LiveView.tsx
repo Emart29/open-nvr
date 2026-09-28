@@ -42,6 +42,8 @@ import {
 } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { useTranslation } from '../i18n'
+import { useNavigate } from 'react-router-dom'
+import { useSnackbar } from '../components/Snackbar'
 
 // Layout definitions - matching the WindowSettings
 interface LayoutDefinition {
@@ -1067,32 +1069,41 @@ function MenuOverlay({ onClose }: { onClose: () => void }) {
 }
 
 function MenuItem({ item, onClose }: { item: { icon: React.ReactNode; label: string; action: string; highlight?: boolean }, onClose: () => void }) {
-  const navigate = (window as any).routerNavigate as ((path: string) => void) | undefined
+  const navigate = useNavigate()
+  const { showSuccess, showError } = useSnackbar()
   async function handleClick() {
     switch (item.action) {
       case 'live':
-        navigate && navigate('/live')
+        navigate('/live')
         break
       case 'export':
-        navigate && navigate('/playback')
+        navigate('/playback')
         break
+      // /settings/webrtc was never a tab key; this is the real first tab.
       case 'settings':
-        navigate && navigate('/settings/webrtc')
+        navigate('/settings/camera-config/device')
         break
       case 'hdd':
-        navigate && navigate('/settings/media-source')
+        navigate('/settings/media-source')
         break
       case 'image':
-        navigate && navigate('/search')
+        navigate('/search')
+        break
+      // These two tiles did nothing at all before: no case handled them.
+      case 'manual':
+        navigate('/support')
+        break
+      case 'camera':
+        navigate('/cameras')
         break
       case 'shutdown':
         try {
           const ok = window.confirm('Are you sure you want to shutdown the system?')
           if (!ok) break
           await apiService.systemShutdown()
-          alert('Shutdown requested. The system may go offline shortly.')
+          showSuccess('Shutdown requested. The system may go offline shortly.')
         } catch (e: any) {
-          alert(e?.message || 'Failed to request shutdown')
+          showError(e?.message || 'Failed to request shutdown')
         }
         break
       default:
