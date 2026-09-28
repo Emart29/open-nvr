@@ -124,8 +124,8 @@ services:
         # The agent asks for this voice per request (AppConfig.piper_voice).
         VOICE=${PIPER_VOICE:-en_US-lessac-medium}
         LANG_REGION=$${VOICE%%-*}; REST=$${VOICE#*-}
-        NAME=$${REST%-*}; QUALITY=$${REST##*-}; LANG=$${LANG_REGION%%_*}
-        BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/$$LANG/$$LANG_REGION/$$NAME/$$QUALITY
+        NAME=$${REST%-*}; QUALITY=$${REST##*-}; LANG_CODE=$${LANG_REGION%%_*}
+        BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/$$LANG_CODE/$$LANG_REGION/$$NAME/$$QUALITY
         cd /voices || exit 0
         for f in "$$VOICE.onnx" "$$VOICE.onnx.json"; do
           if [ -s "$$f" ]; then

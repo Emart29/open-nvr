@@ -30,12 +30,17 @@ four things in the agent itself made every stage slower than it needs
 to be, and each is now a rule:
 
 1. **The prompt's static prefix is byte-identical across turns.** Ollama
-   reuses its KV cache only for an unchanged prefix. The clock line
-   (which changes every minute) used to sit near the TOP of the system
-   prompt, so the whole ~4k-token tool prompt was re-prefilled on every
-   turn — the 17 s "iter 1" against 2.6 s for "iter 2" of the same turn.
-   The clock is now the LAST paragraph. Keep it that way: anything that
-   varies per turn belongs at the tail, or in the user message.
+   reuses its KV cache only for an unchanged prefix, and its chat template
+   renders the tool schemas INSIDE the system turn, right after the system
+   text. The clock line (which changes every minute) used to sit in the
+   system prompt, ahead of ~3.5k tokens of schemas, so the whole prefix
+   was re-prefilled on every turn — the 17 s "iter 1" against 2.6 s for
+   "iter 2" of the same turn. On the `/converse` path the clock is now
+   its own system message AFTER the history, where nothing cached follows
+   it; the pre-warm sends the same clockless system + tools. Keep it that
+   way: anything that varies per turn belongs after the history. (The
+   streaming `/ws` context keeps the clock in its system prompt because
+   that context is built once per session and does not change within it.)
 2. **Whisper runs greedy (`beam_size: 1`).** Beam 5 costs 30-50% more CPU
    and buys nothing on a clean, VAD-trimmed utterance of a few seconds.
 3. **The Piper voice is a MEDIUM tier by default** (`PIPER_VOICE`,

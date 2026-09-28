@@ -24,6 +24,7 @@ metadata + the event ring.
 from __future__ import annotations
 
 import asyncio
+import re
 import base64
 import logging
 import math
@@ -248,10 +249,11 @@ def build_tool_definitions(
                         "identify_faces": {
                             "type": "boolean",
                             "description": (
-                                "For person searches: set true ONLY when the question asks WHO "
-                                "came or names someone ('was Priya here', 'who came to the "
-                                "door'). Face-matching costs a recognition call per photo, so "
-                                "'did anyone come' must leave it off (default false)."),
+                                "For person searches: face-match the kept photos. Set true when "
+                                "the question asks WHO came or names someone ('was Priya here', "
+                                "'who came to the door'); leave it out otherwise — a recognition "
+                                "call per photo is the wrong price for 'did anyone come'. Left "
+                                "out, the agent decides from the question itself."),
                         },
                         "plate": {
                             "type": "string",
@@ -412,6 +414,11 @@ def build_tool_definitions(
 # ── Tool handlers ──────────────────────────────────────────────────
 
 
+#: WHO questions — the word, or the shape of a name. search_history uses
+#: it to decide face matching when the model left identify_faces out.
+_WHO_RE = re.compile(r"\b(who|whom|whose|recogni[sz]e|name)\b|(?<=[a-z0-9,] )[A-Z][a-z]{2,}\b")
+
+
 class CameraTools:
     """Holds references to the context + KAI-C clients and exposes
     one coroutine per tool. Pipecat's LLM service calls these via
@@ -486,6 +493,8 @@ class CameraTools:
         # historical, and each carries its own timestamp caption so the UI
         # can never present a photo from 16:25 as the current view.
         self.last_evidence_frames: list[dict] = []
+        #: The utterance the current turn is answering (set by the turn).
+        self.current_question: str = ""
         # Why the last describe fell back from the VLM ("" = it didn't) —
         # surfaced by the system self-check so degradation is visible.
         self.last_vision_error: str | None = None
@@ -1329,7 +1338,13 @@ class CameraTools:
         # check. Fetched ONCE and in parallel, shared with face-matching:
         # the two used to fetch every crop twice, one visit at a time —
         # 12 s of a 71 s field turn on a busy box.
-        identify = label == "person" and bool(args.get("identify_faces", False))
+        # Face-match when asked WHO. The model may say so explicitly; when
+        # it says nothing (small models routinely omit optional booleans)
+        # the question itself decides — "was Priya here" must not turn
+        # into a list of times with no name because a flag went missing.
+        flag = args.get("identify_faces")
+        asked_who = bool(_WHO_RE.search(getattr(self, "current_question", "") or ""))
+        identify = label == "person" and (bool(flag) if flag is not None else asked_who)
         crops = await self._fetch_evidence(
             events, cap=max(self.EVIDENCE_FRAMES_CAP, self.FACE_ID_CAP if identify else 0))
         self._attach_evidence_frames(events, crops)
@@ -1451,14 +1466,18 @@ class CameraTools:
     #: face-matches when asked who. Both bound one turn's evidence work.
     EVIDENCE_FRAMES_CAP = 3
     FACE_ID_CAP = 4
+    #: Extra crops fetched so a failed read does not reduce the count.
+    EVIDENCE_SLACK = 2
 
     async def _fetch_evidence(self, events, cap: int) -> dict[int, bytes]:
         """The kept crops of the first ``cap`` visits that have one, fetched
         concurrently. One fetch per visit per turn, shared by the frames
-        shown and the faces matched."""
+        shown and the faces matched. Fetches a little past ``cap`` so one
+        bad read (a 404, an oversize file) does not cost a photo: the
+        callers take the first ``cap`` that came back, in order."""
         if self._events is None or cap <= 0:
             return {}
-        wanted = [e for e in events if getattr(e, "has_evidence", False)][:cap]
+        wanted = [e for e in events if getattr(e, "has_evidence", False)][:cap + self.EVIDENCE_SLACK]
         if not wanted:
             return {}
 
@@ -1478,8 +1497,7 @@ class CameraTools:
                 out[eid] = crop
         return out
 
-    def _attach_evidence_frames(self, events, crops: dict[int, bytes],
-                                cap: int | None = None) -> None:
+    def _attach_evidence_frames(self, events, crops: dict[int, bytes]) -> None:
         """Publish up to ``cap`` remembered best-frames onto this turn.
 
         Each carries its own timestamp caption. That is not decoration: every
@@ -1488,9 +1506,8 @@ class CameraTools:
         afternoon would read as "here is your camera now" — the wrong thing to
         get wrong in a security product.
         """
-        cap = self.EVIDENCE_FRAMES_CAP if cap is None else cap
         for e in events:
-            if len(self.last_evidence_frames) >= cap:
+            if len(self.last_evidence_frames) >= self.EVIDENCE_FRAMES_CAP:
                 break
             crop = crops.get(e.id)
             if not crop:
@@ -1501,29 +1518,27 @@ class CameraTools:
                 "jpeg_b64": base64.b64encode(crop).decode("ascii"),
             })
 
-    async def _identify_visit_faces(self, events, crops: dict[int, bytes],
-                                    cap: int | None = None) -> set:
-        names: set = set()
-        checked = 0
-        cap = self.FACE_ID_CAP if cap is None else cap
-        for e in events:
-            if checked >= cap:
-                break
-            crop = crops.get(e.id)
-            if not crop:
-                continue
-            checked += 1
+    async def _identify_visit_faces(self, events, crops: dict[int, bytes]) -> set:
+        """Names recognised on up to FACE_ID_CAP of the fetched crops — the
+        recognitions run concurrently, and one failing does not cost the
+        others their name."""
+        picked = [crops[e.id] for e in events if crops.get(e.id)][:self.FACE_ID_CAP]
+        if not picked or self._recognise is None:
+            return set()
+
+        async def one(crop):
             try:
                 response = await self._recognise.infer(
-                    frame_jpeg=crop, extra={"task": "face_recognition"}
-                )
+                    frame_jpeg=crop, extra={"task": "face_recognition"})
             except Exception:
                 logger.warning("search_history: recognition adapter unavailable")
-                break
-            result = response.get("result") or {}
+                return None
+            result = (response or {}).get("result") or {}
             if result.get("recognized"):
-                names.add(str(result.get("name") or result.get("person_id") or "someone"))
-        return names
+                return str(result.get("name") or result.get("person_id") or "someone")
+            return None
+
+        return {n for n in await asyncio.gather(*(one(c) for c in picked)) if n}
 
     @staticmethod
     def _clock_phrase(iso: str | None) -> str:

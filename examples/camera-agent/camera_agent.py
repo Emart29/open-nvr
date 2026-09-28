@@ -3164,7 +3164,7 @@ class CameraAgentRuntime:
                 think=_think, keep_alive=cfg.llm_keep_alive,
             )
         self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token,
-                                 voice=cfg.piper_voice or None)
+                                 voice=cfg.piper_voice)
 
         self.caption_client = KaicAdapterClient(
             kaic_url=cfg.kaic_url,
@@ -5130,7 +5130,7 @@ class CameraAgentRuntime:
             # weight load. (KEEP_ALIVE=-1 keeps the cache resident.)
             await self.ollama.chat(
                 messages=[
-                    {"role": "system", "content": self.build_system_prompt()},
+                    {"role": "system", "content": self.build_system_prompt(clock=False)},
                     {"role": "user", "content": "hello"},
                 ],
                 tools=self.tool_definitions,
@@ -5278,37 +5278,47 @@ class CameraAgentRuntime:
             + "\n".join(lines)
         )
 
-    def build_system_prompt(self) -> str:
-        """Compose the system prompt the LLM sees: the agent's identity + the
-        operator's base prompt + a per-camera roster + task guidance."""
-        roster = "\n".join(
-            f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
-        )
-        # Per-turn wall clock, in the container's local timezone (TZ is passed
-        # through by the compose files). Without this the model cannot turn
-        # "today" or "the last 30 minutes" into the ISO 8601 window that
-        # search_history / describe_window take — it would have to guess the
-        # date, and small models guess their training cutoff.
+    @staticmethod
+    def _clock_line() -> str:
+        """Per-turn wall clock, in the container's local timezone (TZ is
+        passed through by the compose files). Without this the model cannot
+        turn "today" or "the last 30 minutes" into the ISO 8601 window that
+        search_history / describe_window take — it would have to guess the
+        date, and small models guess their training cutoff."""
         from datetime import datetime as _dt
         _now = _dt.now().astimezone()
-        clock_line = (
+        return (
             f"The current date and time is "
             f"{_now.strftime('%A %Y-%m-%d %H:%M (UTC%z)')}. When a tool takes "
             f"an ISO 8601 time window, compute it from THIS clock and include "
             f"the timezone offset (e.g. {_now.strftime('%Y-%m-%dT%H:%M:00%z')})."
         )
+
+    def build_system_prompt(self, *, clock: bool = True) -> str:
+        """Compose the system prompt the LLM sees: the agent's identity + the
+        operator's base prompt + a per-camera roster + task guidance.
+
+        ``clock=False`` leaves the per-turn clock OUT. Ollama's chat template
+        renders the tool schemas inside the system turn, AFTER this text, so
+        a clock anywhere in here sits before ~3.5k tokens of schemas and
+        changes every minute — the whole prefix re-prefilled per turn. The
+        JSON /converse path therefore sends the clock as its own system
+        message after the history (see _run_conversation_turn); the
+        streaming /ws path keeps it here because that context is built once
+        per session and stays byte-identical for the session's length."""
+        roster = "\n".join(
+            f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
+        )
+        clock_line = self._clock_line()
         # Which tools the LLM can actually call this turn — guidance below
         # must never route to a tool that isn't advertised (a small model
         # will either stall or 'improvise' with a live-scene tool instead).
         advertised = {
             t["function"]["name"] for t in (self.tool_definitions or ())
         }
-        # The clock goes LAST, not here. Ollama reuses its KV cache only
-        # for an unchanged prefix, and this line changes every minute: at
-        # the top it re-prefilled the whole ~4k-token tool prompt on every
-        # turn (17 s of "iter 1" on a CPU box; the second iteration of the
-        # same turn, prefix intact, took 2.6 s). Everything static comes
-        # first, byte-identical across turns; the clock is the tail.
+        # Nothing per-turn in here: everything below is byte-identical
+        # across turns, which is what lets Ollama keep its KV cache for the
+        # system text AND the tool schemas rendered after it.
         prompt = (
             f"You are the OpenNVR Agent, this system's camera agent. Speak in "
             f"the FIRST person — say 'I see…', 'I'm watching…', not in the "
@@ -5395,11 +5405,11 @@ class CameraAgentRuntime:
                 "'Let me look at the gate camera between two and three.' Never guess "
                 "the answer in that sentence."
             )
-        # Last of the prose, so everything above it stays cacheable (see
-        # the note at the top of this prompt). Only Qwen3's ``/no_think``
-        # switch may follow: it is a control token the model wants at the
-        # very end, and it is constant across turns.
-        prompt += "\n\n" + clock_line
+        # Last of the prose when it is here at all (see the docstring). Only
+        # Qwen3's ``/no_think`` switch may follow: a control token the model
+        # wants at the very end, constant across turns.
+        if clock:
+            prompt += "\n\n" + clock_line
         if self.cfg.llm_think is False:
             prompt += "\n\n/no_think"
         return prompt
@@ -7668,8 +7678,13 @@ async def _run_conversation_turn(
     if _is_config_question(user_text):
         return _roster_answer(runtime.visible_cameras())
 
+    # No clock in the system prompt: Ollama renders the tool schemas right
+    # after it, and a line that changes every minute in front of ~3.5k
+    # tokens of schemas re-prefilled the whole prefix on every turn — the
+    # 17 s "iter 1" of the field trace. The clock goes after the history,
+    # as its own system message (below), where nothing cached follows it.
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": runtime.build_system_prompt()}
+        {"role": "system", "content": runtime.build_system_prompt(clock=False)}
     ]
     tools = tool_definitions if tool_definitions is not None else runtime.tool_definitions
     cameras = [cam.camera_id for cam in runtime.visible_cameras()]
@@ -7685,7 +7700,14 @@ async def _run_conversation_turn(
             ),
         })
     messages.extend(history)
+    messages.append({"role": "system", "content": runtime._clock_line()})
     messages.append({"role": "user", "content": user_text})
+    # The question itself, for tools that decide by it (face matching only
+    # when somebody asked WHO — tools.search_history).
+    try:
+        runtime.tools.current_question = user_text
+    except Exception:  # noqa: BLE001 — a runtime without tools (tests)
+        pass
 
     # Per-turn pipeline trace: ordered (step, detail, ms) of everything this
     # turn executed — LLM iterations, every tool, forced groundings — so the

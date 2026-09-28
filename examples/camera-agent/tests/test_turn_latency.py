@@ -25,29 +25,45 @@ def _runtime():
 
 # ── 1. the prompt's static prefix is byte-identical across turns ──────
 
-def test_the_clock_is_the_last_paragraph_of_the_prompt():
-    """Ollama's KV cache survives only an unchanged prefix. The clock line
-    changes every minute, so it must be the TAIL — with it near the top,
-    every turn re-prefilled the whole tool prompt (17 s on the field box)."""
-    prompt = _runtime().build_system_prompt()
+def test_the_turns_system_prompt_carries_no_clock_and_the_clock_follows_the_history():
+    """Ollama renders the tool schemas inside the system turn, after the
+    system text: a clock anywhere in that text sits ahead of ~3.5k tokens
+    of schemas and changes every minute. So the turn's system prompt has
+    NO clock, and the clock is its own system message after the history —
+    where nothing cached follows it."""
+    rt = _runtime()
     marker = "The current date and time is"
-    assert marker in prompt
-    assert prompt.strip().split("\n\n")[-1].startswith(marker), (
-        "the clock must be the last paragraph; nothing may follow it")
-    # ...except a thinking model's constant control switch.
-    rt = _runtime(); rt.cfg.llm_think = False
-    tail = rt.build_system_prompt().strip().split("\n\n")
-    assert tail[-1] == "/no_think" and tail[-2].startswith(marker)
-    assert prompt.index(marker) > prompt.index("Cameras available to you")
-    assert prompt.index(marker) > prompt.index("SPOKEN ALOUD")
+    assert marker not in rt.build_system_prompt(clock=False)
+    assert marker in rt.build_system_prompt(), "the streaming context still gets it in-prompt"
+
+    seen = {}
+
+    class _LLM:
+        async def chat(self, *, messages, **kw):
+            seen["messages"] = messages
+            return {"message": {"content": "All quiet.", "tool_calls": []}}
+
+    rt.ollama = _LLM()
+    history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    from camera_agent import _run_conversation_turn
+    asyncio.run(_run_conversation_turn(rt, history, "is the front door clear", max_iterations=1))
+    msgs = seen["messages"]
+    assert msgs[0]["role"] == "system" and marker not in msgs[0]["content"]
+    assert msgs[1:3] == history, "history right after the static prefix"
+    assert msgs[3]["role"] == "system" and msgs[3]["content"].startswith(marker)
+    assert msgs[4] == {"role": "user", "content": "is the front door clear"}
 
 
 def test_two_builds_share_everything_before_the_clock():
     rt = _runtime()
-    a, b = rt.build_system_prompt(), rt.build_system_prompt()
-    marker = "The current date and time is"
-    assert a[:a.index(marker)] == b[:b.index(marker)]
-    assert len(a[:a.index(marker)]) > 500, "the cacheable prefix is the bulk of the prompt"
+    a, b = rt.build_system_prompt(clock=False), rt.build_system_prompt(clock=False)
+    assert a == b, "byte-identical: the whole system+tools prefix stays cached"
+    assert len(a) > 500
+    assert rt.build_system_prompt().startswith(a), "with the clock in, only the tail differs"
+    rt2 = _runtime(); rt2.cfg.llm_think = False
+    tail = rt2.build_system_prompt().strip().split("\n\n")
+    assert tail[-1] == "/no_think" and tail[-2].startswith("The current date and time is"), (
+        "Qwen3's constant control switch may still follow the clock")
 
 
 # ── 2. Whisper runs greedy ────────────────────────────────────────────
@@ -149,21 +165,57 @@ def _tools(events, recognise):
 
 
 def test_did_anyone_come_fetches_each_photo_once_and_never_recognises():
-    ev, rec = _Events([_visit(i) for i in range(1, 7)]), _Recognise()
+    ev, rec = _Events([_visit(i) for i in range(1, 9)]), _Recognise()
     tools = _tools(ev, rec)
+    tools.current_question = "did anyone come to the door today"
     out = asyncio.run(tools.search_history({"label": "person"}))
-    assert "I remember 6 person visit" in out
-    assert ev.fetches == [1, 2, 3], "the three shown photos, each once"
+    assert "I remember 8 person visit" in out
+    assert sorted(ev.fetches) == [1, 2, 3, 4, 5], "three shown + two of slack, each once"
     assert rec.calls == 0, "'did anyone come' does not pay for face recognition"
     assert len(tools.last_evidence_frames) == 3
     assert "Recognised" not in out
 
 
 def test_who_came_recognises_on_the_same_fetched_photos():
-    ev, rec = _Events([_visit(i) for i in range(1, 7)]), _Recognise()
+    ev, rec = _Events([_visit(i) for i in range(1, 9)]), _Recognise()
     tools = _tools(ev, rec)
     out = asyncio.run(tools.search_history({"label": "person", "identify_faces": True}))
-    assert sorted(ev.fetches) == [1, 2, 3, 4], "four for face-ID, no photo fetched twice"
+    assert sorted(ev.fetches) == [1, 2, 3, 4, 5, 6], "four for face-ID + slack, no photo twice"
     assert rec.calls == 4
     assert "Recognised: Priya" in out
     assert len(tools.last_evidence_frames) == 3
+
+
+def test_the_question_decides_face_matching_when_the_model_left_the_flag_out():
+    """qwen2.5:1.5b routinely omits optional booleans. 'was Priya here'
+    must not become a list of times with no name because of that."""
+    for q, expect in (("was Priya at the door this afternoon", True),
+                      ("who came to the door", True),
+                      ("did anyone come to the door", False)):
+        ev, rec = _Events([_visit(i) for i in range(1, 5)]), _Recognise()
+        tools = _tools(ev, rec)
+        tools.current_question = q
+        out = asyncio.run(tools.search_history({"label": "person"}))
+        assert (rec.calls > 0) is expect, q
+        assert ("Recognised: Priya" in out) is expect, q
+
+
+def test_a_bad_read_does_not_cost_a_photo_or_a_name():
+    class _Flaky(_Events):
+        async def evidence(self, event_id):
+            self.fetches.append(event_id)
+            return None if event_id == 1 else b"\xff\xd8crop%d" % event_id
+
+    class _Once(_Recognise):
+        async def infer(self, *, frame_jpeg, extra=None, correlation_id=None):
+            self.calls += 1
+            if frame_jpeg.endswith(b"2"):
+                raise RuntimeError("adapter hiccup")
+            return {"result": {"recognized": True, "name": "Priya"}}
+
+    ev, rec = _Flaky([_visit(i) for i in range(1, 9)]), _Once()
+    tools = _tools(ev, rec)
+    out = asyncio.run(tools.search_history({"label": "person", "identify_faces": True}))
+    assert len(tools.last_evidence_frames) == 3, "the failed read was covered by the slack"
+    assert rec.calls == 4 and "Recognised: Priya" in out, (
+        "one recognition failing does not abort the others")
