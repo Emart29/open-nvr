@@ -42,9 +42,9 @@ export function NetworkIdsWidget({ editing, onRemove }: { editing?: boolean; onR
       ) : (
         <>
           <div className="flex divide-x divide-[var(--border)] border-b border-[var(--border)] shrink-0">
-            {stat(t('monitoring.totalAlerts'), total, 'var(--text)', '/alerts-incidents?only_alerts=1')}
-            {stat(t('monitoring.highSeverity'), high, 'var(--danger)', '/alerts-incidents?only_alerts=1&severity=1')}
-            {stat(t('dashboard.sevMedium'), medium, 'var(--warn)', '/alerts-incidents?only_alerts=1&severity=2')}
+            {stat(t('monitoring.totalAlerts'), total, 'var(--text)', '/alerts-incidents?source=network&only_alerts=1')}
+            {stat(t('monitoring.highSeverity'), high, 'var(--danger)', '/alerts-incidents?source=network&only_alerts=1&severity=1')}
+            {stat(t('dashboard.sevMedium'), medium, 'var(--warn)', '/alerts-incidents?source=network&only_alerts=1&severity=2')}
           </div>
           <div className="flex-1 min-h-0 p-1">
             {series.length < 2 ? (

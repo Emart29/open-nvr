@@ -22,7 +22,7 @@ Handles camera creation, updates, and management.
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -33,6 +33,25 @@ from models import Camera, CameraPermission, User
 from schemas import CameraCreate, CameraUpdate
 from services.mediamtx_admin_service import MediaMtxAdminService
 from utils.url_redaction import redact_url_credentials
+
+
+def camera_search_filter(q: str | None):
+    """Case-insensitive substring match on a camera's name or IP address.
+
+    None for an empty or missing query, so callers can apply it
+    unconditionally and an unfiltered list stays exactly what it was. LIKE
+    wildcards in the query are escaped: searching for "cam_1" must not also
+    match "camX1".
+    """
+    term = (q or "").strip()
+    if not term:
+        return None
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return or_(
+        Camera.name.ilike(pattern, escape="\\"),
+        Camera.ip_address.ilike(pattern, escape="\\"),
+    )
 
 
 class CameraService:
@@ -323,6 +342,7 @@ class CameraService:
         skip: int = 0,
         limit: int = 100,
         active_only: bool = True,
+        search: str | None = None,
     ) -> list[Camera]:
         """Get list of cameras owned by a specific user."""
         query = db.query(Camera).filter(
@@ -330,17 +350,27 @@ class CameraService:
         )
         if active_only:
             query = query.filter(Camera.is_active == True)
+        match = camera_search_filter(search)
+        if match is not None:
+            query = query.filter(match)
 
         return query.offset(skip).limit(limit).all()
 
     @staticmethod
     def get_all_cameras(
-        db: Session, skip: int = 0, limit: int = 100, active_only: bool = True
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        active_only: bool = True,
+        search: str | None = None,
     ) -> list[Camera]:
         """Get all cameras (for superusers)."""
         query = db.query(Camera).filter(Camera.deleted_at.is_(None))
         if active_only:
             query = query.filter(Camera.is_active == True)
+        match = camera_search_filter(search)
+        if match is not None:
+            query = query.filter(match)
 
         return query.offset(skip).limit(limit).all()
 
@@ -351,6 +381,7 @@ class CameraService:
         skip: int = 0,
         limit: int = 100,
         active_only: bool = True,
+        search: str | None = None,
     ) -> list[Camera]:
         """Get cameras the user has explicit permission to view/manage (non-owner)."""
         subq = (
@@ -368,6 +399,9 @@ class CameraService:
         )
         if active_only:
             query = query.filter(Camera.is_active == True)
+        match = camera_search_filter(search)
+        if match is not None:
+            query = query.filter(match)
         return query.offset(skip).limit(limit).all()
 
     @staticmethod

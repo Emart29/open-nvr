@@ -41,6 +41,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const LOITERING_CAPABILITY = 'loitering'
@@ -259,6 +260,15 @@ export function Loitering() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('loitering.title')} description={t('loitering.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -289,7 +299,7 @@ export function Loitering() {
         description={t('loitering.description')}
         actions={
           <>
-            <div className="flex rounded border border-[var(--border)] overflow-hidden text-xs">
+            <div className="flex border border-[var(--border)] overflow-hidden text-xs">
               {([1, 7] as const).map((d) => (
                 <button
                   key={d}
@@ -329,7 +339,7 @@ export function Loitering() {
       </div>
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsZone.length === 1 ? 'One camera has no zone drawn:' : `${needsZone.length} cameras have no zone drawn:`}{' '}
@@ -348,7 +358,9 @@ export function Loitering() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
             <Skeleton className="h-16" />
           ) : dwelling.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-3 text-center">Nobody is inside a zone right now.</div>
@@ -363,8 +375,8 @@ export function Loitering() {
                     <span className="font-medium min-w-[9rem] truncate">{cameraName(d.camera)}</span>
                     <span className="text-[var(--text-dim)] w-16">{d.label}</span>
                     <div className="flex-1 min-w-[10rem]">
-                      <div className="h-2 rounded bg-[var(--bg-2)] overflow-hidden" title={`${Math.round(d.progress * 100)}% of the threshold`}>
-                        <div className="h-full rounded transition-[width]" style={{ width: `${Math.round(Math.min(1, d.progress) * 100)}%`, background: barColor }} />
+                      <div className="h-2 bg-[var(--bg-2)] overflow-hidden" title={`${Math.round(d.progress * 100)}% of the threshold`}>
+                        <div className="h-full transition-[width]" style={{ width: `${Math.round(Math.min(1, d.progress) * 100)}%`, background: barColor }} />
                       </div>
                     </div>
                     <span className="tabular-nums w-14 text-right font-semibold">{mmss(d.dwell_s)}</span>
@@ -384,7 +396,7 @@ export function Loitering() {
       </Card>
 
       {/* ── Per camera ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? null : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3"><Skeleton className="h-44" /><Skeleton className="h-44" /></div>
       ) : rows.length === 0 ? (
         <EmptyState
@@ -465,7 +477,7 @@ export function Loitering() {
             footer={
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Last 7 days across all zones: {week.stays} stays · average {mmss(week.avg)} · longest {mmss(week.longest)}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

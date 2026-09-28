@@ -81,16 +81,11 @@ def test_recorded_footage_is_listed_for_playback(client, publishing_camera):
     assert _entries(listed), f"no playback entries for {path}: {listed}"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "ffmpeg is not installed in the opennvr-core image, so this endpoint "
-        "returns 502 on every install. See the docstring."
-    ),
-)
 def test_a_frame_can_be_extracted_from_past_footage(client, recorded_camera):
     """"What was happening at 3:14pm" — a real JPEG out of a recorded file.
 
-    **Currently xfail: this is a real, shipped bug, not a flaky test.**
+    This was xfail until the core image gained ffmpeg (4f4617d0, HA-001); the
+    history below is why the assertion is the strict one.
 
     ``_extract_recording_frame`` (server/routers/recordings.py) shells out to
     ``ffmpeg``, but the runtime stage of the root ``Dockerfile`` installs only

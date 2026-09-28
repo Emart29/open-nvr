@@ -366,6 +366,10 @@ async def get_fleet_metrics(
 ):
     """Every adapter's windowed rollup in one call — the AI Adapters
     page's fleet strip (N ok / worst p95 / total rpm) reads this."""
+    # Bind it like every other handler here. Without this line the name was
+    # unbound, so the endpoint raised NameError -> a bare 500 on every call,
+    # and the AI Adapters page's fleet strip never loaded.
+    kai_c_service = get_kai_c_service()
     try:
         return await kai_c_service.get_fleet_metrics()
     except httpx.HTTPError:

@@ -44,6 +44,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const CROSSINGS_CAPABILITY = 'crossings'
@@ -224,6 +225,15 @@ export function Tripwires() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('tripwires.title')} description={t('tripwires.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -252,7 +262,7 @@ export function Tripwires() {
         description={t('tripwires.description')}
         actions={
           <>
-            <div className="flex rounded border border-[var(--border)] overflow-hidden text-xs">
+            <div className="flex border border-[var(--border)] overflow-hidden text-xs">
               {([1, 7] as const).map((d) => (
                 <button
                   key={d}
@@ -291,7 +301,7 @@ export function Tripwires() {
       </div>
 
       {needsLine.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsLine.length === 1 ? 'One camera is selected but has no line yet:' : `${needsLine.length} cameras are selected but have no line yet:`}{' '}
@@ -302,7 +312,9 @@ export function Tripwires() {
       )}
 
       {/* ── Per camera ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3"><Skeleton className="h-40" /><Skeleton className="h-40" /></div>
       ) : rows.length === 0 ? (
         <EmptyState
@@ -392,7 +404,7 @@ export function Tripwires() {
             footer={
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Last 7 days across all lines: {weekTotals.in} {labels.a_to_b} · {weekTotals.out} {labels.b_to_a}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

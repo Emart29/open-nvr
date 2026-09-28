@@ -21,6 +21,8 @@ import { apiService } from '../lib/apiService'
 import { useAuth } from '../auth/AuthContext'
 import { useTranslation, useDateFormat } from '../i18n'
 import { extractApiError } from '../lib/apiError'
+import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 type DetectionResult = {
   id: number
@@ -96,6 +98,7 @@ type WSInferenceEvent = {
 
 export function AIDetectionResults() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -353,7 +356,7 @@ export function AIDetectionResults() {
   }, [notice])
 
   async function handleDelete(id: number) {
-    if (!confirm('Are you sure you want to delete this detection result?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this detection result?', danger: true }))) return
 
     try {
       setLoading(true)
@@ -369,7 +372,7 @@ export function AIDetectionResults() {
   }
 
   async function handleDeleteOld(days: number) {
-    if (!confirm(`Are you sure you want to delete all results older than ${days} days?`)) return
+    if (!(await confirm({ title: `Are you sure you want to delete all results older than ${days} days?`, danger: true }))) return
 
     try {
       setLoading(true)
@@ -388,9 +391,9 @@ export function AIDetectionResults() {
     if (!confidence) return '-'
     const pct = (confidence * 100).toFixed(1)
     const colorClass = 
-      confidence >= 0.8 ? 'text-green-400' :
-      confidence >= 0.6 ? 'text-yellow-400' :
-      'text-orange-400'
+      confidence >= 0.8 ? 'text-[var(--ok)]' :
+      confidence >= 0.6 ? 'text-[var(--warn)]' :
+      'text-[var(--warn)]'
     return <span className={`font-medium ${colorClass}`}>{pct}%</span>
   }
 
@@ -449,14 +452,14 @@ export function AIDetectionResults() {
         <div className="flex gap-2">
           <button
             onClick={() => loadResults()}
-            className="px-3 py-1 bg-[var(--panel)] border border-neutral-700 rounded text-sm hover:bg-[var(--panel-2)]"
+            className="px-3 py-1 bg-[var(--panel)] border border-[var(--border)] text-sm hover:bg-[var(--panel-2)]"
           >
             {t('detection.refresh')}
           </button>
           {user?.is_superuser && (
             <button
               onClick={() => handleDeleteOld(7)}
-              className="px-3 py-1 bg-red-600/20 border border-red-600/50 rounded text-red-300 hover:bg-red-600/30 text-sm"
+              className="px-3 py-1 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-sm"
             >
               Delete Old (7d+)
             </button>
@@ -466,18 +469,18 @@ export function AIDetectionResults() {
 
       {/* Notifications */}
       {notice && (
-        <div className="p-2 rounded bg-green-500/10 border border-green-500/30 text-green-300 text-sm mb-4">
+        <div className="p-2 bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] text-[var(--ok)] text-sm mb-4">
           {notice}
         </div>
       )}
       {error && (
-        <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm mb-4">
+        <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm mb-4">
           {error}
         </div>
       )}
 
       {/* Fixed Filters */}
-      <div className="border border-neutral-700 bg-[var(--panel-2)] p-3 rounded mb-4">
+      <div className="border border-[var(--border)] bg-[var(--panel-2)] p-3 mb-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs text-[var(--text-dim)] mb-1">{t('detection.filterModel')}</label>
@@ -528,7 +531,7 @@ export function AIDetectionResults() {
           <div className="flex items-end">
             <button
               onClick={() => setFilters({ model_id: '', task: '', limit: 100 })}
-              className="px-3 py-1 bg-[var(--panel)] border border-neutral-700 rounded text-sm hover:bg-[var(--panel-2)] w-full"
+              className="px-3 py-1 bg-[var(--panel)] border border-[var(--border)] text-sm hover:bg-[var(--panel-2)] w-full"
             >
               {t('detection.clear')}
             </button>
@@ -537,8 +540,8 @@ export function AIDetectionResults() {
       </div>
 
       {/* Scrollable Results Table */}
-      <div className="flex-1 overflow-hidden border border-neutral-700 bg-[var(--panel-2)] rounded">
-        <div className="p-3 border-b border-neutral-700">
+      <div className="flex-1 overflow-hidden border border-[var(--border)] bg-[var(--panel-2)]">
+        <div className="p-3 border-b border-[var(--border)]">
           <h2 className="text-md font-medium">{t('detection.results')} ({filteredResults.length})</h2>
         </div>
 
@@ -569,7 +572,7 @@ export function AIDetectionResults() {
                 {filteredResults.map((result) => (
                   <tr
                     key={result.id}
-                    className="border-t border-neutral-700 hover:bg-[var(--panel)]/50"
+                    className="border-t border-[var(--border)] hover:bg-[var(--panel)]/50"
                   >
                     <td className="p-3 font-mono text-xs text-[var(--text-dim)]">
                       #{result.id}
@@ -581,13 +584,13 @@ export function AIDetectionResults() {
                       </div>
                     </td>
                     <td className="p-3">
-                      <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
+                      <span className="text-xs bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] px-2 py-1">
                         {result.task}
                       </span>
                     </td>
                     <td className="p-3">
                       {result.label ? (
-                        <span className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">
+                        <span className="text-xs bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)] px-2 py-1">
                           {result.label}
                         </span>
                       ) : result.caption ? (
@@ -595,29 +598,29 @@ export function AIDetectionResults() {
                           {result.caption}
                         </div>
                       ) : (
-                        <span className="text-neutral-500">-</span>
+                        <span className="text-[var(--text-dim)]">-</span>
                       )}
                     </td>
                     <td className="p-3">{formatConfidence(result.confidence)}</td>
                     <td className="p-3">{formatBBox(result)}</td>
                     <td className="p-3 text-center">
                       {result.count !== null && result.count !== undefined ? (
-                        <span className="font-bold text-green-400">{result.count}</span>
+                        <span className="font-bold text-[var(--ok)]">{result.count}</span>
                       ) : (
-                        <span className="text-neutral-500">-</span>
+                        <span className="text-[var(--text-dim)]">-</span>
                       )}
                     </td>
                     <td className="p-3">
                       {result.latency_ms ? (
                         <span className={`text-xs ${
-                          result.latency_ms < 200 ? 'text-green-400' :
-                          result.latency_ms < 500 ? 'text-yellow-400' :
-                          'text-orange-400'
+                          result.latency_ms < 200 ? 'text-[var(--ok)]' :
+                          result.latency_ms < 500 ? 'text-[var(--warn)]' :
+                          'text-[var(--warn)]'
                         }`}>
                           {result.latency_ms}ms
                         </span>
                       ) : (
-                        <span className="text-neutral-500">-</span>
+                        <span className="text-[var(--text-dim)]">-</span>
                       )}
                     </td>
                     <td className="p-3 text-xs text-[var(--text-dim)]">
@@ -627,7 +630,7 @@ export function AIDetectionResults() {
                       {user?.is_superuser && (
                         <button
                           onClick={() => handleDelete(result.id)}
-                          className="px-2 py-1 bg-red-600/20 border border-red-600/50 rounded text-red-300 hover:bg-red-600/30 text-xs"
+                          className="px-2 py-1 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-xs"
                         >
                           Delete
                         </button>
@@ -643,15 +646,15 @@ export function AIDetectionResults() {
     </section>
 
     {/* Right Sidebar - Camera List */}
-    <aside className="w-80 border-l border-neutral-700 bg-[var(--panel-2)] overflow-auto">
-      <div className="sticky top-0 bg-[var(--panel-2)] border-b border-neutral-700 p-3 z-10">
+    <aside className="w-80 border-l border-[var(--border)] bg-[var(--panel-2)] overflow-auto">
+      <div className="sticky top-0 bg-[var(--panel-2)] border-b border-[var(--border)] p-3 z-10">
         <h2 className="text-md font-medium mb-2">{t('detection.cameras')}</h2>
         <button
           onClick={() => setSelectedCameraId(null)}
           className={`w-full px-3 py-2 text-sm rounded border transition-colors ${
             selectedCameraId === null
               ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
-              : 'bg-[var(--panel)] border-neutral-700 hover:bg-[var(--panel-2)]'
+              : 'bg-[var(--panel)] border-[var(--border)] hover:bg-[var(--panel-2)]'
           }`}
         >
           <div className="flex items-center justify-between">
@@ -679,13 +682,13 @@ export function AIDetectionResults() {
                 className={`w-full text-left p-3 rounded border transition-colors ${
                   isSelected
                     ? 'bg-[var(--accent)]/20 border-[var(--accent)] hover:bg-[var(--accent)]/30'
-                    : 'bg-[var(--panel)] border-neutral-700 hover:bg-[var(--bg-2)]'
+                    : 'bg-[var(--panel)] border-[var(--border)] hover:bg-[var(--bg-2)]'
                 }`}
               >
                 <div className="flex items-start justify-between mb-1">
                   <div className="font-medium text-sm truncate flex-1">{camera.name}</div>
                   <span className={`ml-2 text-xs px-2 py-0.5 rounded ${
-                    count > 0 ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+                    count > 0 ? 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]' : 'bg-[var(--badge-neutral-bg)] text-[var(--text-dim)]'
                   }`}>
                     {count}
                   </span>
@@ -707,19 +710,13 @@ export function AIDetectionResults() {
 
     {/* Camera Details Dialog */}
     {showCameraDialog && dialogCamera && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCameraDialog(false)}>
-        <div className="bg-[var(--panel-2)] border border-neutral-700 rounded-lg shadow-2xl w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between p-4 border-b border-neutral-700">
-            <h2 className="text-lg font-semibold">Camera Details</h2>
-            <button
-              onClick={() => setShowCameraDialog(false)}
-              className="p-1 hover:bg-[var(--panel)] rounded transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+      <Modal
+        open
+        title="Camera Details"
+        onClose={() => setShowCameraDialog(false)}
+        widthClassName="w-[calc(100vw-2rem)] max-w-2xl"
+        bodyClassName="p-0"
+      >
 
           <div className="p-4 space-y-4 max-h-[70vh] overflow-auto">
             {/* Camera Info */}
@@ -746,8 +743,8 @@ export function AIDetectionResults() {
                     <div>
                       <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                         dialogCamera.status === 'active' || dialogCamera.status === 'provisioned' 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-gray-500/20 text-gray-400'
+                          ? 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]' 
+                          : 'bg-[var(--badge-neutral-bg)] text-[var(--text-dim)]'
                       }`}>
                         {dialogCamera.status}
                       </span>
@@ -783,20 +780,20 @@ export function AIDetectionResults() {
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-[var(--text-dim)] uppercase tracking-wide">Detection Statistics</h3>
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-[var(--panel)] p-3 rounded border border-neutral-700">
-                  <div className="text-2xl font-bold text-green-400">
+                <div className="bg-[var(--panel)] p-3 border border-[var(--border)]">
+                  <div className="text-2xl font-bold text-[var(--ok)]">
                     {results.filter(r => r.camera_id === dialogCamera.id).length}
                   </div>
                   <div className="text-xs text-[var(--text-dim)] mt-1">Total Detections</div>
                 </div>
-                <div className="bg-[var(--panel)] p-3 rounded border border-neutral-700">
-                  <div className="text-2xl font-bold text-blue-400">
+                <div className="bg-[var(--panel)] p-3 border border-[var(--border)]">
+                  <div className="text-2xl font-bold text-[var(--accent)]">
                     {new Set(results.filter(r => r.camera_id === dialogCamera.id).map(r => r.model_id)).size}
                   </div>
                   <div className="text-xs text-[var(--text-dim)] mt-1">Models Used</div>
                 </div>
-                <div className="bg-[var(--panel)] p-3 rounded border border-neutral-700">
-                  <div className="text-2xl font-bold text-purple-400">
+                <div className="bg-[var(--panel)] p-3 border border-[var(--border)]">
+                  <div className="text-2xl font-bold text-[var(--accent)]">
                     {new Set(results.filter(r => r.camera_id === dialogCamera.id).map(r => r.task)).size}
                   </div>
                   <div className="text-xs text-[var(--text-dim)] mt-1">Task Types</div>
@@ -815,25 +812,25 @@ export function AIDetectionResults() {
                   const avgLatency = modelResults.reduce((sum, r) => sum + (r.latency_ms || 0), 0) / modelResults.length
 
                   return (
-                    <div key={modelId} className="bg-[var(--panel)] p-3 rounded border border-neutral-700">
+                    <div key={modelId} className="bg-[var(--panel)] p-3 border border-[var(--border)]">
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <div className="font-medium text-sm">{model?.name || `Model ${modelId}`}</div>
                           <div className="flex gap-1 mt-1">
                             {tasks.map(task => (
-                              <span key={task} className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">
+                              <span key={task} className="text-xs bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] px-2 py-0.5">
                                 {task}
                               </span>
                             ))}
                           </div>
                         </div>
-                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
+                        <span className="text-xs bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)] px-2 py-1">
                           {modelResults.length} detections
                         </span>
                       </div>
                       {avgLatency > 0 && (
                         <div className="text-xs text-[var(--text-dim)]">
-                          Avg. Latency: <span className={avgLatency < 200 ? 'text-green-400' : avgLatency < 500 ? 'text-yellow-400' : 'text-orange-400'}>
+                          Avg. Latency: <span className={avgLatency < 200 ? 'text-[var(--ok)]' : avgLatency < 500 ? 'text-[var(--warn)]' : 'text-[var(--warn)]'}>
                             {avgLatency.toFixed(0)}ms
                           </span>
                         </div>
@@ -855,15 +852,15 @@ export function AIDetectionResults() {
                 <h3 className="text-sm font-medium text-[var(--text-dim)] uppercase tracking-wide">Recent Detections</h3>
                 <div className="space-y-2 max-h-48 overflow-auto">
                   {results.filter(r => r.camera_id === dialogCamera.id).slice(0, 5).map(result => (
-                    <div key={result.id} className="bg-[var(--panel)] p-2 rounded border border-neutral-700 text-xs">
+                    <div key={result.id} className="bg-[var(--panel)] p-2 border border-[var(--border)] text-xs">
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium">{result.model_name || `Model ${result.model_id}`}</span>
                         <span className="text-[var(--text-dim)]">{fmt.dateTime(result.created_at)}</span>
                       </div>
                       <div className="flex gap-2">
-                        <span className="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">{result.task}</span>
+                        <span className="bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] px-2 py-0.5">{result.task}</span>
                         {result.label && (
-                          <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded">{result.label}</span>
+                          <span className="bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)] px-2 py-0.5">{result.label}</span>
                         )}
                         {result.confidence && (
                           <span className="text-[var(--text-dim)]">Confidence: {(result.confidence * 100).toFixed(1)}%</span>
@@ -876,16 +873,15 @@ export function AIDetectionResults() {
             )}
           </div>
 
-          <div className="flex justify-end gap-2 p-4 border-t border-neutral-700">
+          <div className="flex justify-end gap-2 p-4 border-t border-[var(--border)]">
             <button
               onClick={() => setShowCameraDialog(false)}
-              className="px-4 py-2 bg-[var(--panel)] border border-neutral-700 rounded hover:bg-[var(--bg-2)] transition-colors text-sm"
+              className="px-4 py-2 bg-[var(--panel)] border border-[var(--border)] hover:bg-[var(--bg-2)] transition-colors text-sm"
             >
               Close
             </button>
           </div>
-        </div>
-      </div>
+      </Modal>
     )}
   </div>
   )

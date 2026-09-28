@@ -24,6 +24,8 @@
 // card uses — this page just gives them room to breathe.
 
 import { useMemo, useState } from 'react'
+import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Settings2, Trash2, Activity, ExternalLink, BookOpen } from 'lucide-react'
@@ -121,6 +123,8 @@ export function AppView() {
   const { appId = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const { showSuccess, showError } = useSnackbar()
 
   const appQuery = useApp(appId)
@@ -236,12 +240,25 @@ export function AppView() {
             </Button>
           )}
           <label
-            className="inline-flex items-center gap-2 rounded border border-[var(--border)] px-2.5 py-1 text-sm"
+            className="inline-flex items-center gap-2 border border-[var(--border)] px-2.5 py-1 text-sm"
             title={app.enabled ? 'Turn the app off. Its settings and cameras are kept.' : 'Turn the app on'}
           >
             <Switch
               checked={app.enabled}
-              onChange={() => toggle.mutate()}
+              onChange={async () => {
+                // Turning an app off stops its detections and alerts on every
+                // camera at once; turning it on needs no second thought.
+                if (app.enabled) {
+                  const ok = await confirm({
+                    title: t('apps.confirmDisableTitle', { name: app.name }),
+                    message: t('apps.confirmDisableMessage'),
+                    confirmLabel: t('apps.disable'),
+                    danger: true,
+                  })
+                  if (!ok) return
+                }
+                toggle.mutate()
+              }}
               disabled={toggle.isPending}
               label={`${app.name} enabled`}
             />
@@ -258,8 +275,8 @@ export function AppView() {
             className="hover:!text-[var(--danger,#ef4444)]"
             title="Uninstall"
             aria-label={`Uninstall ${app.name}`}
-            onClick={() => {
-              if (window.confirm(`Uninstall ${app.name}?`)) uninstall.mutate()
+            onClick={async () => {
+              if (await confirm({ title: `Uninstall ${app.name}?`, confirmLabel: 'Uninstall', danger: true })) uninstall.mutate()
             }}
             disabled={uninstall.isPending}
           >
@@ -324,7 +341,7 @@ export function AppView() {
                     // is app-authored HTML — render it inert.
                     sandbox=""
                     srcDoc={appUi.data ?? ''}
-                    className="w-full rounded-md border border-[var(--border)] bg-white"
+                    className="w-full border border-[var(--border)] bg-white"
                     style={{ height: 360 }}
                   />
                 )}
@@ -366,7 +383,7 @@ export function AppView() {
                 {actions.map((a) => (
                   <button
                     key={a.name}
-                    className="w-full text-left rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 hover:border-[var(--accent,var(--border))] disabled:opacity-50"
+                    className="w-full text-left border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 hover:border-[var(--accent,var(--border))] disabled:opacity-50"
                     onClick={() => setActiveAction(a)}
                     disabled={!app.enabled}
                     title={!app.enabled ? 'Enable the app first' : a.description || a.name}

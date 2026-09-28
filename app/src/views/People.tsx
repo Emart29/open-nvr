@@ -442,7 +442,7 @@ export function People() {
               <label className="relative flex-1 min-w-[180px]">
                 <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" />
                 <input
-                  className="w-full pl-7 pr-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                   placeholder="Search by name, id or notes"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -542,7 +542,7 @@ export function People() {
                     <button
                       key={s.id ?? i}
                       type="button"
-                      className="text-left rounded border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden hover:border-[var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default"
+                      className="text-left border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden hover:border-[var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-default"
                       // An app older than stranger ids can show the wall but
                       // cannot serve the crop behind it.
                       disabled={!s.id}
@@ -711,7 +711,7 @@ function DeviceCapture({
     <div className="space-y-2">
       {/* What to do now. The count is the honest one — poses with a
           photo on file, not poses stepped past. */}
-      <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5">
+      <div className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-xs font-medium flex items-center gap-1">
             <ScanFace size={13} /> {pose.label}
@@ -749,7 +749,7 @@ function DeviceCapture({
 
       {cam.devices.length > 1 && (
         <select
-          className="w-full px-2 py-1 text-xs rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+          className="w-full px-2 py-1 text-xs border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
           value={cam.deviceId}
           onChange={(e) => void cam.start(e.target.value)}
         >
@@ -860,14 +860,14 @@ function StrangerDialog({ appId, stranger, people, onClose, onEnrol, onAssigned 
         <img
           src={crop.data ?? stranger.image}
           alt="unrecognised face"
-          className="w-full max-h-72 object-contain rounded border border-[var(--border)] bg-black"
+          className="w-full max-h-72 object-contain border border-[var(--border)] bg-black"
         />
         {sorted.length > 0 && (
-          <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] p-2 space-y-1.5">
+          <div className="border border-[var(--border)] bg-[var(--bg-2)] p-2 space-y-1.5">
             <div className="text-xs font-medium">Someone already enrolled?</div>
             <div className="flex gap-1">
               <select
-                className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg)] text-[var(--text)]"
+                className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg)] text-[var(--text)]"
                 value={assignTo}
                 onChange={(e) => setAssignTo(e.target.value)}
               >
@@ -1147,7 +1147,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {/* ── Photo ── */}
         <div className="md:col-span-2 space-y-2">
-          <div className="relative aspect-square w-full rounded border border-[var(--border)] bg-black overflow-hidden grid place-items-center">
+          <div className="relative aspect-square w-full border border-[var(--border)] bg-black overflow-hidden grid place-items-center">
             {/* The video element is mounted for the whole life of the
                 dialog in device mode rather than swapped in and out:
                 remounting it drops srcObject and the stream has to be
@@ -1207,7 +1207,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
               ) : (
                 <div className="flex gap-1">
                   <select
-                    className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                    className="flex-1 min-w-0 px-2 py-1 text-xs border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                     value={cameraId}
                     onChange={(e) => setCameraId(e.target.value === '' ? '' : Number(e.target.value))}
                   >
@@ -1257,7 +1257,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
           <Field label="Name">
             <input
               autoFocus
-              className="w-full px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+              className="w-full px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Alex Rivera"
@@ -1272,7 +1272,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
           </Field>
           <Field label="Notes" hint="Flat or unit, department, vehicle, who to call — what a guard should see next to the name.">
             <input
-              className="w-full px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+              className="w-full px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Flat 4B · white Swift KA01AB1234"
@@ -1286,7 +1286,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
           >
             <input
               type="date"
-              className="px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+              className="px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
               value={validUntil}
               onChange={(e) => setValidUntil(e.target.value)}
             />
@@ -1295,7 +1295,7 @@ function PersonEditor({ appId, categories, cameras, initial, onClose, onSaved }:
             )}
           </Field>
           {category === 'watchlist' && (
-            <div className="text-xs rounded border border-[var(--danger)]/40 bg-[var(--danger)]/5 p-2 text-[var(--text)]">
+            <div className="text-xs border border-[var(--danger)]/40 bg-[var(--danger)]/5 p-2 text-[var(--text)]">
               A watchlist match raises a <b>high</b> alert every time this face is seen. Use it for people who must not be let in unnoticed, not for anyone you would rather just not greet.
             </div>
           )}

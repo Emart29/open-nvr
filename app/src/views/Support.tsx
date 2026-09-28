@@ -174,10 +174,10 @@ export function Support() {
   const statusBadge = (s: DiagItem['status']) => {
     const map: Record<DiagItem['status'], string> = {
       idle: 'bg-[var(--bg)] text-[var(--text-dim)] border-[var(--border)]',
-      running: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
-      ok: 'bg-green-500/10 text-green-300 border-green-500/30',
-      warn: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
-      error: 'bg-red-500/10 text-red-300 border-red-500/30',
+      running: 'bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] border-[color-mix(in_oklab,var(--accent)_45%,var(--border))]',
+      ok: 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)] border-[color-mix(in_oklab,var(--ok)_45%,var(--border))]',
+      warn: 'bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] text-[var(--warn)] border-[color-mix(in_oklab,var(--warn)_45%,var(--border))]',
+      error: 'bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)] border-[color-mix(in_oklab,var(--danger)_45%,var(--border))]',
     }
     const label: Record<DiagItem['status'], string> = {
       idle: 'idle',
@@ -186,7 +186,7 @@ export function Support() {
       warn: 'warn',
       error: 'error',
     }
-    return <span className={`px-2 py-0.5 rounded text-xs border ${map[s]}`}>{label[s]}</span>
+    return <span className={`px-2 py-0.5  text-xs border ${map[s]}`}>{label[s]}</span>
   }
 
   return (
@@ -200,43 +200,43 @@ export function Support() {
       </div>
 
       {!canAdmin && (
-        <div className="p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+        <div className="p-2 bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))] text-[var(--warn)] text-sm">
           {t('support.limited')}
         </div>
       )}
 
       {notice && (
-        <div className="p-2 rounded bg-green-500/10 border border-green-500/30 text-green-300 text-sm">{notice}</div>
+        <div className="p-2 bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] text-[var(--ok)] text-sm">{notice}</div>
       )}
       {error && (
-        <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>
+        <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm">{error}</div>
       )}
 
       {/* System info */}
   <div className="card">
         <h2 className="font-medium mb-2">{t('support.systemInfo')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.apiBase')}</span>
             <span className="font-mono text-xs">{envApiBase || appOrigin}</span>
           </div>
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.service')}</span>
             <span className="font-mono text-xs">{health?.service || '-'}</span>
           </div>
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.version')}</span>
             <span className="font-mono text-xs">{health?.version || '-'}</span>
           </div>
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.user')}</span>
             <span className="font-mono text-xs">{user ? `${user.username} (${user.is_superuser ? 'admin' : 'user'})` : '-'}</span>
           </div>
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.browser')}</span>
             <span className="font-mono text-xs truncate max-w-[60%]" title={browserUa}>{browserUa}</span>
           </div>
-          <div className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
             <span className="text-[var(--text-dim)]">{t('support.time')}</span>
             <span className="font-mono text-xs">{fmt.dateTime(new Date())}</span>
           </div>
@@ -248,7 +248,7 @@ export function Support() {
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-medium">{t('support.quickDiagnostics')}</h2>
           <div className="flex items-center gap-2">
-            <button className="btn" onClick={() => setHealth(null)}>Reset</button>
+            <button className="btn" onClick={() => { setHealth(null); resetDiag() }}>Reset</button>
             <button className="btn btn-primary" onClick={runDiagnostics}>{t('support.run')}</button>
           </div>
         </div>
@@ -257,7 +257,7 @@ export function Support() {
             <div className="text-[var(--text-dim)]">{t('support.noTests')}</div>
           )}
           {Object.values(diag).map((d) => (
-            <div key={d.key} className="flex items-center justify-between p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+            <div key={d.key} className="flex items-center justify-between p-2 bg-[var(--bg)] border border-[var(--border)]">
               <div className="flex items-center gap-2">
                 {statusBadge(d.status)}
                 <span>{d.label}</span>
@@ -276,15 +276,15 @@ export function Support() {
             <button className="btn" onClick={runDiagnostics}>{t('support.refresh')}</button>
           </div>
           <div className="text-xs grid grid-cols-1 md:grid-cols-3 gap-2">
-            <div className="p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+            <div className="p-2 bg-[var(--bg)] border border-[var(--border)]">
               <div className="font-medium mb-1">Global</div>
               <pre className="overflow-auto max-h-48 whitespace-pre-wrap break-words">{mtx?.global ? JSON.stringify(mtx.global, null, 2) : '—'}</pre>
             </div>
-            <div className="p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+            <div className="p-2 bg-[var(--bg)] border border-[var(--border)]">
               <div className="font-medium mb-1">Path Defaults</div>
               <pre className="overflow-auto max-h-48 whitespace-pre-wrap break-words">{mtx?.pathdefaults ? JSON.stringify(mtx.pathdefaults, null, 2) : '—'}</pre>
             </div>
-            <div className="p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+            <div className="p-2 bg-[var(--bg)] border border-[var(--border)]">
               <div className="font-medium mb-1">Active Paths</div>
               <pre className="overflow-auto max-h-48 whitespace-pre-wrap break-words">{mtx?.paths ? JSON.stringify(mtx.paths, null, 2) : '—'}</pre>
             </div>
@@ -299,14 +299,14 @@ export function Support() {
           <button className="btn btn-primary" onClick={downloadBundle}>Export Support Bundle</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-          <div className="p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="p-2 bg-[var(--bg)] border border-[var(--border)]">
             <div className="font-medium mb-1">Log collection</div>
             <p className="text-[var(--text-dim)]">Server logs are stored on the backend host at logs/server.log with rotation. Use your preferred method to collect the file when opening a support ticket.</p>
             <div className="mt-2 flex gap-2">
               <button className="btn" onClick={copyLogInstructions}>Copy instructions</button>
             </div>
           </div>
-          <div className="p-2 bg-[var(--bg)] rounded border border-[var(--border)]">
+          <div className="p-2 bg-[var(--bg)] border border-[var(--border)]">
             <div className="font-medium mb-1">Documentation</div>
             <ul className="list-disc list-inside text-[var(--text-dim)]">
               <li>Updates & Patching: see the Updates page for Media Server config</li>

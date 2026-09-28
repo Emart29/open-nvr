@@ -88,33 +88,33 @@ export function WebRTCSettings() {
     }
   }
 
-  if (!canAdmin) return <div className="text-sm text-amber-400">{t('admin.only')}</div>
+  if (!canAdmin) return <div className="text-sm text-[var(--warn)]">{t('admin.only')}</div>
 
   const inputCls =
-    'flex-1 bg-[var(--panel)] border border-[var(--border)] px-3 py-2 rounded text-sm'
+    'flex-1 bg-[var(--panel)] border border-[var(--border)] px-3 py-2  text-sm'
   const btnCls =
-    'px-3 py-2 border border-[var(--border)] bg-[var(--panel-2)] rounded text-sm'
+    'px-3 py-2 border border-[var(--border)] bg-[var(--panel-2)]  text-sm'
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold">WebRTC</h2>
         <button
-          className="ml-auto px-4 py-2 bg-[var(--accent)] text-white rounded disabled:opacity-60"
+          className="ml-auto px-4 py-2 bg-[var(--accent)] text-white disabled:opacity-60"
           onClick={save}
           disabled={loading}
         >
           {loading ? t('common.saving') : t('common.save')}
         </button>
       </div>
-      {error && <div className="text-sm text-red-400">{error}</div>}
+      {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
 
       <p className="text-xs text-[var(--text-dim)] max-w-2xl">
         {t('settings.webrtcDescription')}
       </p>
 
       {/* STUN */}
-      <div className="border border-[var(--border)] rounded p-3 space-y-2">
+      <div className="border border-[var(--border)] p-3 space-y-2">
         <div className="text-sm text-[var(--text-dim)]">{t('settings.stunServers')}</div>
         {cfg.stun_servers.map((s, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function WebRTCSettings() {
       </div>
 
       {/* TURN */}
-      <div className="border border-[var(--border)] rounded p-3 space-y-2">
+      <div className="border border-[var(--border)] p-3 space-y-2">
         <div className="text-sm text-[var(--text-dim)]">{t('settings.turnServers')}</div>
         {cfg.turn_servers.map((turn, i) => (
           <div key={i} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
@@ -212,7 +212,7 @@ export function WebRTCSettings() {
       </div>
 
       {/* Transport policy */}
-      <div className="border border-[var(--border)] rounded p-3">
+      <div className="border border-[var(--border)] p-3">
         <label className="flex items-center justify-between gap-2 text-sm">
           <span>
             {t('settings.icePolicy')}
@@ -221,7 +221,7 @@ export function WebRTCSettings() {
             </span>
           </span>
           <select
-            className="w-40 bg-[var(--panel)] border border-[var(--border)] px-3 py-2 rounded text-sm"
+            className="w-40 bg-[var(--panel)] border border-[var(--border)] px-3 py-2 text-sm"
             value={cfg.transport_policy}
             onChange={(e) =>
               setCfg({ ...cfg, transport_policy: e.target.value as 'all' | 'relay' })

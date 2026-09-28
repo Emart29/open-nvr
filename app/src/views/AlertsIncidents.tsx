@@ -23,6 +23,8 @@ import { apiService } from '../lib/apiService'
 import { useSystemAlerts, type SystemAlertEvent } from '../hooks/useCameraStatus'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
 import { Alarms } from './Alarms'
+import { PageHeader } from '../components/ui'
+import { Tabs } from '../components/ui/Tabs'
 import { extractApiError } from '../lib/apiError'
 
 type EveAlert = any
@@ -121,33 +123,29 @@ export function AlertsIncidents() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h1 className="text-xl font-semibold">{t('alerts.title')}</h1>
-        {loading && <span className="text-xs text-[var(--text-dim)]">{t('alerts.loading')}</span>}
-        {error && <span className="text-xs text-red-400">{error}</span>}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-[var(--text-dim)]">{t('alerts.source')}</span>
-        <button
-          className={`px-2 py-1 rounded border ${source === 'alarms' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
-          onClick={() => setParam('source', null)}
-        >
-          {t('alerts.alarms')}
-        </button>
-        <button
-          className={`px-2 py-1 rounded border ${source === 'network' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
-          onClick={() => setParam('source', 'network')}
-        >
-          {t('alerts.network')}
-        </button>
-        <button
-          className={`px-2 py-1 rounded border ${source === 'system' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
-          onClick={() => setParam('source', 'system')}
-        >
-          {t('alerts.system')}
-        </button>
-      </div>
+      <PageHeader
+        title={t('alerts.title')}
+        actions={
+          <>
+            {loading && <span className="text-xs text-[var(--text-dim)]">{t('alerts.loading')}</span>}
+            {error && <span className="text-xs text-[var(--danger)]">{error}</span>}
+          </>
+        }
+        tabs={
+          // The source is a query parameter (?source=), so links from the
+          // dashboard and the bell land on the right tab; Alarms is the
+          // default and needs no parameter.
+          <Tabs
+            tabs={[
+              { key: 'alarms', label: t('alerts.alarms') },
+              { key: 'network', label: t('alerts.network') },
+              { key: 'system', label: t('alerts.system') },
+            ]}
+            active={source}
+            onChange={(key) => setParam('source', key === 'alarms' ? null : key)}
+          />
+        }
+      />
 
       {source === 'alarms' ? (
         <Alarms embedded />
@@ -158,32 +156,32 @@ export function AlertsIncidents() {
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-[var(--text-dim)]">{t('alerts.filters')}:</span>
         <button
-          className={`px-2 py-1 rounded border ${onlyAlerts ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
+          className={`px-2 py-1  border ${onlyAlerts ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-[var(--border)]'}`}
           onClick={() => setParam('only_alerts', onlyAlerts ? null : '1')}
         >
           {t('alerts.onlyAlerts')}
         </button>
         <button
-          className={`px-2 py-1 rounded border ${severity === '1' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
+          className={`px-2 py-1  border ${severity === '1' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-[var(--border)]'}`}
           onClick={() => setParam('severity', severity === '1' ? null : '1')}
         >
           {t('alerts.high')}
         </button>
         <button
-          className={`px-2 py-1 rounded border ${severity === '2' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
+          className={`px-2 py-1  border ${severity === '2' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-[var(--border)]'}`}
           onClick={() => setParam('severity', severity === '2' ? null : '2')}
         >
           {t('alerts.medium')}
         </button>
         <button
-          className={`px-2 py-1 rounded border ${severity === '3' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-neutral-700'}`}
+          className={`px-2 py-1  border ${severity === '3' ? 'bg-[var(--panel-2)] border-[var(--border)]' : 'border-[var(--border)]'}`}
           onClick={() => setParam('severity', severity === '3' ? null : '3')}
         >
           {t('alerts.low')}
         </button>
         {category && (
           <button
-            className="px-2 py-1 rounded border border-neutral-700"
+            className="px-2 py-1 border border-[var(--border)]"
             onClick={() => setParam('category', null)}
           >
             {t('alerts.category')}: {category} ×
@@ -217,8 +215,8 @@ type SystemEventRow = {
 }
 
 const SEVERITY_LABEL: Record<string, { text: string; className: string }> = {
-  critical: { text: 'Critical', className: 'text-red-400' },
-  warning: { text: 'Warning', className: 'text-amber-400' },
+  critical: { text: 'Critical', className: 'text-[var(--danger)]' },
+  warning: { text: 'Warning', className: 'text-[var(--warn)]' },
   info: { text: 'Info', className: 'text-[var(--text-dim)]' },
 }
 
@@ -277,9 +275,9 @@ function SystemAlertsView() {
   return (
     <div className="space-y-2">
       <div className="text-xs text-[var(--text-dim)]">
-        {loading ? t('alerts.loading') : error ? <span className="text-red-400">{error}</span> : t('alerts.showingSystem', { count: all.length, suffix: all.length === 1 ? '' : 's' })}
+        {loading ? t('alerts.loading') : error ? <span className="text-[var(--danger)]">{error}</span> : t('alerts.showingSystem', { count: all.length, suffix: all.length === 1 ? '' : 's' })}
       </div>
-      <div className="overflow-auto border border-[var(--border)] bg-[var(--panel-2)] rounded max-h-[calc(100vh-19rem)] min-h-48">
+      <div className="overflow-auto border border-[var(--border)] bg-[var(--panel-2)] max-h-[calc(100vh-19rem)] min-h-48">
         <table className="w-full text-xs min-w-[760px]">
           <thead>
             <tr className="text-left text-[var(--text-dim)] bg-[var(--bg-2)] border-b border-[var(--border)] sticky top-0 z-10">
@@ -331,7 +329,7 @@ function VirtualAlertTable({ items, loading, onCategoryClick }: { items: EveAler
   })
 
   return (
-    <div ref={scrollRef} className="overflow-auto border border-[var(--border)] bg-[var(--panel-2)] rounded max-h-[calc(100vh-19rem)] min-h-48">
+    <div ref={scrollRef} className="overflow-auto border border-[var(--border)] bg-[var(--panel-2)] max-h-[calc(100vh-19rem)] min-h-48">
       <div className="min-w-[1020px] text-xs">
         <div className={`${GRID_COLS} sticky top-0 z-10 bg-[var(--bg-2)] text-[var(--text-dim)] border-b border-[var(--border)]`}>
           <div className="p-2 font-medium">{t('alerts.time')}</div>

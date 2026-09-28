@@ -95,8 +95,8 @@ export function MFAVerify() {
           <ShieldCheck size={22} />
         </span>
         <div className="space-y-1">
-          <h1 className="text-lg font-semibold text-gray-100">{t('mfa.verifyTitle')}</h1>
-          <p className="text-sm text-gray-400">{t('mfa.verifyHint')}</p>
+          <h1 className="text-lg font-semibold text-[var(--text)]">{t('mfa.verifyTitle')}</h1>
+          <p className="text-sm text-[var(--text-dim)]">{t('mfa.verifyHint')}</p>
         </div>
       </div>
 
@@ -111,7 +111,7 @@ export function MFAVerify() {
         <label htmlFor="mfa-code" className="sr-only">{t('mfa.code')}</label>
         <input
           id="mfa-code"
-          className="h-12 w-full rounded-lg border border-[#2a3a4f] bg-[#0f1720] px-3 text-center font-mono text-xl tracking-[0.5em] text-gray-100 outline-none transition-colors placeholder:text-gray-600 focus:border-[#5eb3f6] focus:ring-2 focus:ring-[#5eb3f6]/20"
+          className="h-12 w-full border border-[#2a3a4f] bg-[#0f1720] px-3 text-center font-mono text-xl tracking-[0.5em] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-dim)] focus:border-[#5eb3f6] focus:ring-2 focus:ring-[#5eb3f6]/20"
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\s+/g, ''))}
           inputMode="numeric"

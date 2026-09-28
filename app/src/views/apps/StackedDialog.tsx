@@ -41,7 +41,7 @@ export function StackedDialog({
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative z-10 flex ${fullHeight ? 'h-[90vh]' : 'max-h-[90vh]'} max-w-[95vw] flex-col border border-neutral-700
+      <div className={`relative z-10 flex ${fullHeight ? 'h-[90vh]' : 'max-h-[90vh]'} max-w-[95vw] flex-col border border-[var(--border)]
                        bg-[var(--panel-2)] shadow-xl ${widthClassName}`}>
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-4 py-3">
           <div className="min-w-0">
@@ -49,7 +49,7 @@ export function StackedDialog({
             {subtitle && <div className="truncate text-xs text-[var(--text-dim)]">{subtitle}</div>}
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
-                  className="ml-auto rounded p-1 text-[var(--text-dim)] hover:text-[var(--text)]">
+                  className="ml-auto p-1 text-[var(--text-dim)] hover:text-[var(--text)]">
             <X size={16} />
           </button>
         </div>

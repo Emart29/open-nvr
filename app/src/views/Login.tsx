@@ -140,7 +140,7 @@ export function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-gray-500 hover:bg-white/5 hover:text-gray-200"
+                className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center text-[var(--text-dim)] hover:bg-white/5 hover:text-[var(--text)]"
                 aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
                 title={showPassword ? t('login.hidePassword') : t('login.showPassword')}
               >
@@ -208,7 +208,7 @@ function ForgotPassword() {
           id="forgot-password-help"
           role="dialog"
           aria-label={t('login.forgotTitle')}
-          className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border border-[#2a3a4f] bg-[#111a27] p-4 shadow-2xl"
+          className="absolute right-0 top-full z-20 mt-2 w-72 border border-[#2a3a4f] bg-[#111a27] p-4 shadow-2xl"
         >
           {/* The arrow: a rotated square sharing the card's border. */}
           <span
@@ -216,12 +216,12 @@ function ForgotPassword() {
             className="absolute -top-1.5 right-6 h-3 w-3 rotate-45 border-l border-t border-[#2a3a4f] bg-[#111a27]"
           />
           <div className="flex gap-3">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#5eb3f6]/15 text-[#5eb3f6]">
+            <span className="grid h-8 w-8 shrink-0 place-items-center bg-[#5eb3f6]/15 text-[#5eb3f6]">
               <KeyRound size={16} />
             </span>
             <div className="space-y-1">
-              <div className="text-sm font-semibold text-gray-100">{t('login.forgotTitle')}</div>
-              <p className="text-xs leading-relaxed text-gray-400">{t('login.forgotHelp')}</p>
+              <div className="text-sm font-semibold text-[var(--text)]">{t('login.forgotTitle')}</div>
+              <p className="text-xs leading-relaxed text-[var(--text-dim)]">{t('login.forgotHelp')}</p>
             </div>
           </div>
           <div className="mt-3 flex justify-end">
@@ -229,7 +229,7 @@ function ForgotPassword() {
               type="button"
               onClick={() => setOpen(false)}
               autoFocus
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-[#5eb3f6] hover:bg-white/5"
+              className="px-2.5 py-1 text-xs font-medium text-[#5eb3f6] hover:bg-white/5"
             >
               {t('login.forgotOk')}
             </button>

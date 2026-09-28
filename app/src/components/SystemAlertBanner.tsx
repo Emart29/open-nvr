@@ -59,10 +59,10 @@ export function SystemAlertBanner() {
     : ''
 
   return (
-    <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded border border-red-500/40 bg-red-500/10 text-sm" role="alert">
-      <AlertTriangle size={18} className="text-red-400 shrink-0" />
+    <div className="flex items-center gap-3 mb-4 px-4 py-2.5 border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-sm" role="alert">
+      <AlertTriangle size={18} className="text-[var(--danger)] shrink-0" />
       <div className="flex-1 min-w-0">
-        <span className="font-semibold text-red-400">{t('dashboard.recordingsDisk')} — {t('dashboard.activeAlerts')}.</span>{' '}
+        <span className="font-semibold text-[var(--danger)]">{t('dashboard.recordingsDisk')} — {t('dashboard.activeAlerts')}.</span>{' '}
         <span className="text-[var(--text)]">
           {detail} Oldest footage may be purged, and recording stops if the disk fills.
         </span>{' '}

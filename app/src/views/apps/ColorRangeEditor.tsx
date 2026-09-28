@@ -319,14 +319,14 @@ export function ColorRangeEditor({ value, onChange, cameraId, readOnly = false, 
             onChange={(e) => setCam(e.target.value)}
             placeholder="camera id"
             aria-label="Camera id"
-            className="w-28 rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
+            className="w-28 border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
           />
         ) : (
           <select
             value={cam}
             onChange={(e) => setCam(e.target.value)}
             aria-label="Camera to sample the colour from"
-            className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
+            className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
           >
             {cameras.map((c) => (
               <option key={c.id} value={c.id}>{cameraLabel(c, cameras)}</option>
@@ -335,9 +335,9 @@ export function ColorRangeEditor({ value, onChange, cameraId, readOnly = false, 
         )}
         {stored && (
           <span className="flex items-center gap-1.5 text-xs text-[var(--text-dim)]">
-            <span className="inline-block h-4 w-4 rounded-sm border border-[var(--border)]"
+            <span className="inline-block h-4 w-4 border border-[var(--border)]"
                   style={{ background: swatch(stored.low) }} />
-            <span className="inline-block h-4 w-4 rounded-sm border border-[var(--border)]"
+            <span className="inline-block h-4 w-4 border border-[var(--border)]"
                   style={{ background: swatch(stored.high) }} />
             H {stored.low[0]}–{stored.high[0]} · S {stored.low[1]}–{stored.high[1]}
             {' '}· V {stored.low[2]}–{stored.high[2]}
@@ -360,7 +360,7 @@ export function ColorRangeEditor({ value, onChange, cameraId, readOnly = false, 
       >
       <div
         ref={boxRef}
-        className="relative select-none overflow-hidden rounded border border-[var(--border)] bg-[var(--bg-2)]"
+        className="relative select-none overflow-hidden border border-[var(--border)] bg-[var(--bg-2)]"
         style={{
           ...(fit ? containStyle(16 / 9) : { aspectRatio: '16 / 9' }),
           cursor: pixels && !readOnly ? 'crosshair' : 'default',

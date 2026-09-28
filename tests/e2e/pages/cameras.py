@@ -7,7 +7,7 @@ from __future__ import annotations
 from harness import selectors as S
 from harness.budgets import BUDGETS
 
-from .base import DEFAULT_TIMEOUT_MS, BasePage
+from .base import DEFAULT_TIMEOUT_MS, BasePage, confirm_if_asked
 
 
 class CamerasPage(BasePage):
@@ -81,7 +81,12 @@ class CamerasPage(BasePage):
         self.find(S.FIELD_IP).fill(ip)
         self.find(S.FIELD_RTSP).fill(rtsp)
 
-        self.find(S.ADD_CAMERA_SUBMIT).last.click()
+        # Scoped to the dialog: with an empty list the page's empty state has
+        # its own "Add Camera" button, which sits AFTER the dialog in the DOM,
+        # so an unscoped `.last` clicked it -- behind the overlay -- whenever
+        # the shuffled suite ran this test with no cameras present.
+        dialog = self.page.get_by_role("dialog").last
+        self.find(S.ADD_CAMERA_SUBMIT, scope=dialog).last.click()
         self._confirm_duplicate_if_prompted()
 
     def _confirm_duplicate_if_prompted(self) -> None:
@@ -107,5 +112,8 @@ class CamerasPage(BasePage):
         quietly does not happen, and the test fails later on a row that is
         still present with nothing pointing at the cause.
         """
+        # Native confirm on older builds, the shared ConfirmDialog on newer
+        # ones -- confirm_if_asked answers whichever appears.
         self.accept_native_dialogs()
         self.find(S.CAMERA_ROW_DELETE, scope=self.row(name), name=name).first.click()
+        confirm_if_asked(self.page)

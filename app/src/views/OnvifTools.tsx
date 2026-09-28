@@ -19,11 +19,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { duplicateCameraNames, isDuplicateCameraError } from '../services/cameraService'
+import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useSnackbar } from '../components/Snackbar'
 
 type Device = { ip: string | null; service_urls: string[] }
 type Profile = { token: string; name: string }
 
 export function OnvifTools() {
+  const confirm = useConfirm()
   const [loading, setLoading] = useState(false)
   const [devices, setDevices] = useState<Device[]>([])
   const [selectedIp, setSelectedIp] = useState<string>('')
@@ -36,6 +39,10 @@ export function OnvifTools() {
   const [err, setErr] = useState<string>('')
   const [scanCidr, setScanCidr] = useState<string>('')
   const [cameraTime, setCameraTime] = useState<string>('')
+  const [presets, setPresets] = useState<any[] | null>(null)
+  const [presetName, setPresetName] = useState('')
+  const [presetToken, setPresetToken] = useState('')
+  const { showSuccess, showInfo } = useSnackbar()
 
   const canAuth = selectedIp && username && password
 
@@ -167,15 +174,15 @@ export function OnvifTools() {
       } catch (e: any) {
         if (!isDuplicateCameraError(e)) throw e
         const names = duplicateCameraNames(e)
-        const ok = confirm(
-          'A camera with this IP address or stream URL is already added' +
-          (names.length ? `: ${names.join(', ')}` : '') +
-          '. Add it again anyway?'
-        )
+        const ok = await confirm({
+          title: 'A camera with this IP address or stream URL is already added' +
+            (names.length ? `: ${names.join(', ')}` : '') +
+            '. Add it again anyway?',
+        })
         if (!ok) return
         await apiService.createCamera(payload, { force: true })
       }
-      alert('Camera added successfully')
+      showSuccess('Camera added successfully')
     } catch (e: any) {
       setErr((typeof e?.data?.detail === 'string' ? e.data.detail : null) || e.message || 'Failed to add camera')
     } finally {
@@ -189,7 +196,9 @@ export function OnvifTools() {
     setErr('')
     try {
       const res = await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'getPresets', port })
-      alert(JSON.stringify(res.data.result?.presets || [], null, 2))
+      const list: any[] = res.data.result?.presets || []
+      setPresets(list)
+      if (list.length === 0) showInfo('The camera has no presets')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'GetPresets failed')
     } finally {
@@ -198,14 +207,15 @@ export function OnvifTools() {
   }
 
   const setPreset = async () => {
-    const name = prompt('Preset name?') || undefined
+    const name = presetName.trim()
     if (!name) return
     if (!canAuth || !profileToken) return
     setLoading(true)
     setErr('')
     try {
       const res = await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'setPreset', name, port })
-      alert('SetPreset OK. Token: ' + (res.data.result?.preset_token || 'unknown'))
+      showSuccess('SetPreset OK. Token: ' + (res.data.result?.preset_token || 'unknown'))
+      setPresetName('')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'SetPreset failed')
     } finally {
@@ -214,14 +224,14 @@ export function OnvifTools() {
   }
 
   const gotoPreset = async () => {
-    const p = prompt('Preset token?') || undefined
+    const p = presetToken.trim()
     if (!p) return
     if (!canAuth || !profileToken) return
     setLoading(true)
     setErr('')
     try {
       await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'gotoPreset', presetToken: p, port })
-      alert('Moving to preset...')
+      showInfo('Moving to preset...')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'GotoPreset failed')
     } finally {
@@ -266,22 +276,22 @@ export function OnvifTools() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">ONVIF Tools</h1>
-      {err && <div className="text-red-400 text-sm">{err}</div>}
+      {err && <div className="text-[var(--danger)] text-sm">{err}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3 rounded">
+        <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3">
           <div className="flex items-center justify-between">
             <h2 className="font-medium">Discovery</h2>
-            <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={discover} disabled={loading}>Refresh</button>
+            <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={discover} disabled={loading}>Refresh</button>
           </div>
           <input
-            className="w-full mt-2 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded text-xs font-mono"
+            className="w-full mt-2 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] text-xs font-mono"
             placeholder="Scan CIDR (e.g. 192.168.1.0/24) — auto-filled from Camera LAN settings"
             value={scanCidr}
             onChange={(e) => setScanCidr(e.target.value)}
           />
           <div className="mt-2 space-y-2 max-h-60 overflow-auto">
             {devices.map((d, i) => (
-              <div key={i} className={`p-2 rounded cursor-pointer ${selectedIp===d.ip ? 'bg-[var(--panel-2)]' : 'hover:bg-[var(--panel-2)]'}`} onClick={() => d.ip && setSelectedIp(d.ip)}>
+              <div key={i} className={`p-2  cursor-pointer ${selectedIp===d.ip ? 'bg-[var(--panel-2)]' : 'hover:bg-[var(--panel-2)]'}`} onClick={() => d.ip && setSelectedIp(d.ip)}>
                 <div className="text-sm">IP: <span className="font-mono">{d.ip || 'unknown'}</span></div>
                 <div className="text-xs text-[var(--text-dim)] break-all">{d.service_urls?.join(', ')}</div>
               </div>
@@ -289,25 +299,25 @@ export function OnvifTools() {
           </div>
         </div>
 
-        <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3 rounded">
+        <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3">
           <h2 className="font-medium">Auth & Profiles</h2>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="text-xs">IP
-              <input className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded" value={selectedIp} onChange={(e)=>setSelectedIp(e.target.value)} />
+              <input className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)]" value={selectedIp} onChange={(e)=>setSelectedIp(e.target.value)} />
             </label>
             <label className="text-xs">Port
-              <input type="number" className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded" value={port} onChange={(e)=>setPort(parseInt(e.target.value)||80)} />
+              <input type="number" className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)]" value={port} onChange={(e)=>setPort(parseInt(e.target.value)||80)} />
             </label>
             <label className="text-xs">Username
-              <input className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded" value={username} onChange={(e)=>setUsername(e.target.value)} />
+              <input className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)]" value={username} onChange={(e)=>setUsername(e.target.value)} />
             </label>
             <label className="text-xs">Password
-              <input type="password" className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded" value={password} onChange={(e)=>setPassword(e.target.value)} />
+              <input type="password" className="w-full mt-1 px-2 py-1 bg-[var(--panel)] border border-[var(--border)]" value={password} onChange={(e)=>setPassword(e.target.value)} />
             </label>
           </div>
           <div className="mt-2 flex gap-2">
-            <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={loadProfiles} disabled={loading || !canAuth}>Load Profiles</button>
-            <select className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)] rounded" value={profileToken} onChange={(e)=>setProfileToken(e.target.value)}>
+            <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={loadProfiles} disabled={loading || !canAuth}>Load Profiles</button>
+            <select className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)]" value={profileToken} onChange={(e)=>setProfileToken(e.target.value)}>
               {profiles.map((p)=> <option key={p.token} value={p.token}>{p.name || p.token}</option>)}
             </select>
           </div>
@@ -321,33 +331,59 @@ export function OnvifTools() {
         </div>
       </div>
 
-      <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3 rounded">
+      <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3">
         <h2 className="font-medium">PTZ</h2>
         <div className="text-xs text-[var(--text-dim)]">Hold buttons to keep moving; single click sends one continuous move request.</div>
         <div className="mt-2 grid grid-cols-3 gap-2 max-w-md">
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(-0.5,0,0)} onMouseUp={ptzStop}>◀️ Pan Left</button>
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(0,0.5,0)} onMouseUp={ptzStop}>🔼 Tilt Up</button>
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(0.5,0,0)} onMouseUp={ptzStop}>▶️ Pan Right</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(-0.5,0,0)} onMouseUp={ptzStop}>◀️ Pan Left</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0,0.5,0)} onMouseUp={ptzStop}>🔼 Tilt Up</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0.5,0,0)} onMouseUp={ptzStop}>▶️ Pan Right</button>
           <div />
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(0,-0.5,0)} onMouseUp={ptzStop}>🔽 Tilt Down</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0,-0.5,0)} onMouseUp={ptzStop}>🔽 Tilt Down</button>
           <div />
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(0,0,0.3)} onMouseUp={ptzStop}>➕ Zoom In</button>
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onMouseDown={()=>ptzMove(0,0,-0.3)} onMouseUp={ptzStop}>➖ Zoom Out</button>
-          <button className="px-2 py-2 bg-[var(--panel)] rounded" onClick={ptzStop}>⏹ Stop</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0,0,0.3)} onMouseUp={ptzStop}>➕ Zoom In</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0,0,-0.3)} onMouseUp={ptzStop}>➖ Zoom Out</button>
+          <button className="px-2 py-2 bg-[var(--panel)]" onClick={ptzStop}>⏹ Stop</button>
         </div>
-        <div className="mt-3 flex gap-2">
-          <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={getPresets}>Get Presets</button>
-          <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={setPreset}>Set Preset</button>
-          <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={gotoPreset}>Goto Preset</button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={getPresets}>Get Presets</button>
+          <input
+            className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)] w-36"
+            placeholder="Preset name"
+            aria-label="Preset name"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+          />
+          <button className="text-sm px-2 py-1 bg-[var(--panel)] disabled:opacity-50" onClick={setPreset} disabled={!presetName.trim()}>Set Preset</button>
+          <input
+            className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)] w-36 font-mono"
+            placeholder="Preset token"
+            aria-label="Preset token"
+            list="onvif-preset-tokens"
+            value={presetToken}
+            onChange={(e) => setPresetToken(e.target.value)}
+          />
+          <datalist id="onvif-preset-tokens">
+            {(presets ?? []).map((p, i) => {
+              const token = String(p?.token ?? p?.Token ?? p?._token ?? '')
+              return token ? <option key={i} value={token}>{p?.name ?? p?.Name ?? ''}</option> : null
+            })}
+          </datalist>
+          <button className="text-sm px-2 py-1 bg-[var(--panel)] disabled:opacity-50" onClick={gotoPreset} disabled={!presetToken.trim()}>Goto Preset</button>
         </div>
+        {presets && presets.length > 0 && (
+          <pre className="mt-2 max-h-48 overflow-auto bg-[var(--panel)] border border-[var(--border)] p-2 text-xs text-[var(--text-dim)]">
+            {JSON.stringify(presets, null, 2)}
+          </pre>
+        )}
       </div>
 
-      <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3 rounded">
+      <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3">
         <h2 className="font-medium">Camera Clock</h2>
         <div className="text-xs text-[var(--text-dim)] mb-2">Read or sync the camera's internal clock. Sync requires credentials and pushes the NVR's current UTC time.</div>
         <div className="flex gap-2 items-center flex-wrap">
-          <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={getTime} disabled={loading || !selectedIp}>Get Time</button>
-          <button className="text-sm px-2 py-1 bg-[var(--panel)] rounded" onClick={syncTime} disabled={loading || !canAuth}>Sync Clock</button>
+          <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={getTime} disabled={loading || !selectedIp}>Get Time</button>
+          <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={syncTime} disabled={loading || !canAuth}>Sync Clock</button>
           {cameraTime && <code className="text-xs text-[var(--text-dim)]">{cameraTime}</code>}
         </div>
       </div>

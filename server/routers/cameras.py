@@ -60,7 +60,7 @@ from schemas import (
 )
 from services.audit_service import audit_request, write_audit_log
 from services.camera_identity import path_name_for_camera, read_marker
-from services.camera_service import CameraService
+from services.camera_service import CameraService, camera_search_filter
 from services.camera_status_service import get_camera_status_service
 from services.mediamtx_admin_service import MediaMtxAdminService
 from services.recording_watchdog import (
@@ -586,6 +586,10 @@ def get_cameras(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
+    # Name/IP search for the Cameras page. The UI always sent it; the endpoint
+    # never declared it, so FastAPI dropped it and the search box filtered
+    # nothing. Missing or empty = the unfiltered list, exactly as before.
+    q: str | None = Query(None, max_length=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     request: Request = None,
@@ -616,21 +620,27 @@ def get_cameras(
         from services.camera_scope import visible_camera_ids
 
         scope = visible_camera_ids(db, current_user)
-        q = db.query(Camera).filter(Camera.deleted_at.is_(None))
+        query = db.query(Camera).filter(Camera.deleted_at.is_(None))
         if active_only:
-            q = q.filter(Camera.is_active == True)  # noqa: E712
+            query = query.filter(Camera.is_active == True)  # noqa: E712
         if scope is not None:
-            q = q.filter(Camera.id.in_(scope or {-1}))
-        total = q.count()
-        cameras = q.order_by(Camera.id).offset(skip).limit(limit).all()
+            query = query.filter(Camera.id.in_(scope or {-1}))
+        match = camera_search_filter(q)
+        if match is not None:
+            query = query.filter(match)
+        total = query.count()
+        cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
     elif current_user.is_superuser:
         cameras = CameraService.get_all_cameras(
-            db=db, skip=skip, limit=limit, active_only=active_only
+            db=db, skip=skip, limit=limit, active_only=active_only, search=q
         )
         # Binned cameras never count; active_only additionally hides paused ones.
         total_query = db.query(Camera).filter(Camera.deleted_at.is_(None))
         if active_only:
             total_query = total_query.filter(Camera.is_active == True)
+        match = camera_search_filter(q)
+        if match is not None:
+            total_query = total_query.filter(match)
         total = total_query.count()
         camera_logger.log_action(
             "camera.list_success_admin",
@@ -646,6 +656,7 @@ def get_cameras(
             skip=skip,
             limit=limit,
             active_only=active_only,
+            search=q,
         )
         permitted = CameraService.get_cameras_permitted(
             db=db,
@@ -653,6 +664,7 @@ def get_cameras(
             skip=skip,
             limit=limit,
             active_only=active_only,
+            search=q,
         )
         # Merge unique by id
         seen = set()

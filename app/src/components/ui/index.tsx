@@ -22,7 +22,7 @@
 
 import { clsx } from 'clsx'
 import { CircleAlert, Inbox, RefreshCw } from 'lucide-react'
-import type { ReactNode, ButtonHTMLAttributes, CSSProperties, TableHTMLAttributes, HTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from 'react'
+import type { ReactNode, Ref, ButtonHTMLAttributes, CSSProperties, TableHTMLAttributes, HTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from 'react'
 import { useTranslation } from '../../i18n'
 
 /* ----------------------------- Card ----------------------------- */
@@ -32,7 +32,7 @@ import { useTranslation } from '../../i18n'
 // panel they drag around the page. Tailwind cannot express a value that
 // only exists at runtime.
 export function Card({ children, className = '', style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
-  return <div className={clsx('rounded border border-[var(--border)] bg-[var(--panel-2)]', className)} style={style}>{children}</div>
+  return <div className={clsx('rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--panel-2)]', className)} style={style}>{children}</div>
 }
 
 export function CardHeader({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -92,7 +92,7 @@ export function SeverityBadge({ severity, className = '' }: { severity?: string 
 // Spreads span attributes so callers can attach a `title` — a badge that
 // summarises a state often needs to explain it on hover.
 export function Badge({ children, variant = 'neutral', className = '', ...rest }: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant }) {
-  return <span className={clsx('inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px]', BADGE_STYLES[variant], className)} {...rest}>{children}</span>
+  return <span className={clsx('inline-flex items-center gap-1 rounded-[var(--radius)] px-2 py-0.5 text-[11px]', BADGE_STYLES[variant], className)} {...rest}>{children}</span>
 }
 
 /* ---------------------------- Button ---------------------------- */
@@ -104,7 +104,7 @@ const BUTTON_STYLES: Record<ButtonVariant, string> = {
   primary: 'border border-transparent bg-[var(--accent)] text-white hover:brightness-95',
   outline: 'border border-[var(--border)] bg-transparent hover:bg-[var(--panel-2)] text-[var(--text)]',
   ghost: 'border border-transparent bg-transparent hover:bg-[var(--panel-2)] text-[var(--text-dim)] hover:text-[var(--text)]',
-  danger: 'border border-red-700/50 bg-red-900/30 text-red-300 hover:bg-red-900/50',
+  danger: 'border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_22%,transparent)]',
 }
 
 // Two sizes, because a page header full of default-size buttons competes
@@ -123,13 +123,15 @@ const BUTTON_SIZES: Record<ButtonSize, string> = {
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
   size?: ButtonSize
+  // React 19 passes ref as a plain prop; it reaches the <button> via ...rest.
+  ref?: Ref<HTMLButtonElement>
 }
 
 export function Button({ children, variant = 'default', size = 'md', className = '', type = 'button', ...rest }: ButtonProps) {
   return (
     <button
       type={type}
-      className={clsx('inline-flex items-center rounded disabled:opacity-50 disabled:cursor-not-allowed', BUTTON_SIZES[size], BUTTON_STYLES[variant], className)}
+      className={clsx('inline-flex items-center rounded-[var(--radius-button)] disabled:opacity-50 disabled:cursor-not-allowed', BUTTON_SIZES[size], BUTTON_STYLES[variant], className)}
       {...rest}
     >
       {children}
@@ -140,7 +142,7 @@ export function Button({ children, variant = 'default', size = 'md', className =
 /* --------------------------- Skeleton --------------------------- */
 
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={clsx('animate-pulse rounded-md bg-[var(--bg-2)]', className)} />
+  return <div className={clsx('animate-pulse rounded-[var(--radius)] bg-[var(--bg-2)]', className)} />
 }
 
 /* --------------------------- StatusDot -------------------------- */
@@ -148,10 +150,10 @@ export function Skeleton({ className = '' }: { className?: string }) {
 export type Status = 'online' | 'offline' | 'degraded' | 'error'
 
 const STATUS_STYLES: Record<Status, string> = {
-  online: 'bg-emerald-500',
-  offline: 'bg-slate-500',
-  degraded: 'bg-amber-500',
-  error: 'bg-red-500',
+  online: 'bg-[var(--ok)]',
+  offline: 'bg-[var(--text-dim)]',
+  degraded: 'bg-[var(--warn)]',
+  error: 'bg-[var(--danger)]',
 }
 
 export function StatusDot({ status }: { status: Status }) {
@@ -178,22 +180,32 @@ export function StatusDot({ status }: { status: Status }) {
  *  one state that makes the rest of the page moot (an app with no cameras).
  *  It carries its own top margin, so a notice that renders nothing leaves
  *  the header exactly as it was. */
-export function PageHeader({ title, description, actions, notice }: {
+/** The page's one title, so it is the page's one `h1`. `breadcrumb` sits
+ *  above the title for nested screens (Settings > Camera-Config > Zones);
+ *  `tabs` sits under the header, full width, for pages whose sections are
+ *  routes or local tabs. */
+export function PageHeader({ title, description, actions, notice, breadcrumb, tabs }: {
   title: ReactNode
   description?: ReactNode
   actions?: ReactNode
   notice?: ReactNode
+  breadcrumb?: ReactNode
+  tabs?: ReactNode
 }) {
   return (
     <div className="mb-4">
+      {breadcrumb && (
+        <nav aria-label="Breadcrumb" className="mb-1 text-xs text-[var(--text-dim)]">{breadcrumb}</nav>
+      )}
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-[var(--text)]">{title}</h2>
+          <h1 className="text-lg font-semibold text-[var(--text)]">{title}</h1>
           {description && <p className="text-sm text-[var(--text-dim)] mt-0.5 max-w-3xl">{description}</p>}
         </div>
         {actions && <div className="ml-auto shrink-0 flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {notice}
+      {tabs && <div className="mt-3">{tabs}</div>}
     </div>
   )
 }
@@ -216,9 +228,9 @@ export function EmptyState({ icon, title, description, action }: { icon?: ReactN
 export function ErrorCard({ title = 'Error', message, onRetry }: { title?: string; message: string; onRetry?: () => void }) {
   const { t } = useTranslation()
   return (
-    <Card className="border-red-700/40">
+    <Card className="border-[color-mix(in_oklab,var(--danger)_40%,var(--border))]">
       <CardHeader>
-        <CircleAlert size={16} className="text-red-300" />
+        <CircleAlert size={16} className="text-[var(--danger)]" />
         <CardTitle>{title}</CardTitle>
         {onRetry && (
           <div className="ml-auto">
@@ -229,7 +241,7 @@ export function ErrorCard({ title = 'Error', message, onRetry }: { title?: strin
         )}
       </CardHeader>
       <CardContent>
-        <div className="text-sm text-red-300/90">{message}</div>
+        <div className="text-sm text-[var(--danger)]">{message}</div>
       </CardContent>
     </Card>
   )
@@ -239,7 +251,7 @@ export function ErrorCard({ title = 'Error', message, onRetry }: { title?: strin
 
 export function Table({ children, className = '', ...rest }: TableHTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="overflow-x-auto border border-[var(--border)] rounded">
+    <div className="overflow-x-auto border border-[var(--border)] rounded-[var(--radius-card)]">
       <table className={clsx('w-full text-sm', className)} {...rest}>
         {children}
       </table>

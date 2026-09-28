@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from harness import selectors as S
 
-from .base import BasePage
+from .base import BasePage, confirm_if_asked
 
 
 class RecordingSettingsPage(BasePage):
@@ -73,4 +73,5 @@ class ApiTokensPage(BasePage):
             lambda r: "/api-tokens/" in r.url and r.request.method == "DELETE"
         ) as caught:
             self.find(S.API_TOKEN_REVOKE, scope=self.row(name)).first.click()
+            confirm_if_asked(self.page)
         return caught.value

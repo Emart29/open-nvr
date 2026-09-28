@@ -212,7 +212,7 @@ export function JourneyPanel(
                 says how much weight this route can carry, and softening
                 or dropping it would leave an operator trusting a guess. */}
             {data.caveat && (
-              <p className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-[11px] text-[var(--text-dim)]">
+              <p className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-[11px] text-[var(--text-dim)]">
                 {data.caveat}
               </p>
             )}
@@ -276,11 +276,11 @@ function StopCard({
   const fmt = useDateFormat()
   const { t } = useTranslation()
   return (
-    <div className="rounded border border-[var(--border)] bg-[var(--panel)]">
+    <div className="border border-[var(--border)] bg-[var(--panel)]">
       <div className="flex gap-2 p-2">
         <Link
           to={playbackHref(cameraId, at)}
-          className="relative block h-16 w-24 shrink-0 overflow-hidden rounded bg-[var(--bg-2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="relative block h-16 w-24 shrink-0 overflow-hidden bg-[var(--bg-2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           title={at ? t('journey.openAt').replace('{when}', fmt.dateTime(at)) : undefined}
         >
           {evidenceUrl ? (
@@ -327,7 +327,7 @@ function StopCard({
               {/* A bar as well as the number: a column of percentages is
                   read as a ranking, and the point here is how far a hop
                   is from being worth believing at all. */}
-              <div className="h-1 w-full overflow-hidden rounded bg-[var(--bg-2)]">
+              <div className="h-1 w-full overflow-hidden bg-[var(--bg-2)]">
                 <div
                   className="h-full"
                   style={{

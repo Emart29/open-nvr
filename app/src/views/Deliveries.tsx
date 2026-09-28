@@ -46,6 +46,7 @@ import { useAlarmsList } from '../components/alarms/useAlarmsList'
 import { alarmSeenIso, alertsInboxService, type InboxAlert } from '../services/alertsInboxService'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const DELIVERIES_CAPABILITY = 'deliveries'
@@ -315,6 +316,15 @@ export function Deliveries() {
     }
   }, [alarms.rows])
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('deliveries.title')} description={t('deliveries.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -368,7 +378,7 @@ export function Deliveries() {
       )}
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex items-start gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex items-start gap-2">
           <PenLine size={14} className="text-[var(--warn)] shrink-0 mt-1" />
           <span className="flex-1">
             {needsZone.length === 1 ? 'One door has no porch zone drawn:' : `${needsZone.length} doors have no porch zone drawn:`}{' '}
@@ -380,7 +390,9 @@ export function Deliveries() {
       )}
 
       {/* ── Doors ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           <Skeleton className="h-64" /><Skeleton className="h-64" /><Skeleton className="h-64" />
         </div>
@@ -409,7 +421,7 @@ export function Deliveries() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? null : statusQuery.isPending ? (
             <Skeleton className="h-24" />
           ) : events.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-4 text-center">
@@ -457,7 +469,7 @@ function CountedBy({ counted, hours, checks }: {
 
   if (quality === 'none') {
     return (
-      <div className="rounded border border-[var(--danger)]/40 bg-[var(--danger)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+      <div className="border border-[var(--danger)]/40 bg-[var(--danger)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
         <AlertTriangle size={14} className="text-[var(--danger)]" />
         <span>
           <b>No skill can count packages on this box.</b> Install a VQA or package-detection adapter
@@ -643,7 +655,7 @@ function EventRow({ ev, name, alert, onView }: {
           onClick={() => onView(alert)}
           aria-label={`Open the ${pair.length === 2 ? 'before and after photos' : 'photo'} for this event`}
           title="Open the photographs"
-          className="flex items-center gap-1 shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="flex items-center gap-1 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
           {pair.map((n, i) => (
             <span key={n} className="flex items-center gap-1">
@@ -652,7 +664,7 @@ function EventRow({ ev, name, alert, onView }: {
                 queryKey={['alert-image', alert.id, n]}
                 fetchBlob={(signal) => alertsInboxService.getAlertImage(alert.id, n, signal)}
                 alt={`${n} photo`}
-                className="h-10 w-16 rounded object-cover border border-[var(--border)]"
+                className="h-10 w-16 object-cover border border-[var(--border)]"
               />
             </span>
           ))}

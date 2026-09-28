@@ -158,11 +158,11 @@ function LiveTile({ cam, spotlit, onSpotlight, playing }: {
         <span className="text-[11px] font-medium truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{cam.name || `Camera ${cam.id}`}</span>
         <span className="ml-auto shrink-0 flex items-center leading-none">
           {rec === 'recording' ? (
-            <span className="flex items-center gap-1 text-[9px] font-bold tracking-[0.15em] text-red-400 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" aria-hidden="true" />REC
+            <span className="flex items-center gap-1 text-[9px] font-bold tracking-[0.15em] text-[var(--on-video-danger)] [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--on-video-danger)] animate-pulse" aria-hidden="true" />REC
             </span>
           ) : rec === 'stalled' ? (
-            <span className="text-[9px] font-bold tracking-[0.15em] text-amber-300 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{t('dashboard.stalled').toUpperCase()}</span>
+            <span className="text-[9px] font-bold tracking-[0.15em] text-[var(--on-video-warn)] [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{t('dashboard.stalled').toUpperCase()}</span>
           ) : null}
         </span>
       </div>

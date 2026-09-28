@@ -45,7 +45,7 @@ export function AccessControl() {
           <NavLink
             key={s.key}
             to={`/rbac/${s.key}`}
-            className={({ isActive }) => `px-2 py-1 rounded ${isActive ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
+            className={({ isActive }) => `px-2 py-1  ${isActive ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
             end
           >
             {s.label}

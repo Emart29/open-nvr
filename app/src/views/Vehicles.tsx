@@ -77,6 +77,7 @@ import {
 import type { RegisteredApp } from './AppCatalog'
 import { AppConfigureButton, AppPageHeader } from './apps/AppSetup'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 export const LPR_TASK = 'license_plate_recognition'
 
@@ -677,7 +678,7 @@ function StatChip({ icon: Icon, value, label, onClick, title }: {
       <span className="text-sm leading-none text-[var(--text-dim)]">{label}</span>
     </>
   )
-  const shell = 'flex flex-1 min-w-[9rem] items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2'
+  const shell = 'flex flex-1 min-w-[9rem] items-center justify-center gap-2  border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2'
   if (!onClick) {
     return <span className={shell}>{body}</span>
   }
@@ -707,6 +708,7 @@ function toCsv(rows: PlateEvent[], cameraName: (id: number) => string): string {
 
 export function Vehicles() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useSnackbar()
@@ -1145,13 +1147,14 @@ export function Vehicles() {
         // depending on state — the control you wanted was missing exactly
         // when you wanted to undo something. Now the icon is the state:
         // lit means on, dim means off, and clicking it flips that.
-        const toggle = (list: 'registry' | 'monitor', on: boolean) => {
+        const toggle = async (list: 'registry' | 'monitor', on: boolean) => {
           if (list === 'registry' && !on && hasDetails
-            && !window.confirm(
-              `${p} has owner or unit details in the vehicle register.
-
-`
-              + 'Removing it discards that entry and those details.')) {
+            && !(await confirm({
+              title: `${p} has owner or unit details in the vehicle register.`,
+              message: 'Removing it discards that entry and those details.',
+              confirmLabel: 'Remove',
+              danger: true,
+            }))) {
             return
           }
           toggleList.mutate({ plateText: p, list, on })
@@ -1195,7 +1198,7 @@ export function Vehicles() {
       key: 'photo', header: 'Photo', width: 'w-20',
       cell: (e) => (e.has_plate_evidence || e.has_evidence)
         ? <RowThumb e={e} plate={(e.plate_text ?? '').toUpperCase()} onOpen={() => setPreview(e)} />
-        : <div className="h-8 w-14 grid place-items-center text-[10px] text-[var(--text-dim)] bg-[var(--bg-2)] rounded">—</div>,
+        : <div className="h-8 w-14 grid place-items-center text-[10px] text-[var(--text-dim)] bg-[var(--bg-2)]">—</div>,
     },
     {
       key: 'plate', header: 'Plate', width: 'w-[148px]',
@@ -1329,7 +1332,7 @@ export function Vehicles() {
             middle of the work. Deliberately NOT below the table: the
             fill-height calculation reserves for anything under there, so
             it would cost table rows on every visit. */}
-        <div className="mb-3 flex items-start gap-2.5 rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2">
+        <div className="mb-3 flex items-start gap-2.5 border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2">
             <PhoneCall size={15} className="mt-0.5 shrink-0 text-[var(--text-dim)]" />
             <p className="min-w-0 flex-1 text-xs leading-snug">
               <span className="font-medium text-[var(--text)]">Need more for your site?</span>{' '}
@@ -1477,7 +1480,7 @@ export function Vehicles() {
                 {allow.map((plate) => (
                   <span
                     key={plate}
-                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--bg-2)] text-sm"
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-[var(--border)] bg-[var(--bg-2)] text-sm"
                   >
                     <span className="font-mono">{plate}</span>
                     {!registryPlates.has(plate.toUpperCase()) && (
@@ -1502,7 +1505,7 @@ export function Vehicles() {
                     )}
                     <button
                       title={t('vehicles.removeExpected')}
-                      className="text-[var(--text-dim)] hover:text-red-400"
+                      className="text-[var(--text-dim)] hover:text-[var(--danger)]"
                       onClick={() =>
                         saveConfig.mutate(
                           { allowlist: allow.filter((x) => x !== plate) },
@@ -1690,7 +1693,7 @@ export function Vehicles() {
                 onChange={(e) => { setPlate(e.target.value); reads.setPage(1) }}
                 placeholder="Plate contains… (e.g. 1234)"
                 aria-label="Filter by plate"
-                className="w-48 rounded border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
+                className="w-48 border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
               />
             </div>
             <select
@@ -1700,7 +1703,7 @@ export function Vehicles() {
                 reads.setPage(1)
               }}
               aria-label="Filter by camera"
-              className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
+              className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
             >
               <option value="">{t('vehicles.allCameras')}</option>
               {(camerasQuery.data ?? []).map((c) => (
@@ -1770,7 +1773,7 @@ export function Vehicles() {
               {(() => {
                 const reg = registry.find((r) => r.plate === historyPlate)
                 return reg && (reg.owner || reg.unit || reg.type || reg.model || reg.note) ? (
-                  <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2">
+                  <div className="border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2">
                     Registered{reg.owner ? ` to ${reg.owner}` : ''}
                     {reg.unit ? ` · ${reg.unit}` : ''}
                     {reg.model ? ` · ${reg.model}` : reg.type ? ` · ${reg.type}` : ''}
@@ -1914,7 +1917,7 @@ function RowThumb({ e, plate, onOpen }: {
         type="button"
         onClick={onOpen}
         title={t('vehicles.readFrameMissing')}
-        className="h-8 w-14 rounded bg-[var(--bg-2)] grid place-items-center text-[9px] leading-tight text-[var(--text-dim)] cursor-zoom-in"
+        className="h-8 w-14 bg-[var(--bg-2)] grid place-items-center text-[9px] leading-tight text-[var(--text-dim)] cursor-zoom-in"
       >
         no read
         <br />frame
@@ -1932,11 +1935,11 @@ function RowThumb({ e, plate, onOpen }: {
           // already-small picture. Nothing here has to stay legible the
           // way the plate crop did (#385); it is a "which car" glance,
           // and the dialog is one click away.
-          className="h-8 w-14 rounded cursor-zoom-in object-cover"
+          className="h-8 w-14 cursor-zoom-in object-cover"
           onClick={onOpen}
         />
       ) : (
-        <div className="h-8 w-14 rounded bg-[var(--bg-2)]" />
+        <div className="h-8 w-14 bg-[var(--bg-2)]" />
       )}
     </div>
   )
@@ -2448,7 +2451,7 @@ function RegistryTab({
                     onChange={(e) => { setQuery(e.target.value); pager.setPage(1) }}
                     placeholder="Search plate, owner, flat…"
                     aria-label={t('vehicles.searchRegister')}
-                    className="w-56 rounded border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
+                    className="w-56 border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
                   />
                 </div>
                 {importButton}
@@ -2569,7 +2572,7 @@ function RegistryTab({
                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                           if (e.key === 'Escape') setOverstayDraft(null)
                         }}
-                        className="w-16 rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-sm text-[var(--text)]"
+                        className="w-16 border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-sm text-[var(--text)]"
                       />
                       hours
                     </label>
@@ -2599,13 +2602,13 @@ function RegistryTab({
                     Where each camera sits. Giving a camera a role starts plate reading on it.
                   </div>
                   {reading.length > 0 && !hasIn && (
-                    <div className="rounded border border-[var(--warning,#b7791f)] px-3 py-2 text-xs text-[var(--warning,#b7791f)]">
+                    <div className="border border-[var(--warning,#b7791f)] px-3 py-2 text-xs text-[var(--warning,#b7791f)]">
                       No Gate IN camera yet — mark at least one. Until then there is no gate
                       history and no “inside now”; reads still collect normally.
                     </div>
                   )}
                   {reading.length > 0 && hasIn && !hasOut && (
-                    <div className="rounded border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-dim)]">
+                    <div className="border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-dim)]">
                       No Gate OUT camera — entries are recorded, but exit times, stay
                       durations and “inside now” stay off until you mark one.
                     </div>
@@ -2643,7 +2646,7 @@ function RegistryTab({
                                         const role = e.target.value as CameraRole | ''
                                         onSetRole(c.id, role, role === 'other' ? (entry?.label ?? '') : undefined)
                                       }}
-                                      className="py-1 px-2 rounded border border-[var(--border)] bg-[var(--bg-2)] text-sm"
+                                      className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm"
                                     >
                                       <option value="">{t('vehicles.noRole')}</option>
                                       <option value="gate_in">Gate IN</option>
@@ -2660,7 +2663,7 @@ function RegistryTab({
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                                         }}
-                                        className="py-1 px-2 rounded border border-[var(--border)] bg-[var(--bg-2)] text-sm w-36"
+                                        className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm w-36"
                                       />
                                     )}
                                   </div>
@@ -2911,7 +2914,7 @@ function VehicleDialog({
   }
 
   const labelCls = 'text-xs text-[var(--text-dim)]'
-  const inputCls = 'mt-1 block w-full rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-sm text-[var(--text)]'
+  const inputCls = 'mt-1 block w-full  border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-sm text-[var(--text)]'
 
   return (
     <Modal
@@ -3230,7 +3233,7 @@ function MonitoringTab({
                   onChange={(e) => { setQuery(e.target.value); pager.setPage(1) }}
                   placeholder="Search plate or reason…"
                   aria-label={t('vehicles.searchMonitored')}
-                  className="w-56 rounded border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
+                  className="w-56 border border-[var(--border)] bg-[var(--bg-2)] py-1 pl-7 pr-2 text-xs"
                 />
               </div>
               {importButton}
@@ -3334,7 +3337,7 @@ function MonitorDialog({
   }
 
   const labelCls = 'text-xs text-[var(--text-dim)]'
-  const inputCls = 'mt-1 block w-full rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-sm text-[var(--text)]'
+  const inputCls = 'mt-1 block w-full  border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5 text-sm text-[var(--text)]'
 
   return (
     <Modal
@@ -3389,7 +3392,7 @@ function MonitorDialog({
         </label>
         <fieldset className={`${labelCls} sm:col-span-2`}>
           <legend>Where</legend>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--text)]">
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--text)]">
             {options.length === 0 && (
               <span className="text-xs text-[var(--text-dim)]">No cameras yet.</span>
             )}
@@ -3445,6 +3448,7 @@ function lastMonths(n: number): { year: number; month: number }[] {
   return out
 }
 
+/* eslint-disable no-restricted-syntax -- a paper print sheet: black on white in every theme */
 function ReportOverlay({
   registry,
   monitors,
@@ -3695,6 +3699,8 @@ function ReportOverlay({
 // open browser — filtered to this app's alarms. Sound, phone-call and
 // hooter configuration stay site-wide (one guard phone for every app's
 // alarms), linked below.
+
+/* eslint-enable no-restricted-syntax */
 
 function VehicleAlarmsTab({ cameraName }: { cameraName: (id: number) => string }) {
   const [onlyUnacked, setOnlyUnacked] = useState(false)

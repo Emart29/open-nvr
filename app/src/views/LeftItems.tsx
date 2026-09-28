@@ -44,6 +44,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const LEFT_ITEMS_CAPABILITY = 'left_items'
@@ -229,6 +230,15 @@ export function LeftItems() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('leftItems.title')} description={t('leftItems.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -288,7 +298,7 @@ export function LeftItems() {
       </div>
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsZone.length === 1 ? 'One camera has no zone drawn:' : `${needsZone.length} cameras have no zone drawn:`}{' '}
@@ -307,7 +317,9 @@ export function LeftItems() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
             <Skeleton className="h-20" />
           ) : live.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-3 text-center">
@@ -339,9 +351,9 @@ export function LeftItems() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="flex-1 min-w-[10rem]">
-                        <div className="h-2 rounded bg-[var(--bg-2)] overflow-hidden"
+                        <div className="h-2 bg-[var(--bg-2)] overflow-hidden"
                              title={`${Math.round(Math.min(1, i.progress) * 100)}% of the threshold`}>
-                          <div className="h-full rounded transition-[width]"
+                          <div className="h-full transition-[width]"
                                style={{ width: `${Math.round(Math.min(1, i.progress) * 100)}%`, background: bar }} />
                         </div>
                       </div>
@@ -414,7 +426,7 @@ export function LeftItems() {
       )}
 
       {/* ── Per camera ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? null : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Skeleton className="h-36" /><Skeleton className="h-36" /><Skeleton className="h-36" />
         </div>
@@ -507,7 +519,7 @@ export function LeftItems() {
               <div className="text-xs text-[var(--text-dim)] px-1 py-1">
                 Longest alone today {mmss(state.longest_alone_s)} · settles after {mmss(state.settle_seconds)} ·
                 {' '}{state.fixtures ?? 0} fixture {state.fixtures === 1 ? 'spot' : 'spots'} marked.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

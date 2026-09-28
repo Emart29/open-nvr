@@ -45,6 +45,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const INTRUSION_CAPABILITY = 'intrusion'
@@ -234,6 +235,15 @@ export function Perimeter() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('perimeter.title')} description={t('perimeter.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -342,7 +352,7 @@ export function Perimeter() {
       </Card>
 
       {state.overridden && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <AlertTriangle size={14} className="text-[var(--warn)]" />
           <span>
             A manual arm or disarm is in force and is overriding {policy}. It expires on its own, so the site cannot be left open by accident.
@@ -362,7 +372,7 @@ export function Perimeter() {
       </div>
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsZone.length === 1 ? 'One camera has no zone drawn:' : `${needsZone.length} cameras have no zone drawn:`}{' '}
@@ -373,7 +383,9 @@ export function Perimeter() {
       )}
 
       {/* ── Zones ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
           <Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" />
         </div>
@@ -532,7 +544,7 @@ export function Perimeter() {
                 Entry delay {mmss(state.entry_delay_seconds)} · exit delay {mmss(state.exit_delay_seconds)} ·
                 {' '}presence {mmss(state.min_presence_seconds)}
                 {state.escalate_after_seconds ? ` · escalates after ${mmss(state.escalate_after_seconds)}` : ''}.
-                {' '}<Link to="/alarms" className="text-[var(--accent)] underline">All alarms</Link>
+                {' '}<Link to="/alerts-incidents" className="text-[var(--accent)] underline">All alarms</Link>
               </div>
             }
           />

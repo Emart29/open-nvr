@@ -43,6 +43,7 @@ import { useSnackbar } from '../components/Snackbar'
 import { VideoPlayer } from '../components/VideoPlayer/VideoPlayer'
 import { PlaybackConsole } from '../components/PlaybackConsole'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // Daily recording - one entry per camera per day
 interface DailyRecording {
@@ -97,6 +98,7 @@ export function PlaybackView() {
   const { t } = useTranslation()
   const { token, loading: authLoading, user } = useAuth()
   const { showError, showSuccess } = useSnackbar()
+  const confirm = useConfirm()
   // Recordings hold the camera's coded frames untouched, so an anamorphic
   // camera needs the same correction here as in Live View (#354).
   const cameraAspects = useCameraAspects()
@@ -420,7 +422,7 @@ export function PlaybackView() {
 
       {/* Error display */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 text-sm flex items-center gap-2">
+        <div className="bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] p-3 text-sm flex items-center gap-2">
           <AlertCircle size={16} />
           {error}
         </div>
@@ -428,7 +430,7 @@ export function PlaybackView() {
 
       {/* Media Server disconnected warning */}
       {!loading && !mediamtxAvailable && cameras.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-3 text-sm flex items-center gap-2">
+        <div className="bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))] text-[var(--warn)] p-3 text-sm flex items-center gap-2">
           <Unplug size={16} />
           <span>
             <strong>{t('playback.serverOffline')}</strong>
@@ -438,7 +440,7 @@ export function PlaybackView() {
 
       {/* Main content - accordion style camera list */}
       {user?.is_superuser && cloudUploadConfigured && cloudUploadStatus && (cloudUploadStatus.worker_running || cloudUploadStatus.queue_size > 0) && (
-        <div className="bg-[var(--panel)] border border-neutral-700 p-3">
+        <div className="bg-[var(--panel)] border border-[var(--border)] p-3">
           <div className="flex items-center justify-between text-sm">
             <div className="font-medium">{t('playback.cloudStatus')}</div>
             <div className="text-[var(--text-dim)]">
@@ -446,9 +448,9 @@ export function PlaybackView() {
             </div>
           </div>
 
-          <div className="mt-2 h-2 bg-neutral-800 overflow-hidden">
+          <div className="mt-2 h-2 bg-[var(--panel-2)] overflow-hidden">
             <div
-              className={`h-full transition-all duration-300 ${cloudUploadStatus.worker_running ? 'bg-[var(--accent)] w-2/3 animate-pulse' : 'bg-green-500 w-full'}`}
+              className={`h-full transition-all duration-300 ${cloudUploadStatus.worker_running ? 'bg-[var(--accent)] w-2/3 animate-pulse' : 'bg-[var(--ok)] w-full'}`}
             />
           </div>
 
@@ -462,12 +464,12 @@ export function PlaybackView() {
 
       <div className="space-y-2">
         {loading ? (
-          <div className="bg-[var(--panel)] border border-neutral-700 p-8 text-center">
+          <div className="bg-[var(--panel)] border border-[var(--border)] p-8 text-center">
             <Loader2 size={24} className="animate-spin mx-auto mb-2 text-[var(--accent)]" />
             <p className="text-[var(--text-dim)]">{t('playback.loading')}</p>
           </div>
         ) : cameras.length === 0 ? (
-          <div className="bg-[var(--panel)] border border-neutral-700 p-12 text-center">
+          <div className="bg-[var(--panel)] border border-[var(--border)] p-12 text-center">
             <Film size={48} className="mx-auto mb-4 opacity-30" />
             <p className="text-[var(--text-dim)]">{t('playback.noRecordings')}</p>
             <p className="text-sm text-[var(--text-dim)] mt-1">
@@ -478,7 +480,7 @@ export function PlaybackView() {
           cameras.map((camera) => (
             <div
               key={camera.camera_id}
-              className="bg-[var(--panel)] border border-neutral-700 overflow-hidden"
+              className="bg-[var(--panel)] border border-[var(--border)] overflow-hidden"
             >
               {/* Camera Header - clickable */}
               <button
@@ -508,14 +510,14 @@ export function PlaybackView() {
 
               {/* Daily Recordings List - collapsed by default */}
               {expandedCameras.has(camera.camera_id) && (
-                <div className="border-t border-neutral-700">
+                <div className="border-t border-[var(--border)]">
                   {camera.recordings.map((rec) => (
                     <div
                       key={rec.date}
-                      className="px-4 py-3 flex items-center justify-between border-b border-neutral-800 last:border-b-0 hover:bg-[var(--panel-2)] transition-colors"
+                      className="px-4 py-3 flex items-center justify-between border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--panel-2)] transition-colors"
                     >
                       <div className="flex items-center gap-4 pl-8">
-                        <div className="w-10 h-10 bg-[var(--accent)]/10 rounded-lg flex items-center justify-center">
+                        <div className="w-10 h-10 bg-[var(--accent)]/10 flex items-center justify-center">
                           <Calendar size={18} className="text-[var(--accent)]" />
                         </div>
                         <div>
@@ -537,8 +539,16 @@ export function PlaybackView() {
                             const isQueued = queuedDayKey === dayKey
                             return (
                               <button
-                                onClick={() => uploadRecordingDay(camera, rec)}
-                                className="px-3 py-2 text-sm flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-60"
+                                onClick={async () => {
+                                  // A whole day of footage leaves the box: say so first.
+                                  const ok = await confirm({
+                                    title: t('playback.confirmUploadTitle'),
+                                    message: t('playback.confirmUploadMessage', { camera: camera.camera_name || `Camera ${camera.camera_id}`, date: rec.date }),
+                                    confirmLabel: t('playback.upload'),
+                                  })
+                                  if (ok) uploadRecordingDay(camera, rec)
+                                }}
+                                className="px-3 py-2 text-sm flex items-center gap-2 bg-[var(--ok)] hover:bg-[var(--ok)] text-white transition-colors disabled:opacity-60"
                                 title={isQueueing ? 'Queueing cloud upload' : isQueued ? 'Queued for cloud upload' : 'Queue this day for cloud upload'}
                                 disabled={isQueueing}
                               >
@@ -554,7 +564,7 @@ export function PlaybackView() {
                           className={`px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
                             rec.playback_url 
                               ? 'bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-white' 
-                              : 'bg-neutral-600 hover:bg-neutral-500 text-neutral-300'
+                              : 'bg-[var(--panel-2)] hover:bg-[var(--panel)] text-[var(--text-dim)] border border-[var(--border)]'
                           }`}
                           title={rec.playback_url ? 'Play recording' : 'Playback unavailable - Media Server offline'}
                         >
@@ -594,12 +604,12 @@ export function PlaybackView() {
       {/* Video Player Modal (fallback — MediaMTX offline / error) */}
       {showPlayer && !consoleTarget && (playbackUrl || hlsPlaybackUrl || playbackError) && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--panel)] border border-neutral-700 w-full max-w-5xl">
+          <div className="bg-[var(--panel)] border border-[var(--border)] w-full max-w-5xl">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-700 bg-[var(--panel-2)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--panel-2)]">
               <div className="flex items-center gap-3">
                 {playbackError ? (
-                  <Unplug size={18} className="text-amber-400" />
+                  <Unplug size={18} className="text-[var(--warn)]" />
                 ) : (
                   <Play size={18} className="text-[var(--accent)]" />
                 )}
@@ -616,7 +626,7 @@ export function PlaybackView() {
               </div>
               <button
                 onClick={closePlayer}
-                className="p-2 hover:bg-[var(--panel)] rounded transition-colors"
+                className="p-2 hover:bg-[var(--panel)] transition-colors"
               >
                 <X size={18} />
               </button>
@@ -626,16 +636,16 @@ export function PlaybackView() {
             <div className="bg-black aspect-video flex items-center justify-center">
               {playbackError ? (
                 <div className="text-center p-8">
-                  <Unplug size={64} className="mx-auto mb-4 text-amber-400 opacity-60" />
-                  <h3 className="text-lg font-medium text-amber-400 mb-2">Media Source Disconnected</h3>
-                  <p className="text-neutral-400 text-sm max-w-md">
+                  <Unplug size={64} className="mx-auto mb-4 text-[var(--warn)] opacity-60" />
+                  <h3 className="text-lg font-medium text-[var(--warn)] mb-2">Media Source Disconnected</h3>
+                  <p className="text-[var(--text-dim)] text-sm max-w-md">
                     The playback server (Media Server) is not running. Recording files exist but cannot be played until the server is started.
                   </p>
                 </div>
               ) : playbackLoading ? (
                 <div className="text-center">
                   <Loader2 size={48} className="animate-spin mx-auto mb-4 text-[var(--accent)]" />
-                  <p className="text-neutral-400">Loading playback...</p>
+                  <p className="text-[var(--text-dim)]">Loading playback...</p>
                 </div>
               ) : (
                 <VideoPlayer
@@ -656,14 +666,14 @@ export function PlaybackView() {
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-neutral-700 bg-[var(--panel-2)]">
+            <div className="px-4 py-3 border-t border-[var(--border)] bg-[var(--panel-2)]">
               <div className="flex items-center gap-4 text-sm text-[var(--text-dim)]">
                 <span className="flex items-center gap-1.5">
                   <Clock size={14} />
                   {playingRecording ? formatDuration(playingRecording.duration) : 'N/A'}
                 </span>
                 {playbackError && (
-                  <span className="flex items-center gap-1.5 text-amber-400">
+                  <span className="flex items-center gap-1.5 text-[var(--warn)]">
                     <AlertCircle size={14} />
                     Playback unavailable
                   </span>

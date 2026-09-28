@@ -34,7 +34,7 @@ export function InfoTip({
       <span
         id={id}
         role="tooltip"
-        className="pointer-events-none invisible absolute left-0 top-full z-30 mt-1.5 w-72 max-w-[80vw] rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-normal leading-relaxed text-[var(--text)] opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        className="pointer-events-none invisible absolute left-0 top-full z-30 mt-1.5 w-72 max-w-[80vw] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs font-normal leading-relaxed text-[var(--text)] opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
       >
         {children}
       </span>

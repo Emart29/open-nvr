@@ -101,7 +101,7 @@ const SETTINGS_REDIRECTS: Record<string, string> = {
 }
 
 const SETTINGS_LABEL_KEYS: Record<string, string> = {
-  'Camera-Config': 'nav.configuration', 'Device Settings': 'settings.deviceSettings', 'Streaming & Recording': 'settings.streamingRecording', Zones: 'settings.zones',
+  'Camera-Config': 'settings.cameraConfig', 'Device Settings': 'settings.deviceSettings', 'Streaming & Recording': 'settings.streamingRecording', Zones: 'settings.zones',
   Recording: 'settings.recording', 'Deleted Cameras': 'settings.deletedCameras', 'Media-Source': 'settings.mediaSource',
   Settings: 'settings.settings', 'Media Server Manager': 'settings.mediaServerManager', Firewall: 'settings.firewall', 'API Tokens': 'settings.apiTokens',
   'More Settings': 'settings.moreSettings', WebRTC: 'settings.webrtc', 'Window Settings': 'settings.windowSettings',
@@ -123,9 +123,11 @@ export function Settings() {
   }, [location.pathname])
 
   useEffect(() => {
-    // if no tab in URL, push default
+    // No tab in the URL: open the first tab's first sub-page. This used to
+    // push /settings/webrtc, which is not a tab key -- the page then fell
+    // back to Camera-Config with no tab highlighted and a doubled breadcrumb.
     if (!location.pathname.match(/\/settings\//)) {
-      navigate('/settings/webrtc', { replace: true })
+      navigate('/settings/camera-config/device', { replace: true })
     }
   }, [location.pathname, navigate])
 
@@ -144,24 +146,24 @@ export function Settings() {
           <NavLink
             key={tab.key}
             to={tab.submenu.length === 0 ? `/settings/${tab.key}` : `/settings/${tab.key}/${tab.submenu[0].slug}`}
-            className={() => `px-2 py-1 rounded whitespace-nowrap ${location.pathname.startsWith(`/settings/${tab.key}`) ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
+            className={() => `px-2 py-1  whitespace-nowrap ${location.pathname.startsWith(`/settings/${tab.key}`) ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
           >
             {t(SETTINGS_LABEL_KEYS[tab.label] ?? tab.label)}
           </NavLink>
         ))}
       </div>
 
-      <div className="flex">
+      <div className="flex flex-col md:flex-row">
         {/* Dynamic Submenu (hidden for WebRTC tab) */}
         {submenu.length > 0 && (
-          <aside className="w-64 bg-[var(--bg-2)] p-3 text-sm">
+          <aside className="w-full md:w-64 shrink-0 bg-[var(--bg-2)] p-3 text-sm">
             {submenu.map((s) => {
               const active = location.pathname === `/settings/${tabDef.key}/${s.slug}`
               return (
                 <NavLink
                   key={s.slug}
                   to={`/settings/${tabDef.key}/${s.slug}`}
-                  className={`block px-2 py-2 rounded ${active ? 'bg-[var(--panel-2)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]'}`}
+                  className={`block px-2 py-2  ${active ? 'bg-[var(--panel-2)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]'}`}
                 >
                   {t(SETTINGS_LABEL_KEYS[s.label] ?? s.label)}
                 </NavLink>
@@ -171,7 +173,7 @@ export function Settings() {
         )}
 
         {/* Content Area */}
-        <div className={`p-4 bg-[var(--panel)] flex-1`}>
+        <div className="p-4 bg-[var(--panel)] flex-1 min-w-0">
           <nav aria-label="Breadcrumb" className="text-xs text-[var(--text-dim)] mb-3">
             {t('settings.breadcrumb')} <span className="mx-1">/</span> {t(SETTINGS_LABEL_KEYS[tabDef.label] ?? tabDef.label)}
             {activeSubKey && (

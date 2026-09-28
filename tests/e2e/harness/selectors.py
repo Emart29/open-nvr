@@ -231,7 +231,13 @@ MODAL_CLOSE = Selector(
 # Login / MFA
 # ===========================================================================
 LOGIN_USERNAME = Selector(name="username field", placeholder="admin", label="Username")
-LOGIN_PASSWORD = Selector(name="password field", placeholder="●●●●●●●●")
+LOGIN_PASSWORD = Selector(
+    name="password field",
+    css="#login-password",
+    # No label hook: get_by_label("Password") also matches the "Show password"
+    # toggle, and the union of the two would make fill() ambiguous.
+    note="the ●●●●●●●● placeholder was dropped in the sign-in restyle (d23c3569); the id is stable",
+)
 LOGIN_SUBMIT = Selector(name="sign-in button", role=("button", "Sign in"))
 MFA_CODE = Selector(name="TOTP field", placeholder="000000")
 MFA_SUBMIT = Selector(name="verify button", role=("button", "Verify"))
@@ -251,7 +257,7 @@ ADD_CAMERA_OPEN = Selector(
 ADD_CAMERA_DIALOG = Selector(
     name="Add Camera dialog",
     role=("heading", "Add New Camera"),
-    note="the dialog has no role=dialog; its <h2> is the scoping handle",
+    note="the dialog is a role=dialog Modal; its <h2> names it",
 )
 TAB_MANUAL = Selector(name="Manual tab", role=("tab", "Manual"))
 FIELD_CAMERA_NAME = Selector(
@@ -287,7 +293,7 @@ CAMERA_ROW_DELETE = Selector(
     name="delete camera",
     title="Delete camera",
     role=("button", "Delete {name}"),
-    note="triggers native window.confirm -- register a dialog handler first",
+    note="asks first: native confirm on old builds, the shared ConfirmDialog on new ones",
 )
 CAMERA_ROW_LIVE = Selector(name="view live", title="View live", role=("button", "View {name} live"))
 CAMERAS_EMPTY = Selector(name="no cameras empty state", text="No cameras")
@@ -343,13 +349,16 @@ PLAYBACK_CLOSE = Selector(name="close playback console", role=("button", "Close"
 TIMELINE_TRACK = Selector(
     name="timeline scrub track",
     testid="playback-timeline-track",
-    css="div.h-9.bg-neutral-800",
-    note="bare divs with no role; the class chain is a stopgap until the testid lands",
+    note="bare divs with no role; found by its testid (the old class-chain fallback broke on any restyle)",
+)
+TIMELINE_FOOTAGE = Selector(
+    name="footage block on the timeline",
+    testid="playback-footage-block",
+    note="one per contiguous run of recorded footage (red)",
 )
 TIMELINE_PLAYHEAD = Selector(
     name="playhead readout",
     testid="playback-timeline-playhead",
-    css="div.h-5 span",
 )
 CLIP_MODE = Selector(name="clip/export toggle", title="Clip / export")
 EXPORT_CLIP = Selector(name="Export clip button", role=("button", "Export clip"))
@@ -388,7 +397,15 @@ ACK_ROW = Selector(
     note="rendered only while unacknowledged; disappears after a successful ack",
 )
 ACK_ALL = Selector(name="Acknowledge all button", text="Acknowledge all")
-UNACKED_STATUS = Selector(name="unacked status cell", text="unacked")
+UNACKED_STATUS = Selector(
+    name="unacked row marker",
+    title="Acknowledge this alarm",
+    note=(
+        "one per unacknowledged row: the row's own Acknowledge button, which "
+        "the table renders only until the alarm is acknowledged. The old "
+        "'unacked' status text was replaced by this icon column."
+    ),
+)
 ALERTS_EMPTY = Selector(name="no alarms", text="No alarms yet")
 
 # ===========================================================================

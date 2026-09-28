@@ -193,10 +193,10 @@ export const RecordingTimeline: React.FC<RecordingTimelineProps> = ({
   };
 
   return (
-    <div className="bg-slate-800 p-4 rounded-lg">
+    <div className="bg-[var(--panel-2)] p-4">
       <div className="mb-3">
-        <h4 className="text-sm font-medium text-white mb-1">{t('shared.recordingTimeline')}</h4>
-        <p className="text-xs text-slate-400">
+        <h4 className="text-sm font-medium text-[var(--text)] mb-1">{t('shared.recordingTimeline')}</h4>
+        <p className="text-xs text-[var(--text-dim)]">
           Drag on the timeline to select a time range to analyze
         </p>
       </div>
@@ -205,7 +205,7 @@ export const RecordingTimeline: React.FC<RecordingTimelineProps> = ({
         ref={canvasRef}
         width={800}
         height={80}
-        className="w-full border border-slate-700 rounded cursor-crosshair"
+        className="w-full border border-[var(--border)] cursor-crosshair"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -213,20 +213,20 @@ export const RecordingTimeline: React.FC<RecordingTimelineProps> = ({
       />
 
       {selectedRange && (
-        <div className="mt-3 p-3 bg-slate-700 rounded text-sm space-y-1">
+        <div className="mt-3 p-3 bg-[var(--panel-2)] text-sm space-y-1">
           <div className="flex justify-between items-center">
-            <span className="text-slate-300">{t('shared.selectedRange')}</span>
+            <span className="text-[var(--text)]">{t('shared.selectedRange')}</span>
             <button
               onClick={handleClearSelection}
-              className="text-xs text-slate-400 hover:text-white"
+              className="text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
             >
               Clear
             </button>
           </div>
-          <div className="text-white font-mono text-xs">
+          <div className="text-[var(--text)] font-mono text-xs">
             {formatTime(new Date(selectedRange.start))} - {formatTime(new Date(selectedRange.end))}
           </div>
-          <div className="text-slate-400 text-xs">
+          <div className="text-[var(--text-dim)] text-xs">
             Duration: {formatDuration(new Date(selectedRange.end).getTime() - new Date(selectedRange.start).getTime())}
           </div>
         </div>
@@ -236,7 +236,7 @@ export const RecordingTimeline: React.FC<RecordingTimelineProps> = ({
         <button
           onClick={onAnalyze}
           disabled={!selectedRange}
-          className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded font-medium transition-colors"
+          className="flex-1 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent)] disabled:bg-[var(--panel-2)] disabled:text-[var(--text-dim)] text-white font-medium transition-colors"
         >
           {selectedRange ? 'Analyze Selected Range' : 'Select a range first'}
         </button>
@@ -245,7 +245,7 @@ export const RecordingTimeline: React.FC<RecordingTimelineProps> = ({
             handleClearSelection();
             onAnalyze();
           }}
-          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded font-medium transition-colors"
+          className="px-4 py-2 bg-[var(--panel-2)] hover:bg-[var(--panel)] border border-[var(--border)] text-[var(--text)] font-medium transition-colors"
         >
           Analyze All
         </button>

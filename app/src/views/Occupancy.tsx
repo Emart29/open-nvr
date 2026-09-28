@@ -349,7 +349,7 @@ export function Occupancy() {
         description="Live head-counts per watched zone — riding the platform's detection stream, zero extra inference. Thresholds apply live."
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex rounded border border-[var(--border)] overflow-hidden" role="group" aria-label="Time window">
+            <div className="flex border border-[var(--border)] overflow-hidden" role="group" aria-label="Time window">
               {WINDOWS.map((w) => (
                 <button
                   key={w.hours}
@@ -485,7 +485,7 @@ export function Occupancy() {
               min={1}
               value={draftMax ?? String(maxOccupancy || '')}
               onChange={(e) => setDraftMax(e.target.value)}
-              className="block mt-0.5 py-1.5 px-2 rounded border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text)] w-40"
+              className="block mt-0.5 py-1.5 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text)] w-40"
             />
           </label>
           <label className="text-xs text-[var(--text-dim)]">
@@ -495,7 +495,7 @@ export function Occupancy() {
               min={0}
               value={draftMin ?? String(minOccupancy || 0)}
               onChange={(e) => setDraftMin(e.target.value)}
-              className="block mt-0.5 py-1.5 px-2 rounded border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text)] w-40"
+              className="block mt-0.5 py-1.5 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text)] w-40"
             />
           </label>
           <Button
@@ -589,7 +589,7 @@ export function Occupancy() {
                     </div>
                   </div>
                   {maxOccupancy > 0 && (
-                    <div className="mt-3 h-1.5 rounded bg-[var(--bg-2)] overflow-hidden">
+                    <div className="mt-3 h-1.5 bg-[var(--bg-2)] overflow-hidden">
                       <div
                         className={`h-full rounded ${z.level === 'over'
                           ? 'bg-[var(--danger,#e5484d)]'
@@ -744,10 +744,10 @@ function FlowChart({ cameras }: { cameras: FootfallResp['cameras'] }) {
       </svg>
       <div className="flex gap-4 text-[10px] text-[var(--text-dim)] mt-1">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-3 rounded-sm" style={{ background: 'var(--accent,#3b82f6)' }} /> entries (above)
+          <span className="inline-block h-2 w-3" style={{ background: 'var(--accent,#3b82f6)' }} /> entries (above)
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-3 rounded-sm" style={{ background: 'var(--text-dim,#6b7280)', opacity: 0.55 }} /> exits (below)
+          <span className="inline-block h-2 w-3" style={{ background: 'var(--text-dim,#6b7280)', opacity: 0.55 }} /> exits (below)
         </span>
       </div>
     </div>
@@ -766,6 +766,7 @@ const REPORT_PERIODS: { label: string; days: number }[] = [
   { label: 'Last 30 days', days: 30 },
 ]
 
+/* eslint-disable no-restricted-syntax -- a paper print sheet: black on white in every theme */
 function OccupancyReportOverlay({
   cameraName, maxOccupancy, onClose,
 }: {
@@ -1044,6 +1045,8 @@ function useCameraStill(cameraId: number) {
   return { data: url, isPending: query.isPending }
 }
 
+/* eslint-enable no-restricted-syntax */
+
 function HeatmapCanvas({ heat }: { heat: HeatmapResp }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -1177,7 +1180,7 @@ function HeatmapDialog({
         <span className="inline-flex items-center gap-1.5">
           quiet
           <span
-            className="inline-block h-2.5 w-28 rounded"
+            className="inline-block h-2.5 w-28"
             style={{ background: 'linear-gradient(90deg, rgba(147,197,253,0.25), rgba(30,64,175,0.9))' }}
             aria-hidden="true"
           />
@@ -1193,7 +1196,7 @@ function HeatmapDialog({
           </>
         )}
         {heatQuery.isError && (
-          <span className="text-red-400">{extractApiError(heatQuery.error, 'Could not load the heatmap.')}</span>
+          <span className="text-[var(--danger)]">{extractApiError(heatQuery.error, 'Could not load the heatmap.')}</span>
         )}
       </div>
     </Modal>

@@ -10,12 +10,12 @@
 #   - detect-pipeline pytest regressions (Tier-0 CV pipeline + service),
 #     including the real-ffmpeg decode tests
 #   - example pytest regressions across all nine shipped examples
-#   - React frontend build failures
+#   - React frontend type, lint (errors only) and build failures
 #
 # What this does NOT do (yet):
 #   - End-to-end docker-compose smoke (separate slice — see internal
 #     SMOKE_TEST checklist)
-#   - Lint / ruff (not yet wired into the project's dev workflow)
+#   - Python lint / ruff (not yet wired into the project's dev workflow)
 #   - Multi-Python matrix (project requires >=3.11; testing one stable
 #     version is enough until we get into 3.12-specific issues)
 
@@ -225,6 +225,11 @@ jobs:
       - name: Typecheck
         working-directory: app
         run: npm run typecheck
+      # ESLint covers .ts/.tsx now. Most rules are warnings (existing debt,
+      # promoted one at a time); only errors fail this step.
+      - name: Lint
+        working-directory: app
+        run: npm run lint
       - name: Build
         working-directory: app
         run: npm run build

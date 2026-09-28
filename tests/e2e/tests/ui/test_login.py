@@ -67,7 +67,7 @@ def test_signing_in_reaches_the_dashboard(ui_page, admin):
     """
     ui_page.goto("/login")
     ui_page.get_by_placeholder("admin").fill(admin.username)
-    ui_page.get_by_placeholder("●●●●●●●●").fill(admin.password)
+    ui_page.locator("#login-password").fill(admin.password)
     ui_page.get_by_role("button", name="Sign in").click()
 
     # MFA is enabled on the bootstrapped admin, so the client routes here.
@@ -90,7 +90,7 @@ def test_a_signed_in_session_survives_a_reload(ui_page, admin):
     """
     ui_page.goto("/login")
     ui_page.get_by_placeholder("admin").fill(admin.username)
-    ui_page.get_by_placeholder("●●●●●●●●").fill(admin.password)
+    ui_page.locator("#login-password").fill(admin.password)
     ui_page.get_by_role("button", name="Sign in").click()
     expect(ui_page).to_have_url(re.compile(r"/mfa-verify"), timeout=15_000)
     ui_page.get_by_placeholder("000000").fill(_fresh_totp(admin))

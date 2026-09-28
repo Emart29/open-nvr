@@ -98,16 +98,13 @@ def test_a_camera_can_be_deleted_through_the_form(cameras_page, client, sandbox,
     expect(cameras_page.row(camera["name"])).to_have_count(0, timeout=30_000)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "the Cameras search box is inert: the UI sends q= but "
-        "GET /api/v1/cameras/ has no such parameter. See the docstring."
-    ),
-)
 def test_the_camera_search_filters_the_table(cameras_page, client, sandbox, config):
     """Search narrows the list.
 
-    **Currently xfail: this is a real, shipped bug, not a flaky test.**
+    This was xfail for a long time -- a real, shipped bug, described below --
+    until ``GET /api/v1/cameras/`` learned ``q`` (name/IP, case-insensitive;
+    see server/tests/test_cameras_search.py). Kept as the story of why the
+    negative half of the assertion exists.
 
     A filter that silently does nothing looks identical to one that works when
     the list is short -- which it is on a test stack -- so this asserts the

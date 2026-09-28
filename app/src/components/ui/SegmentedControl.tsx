@@ -37,7 +37,7 @@ export function SegmentedControl<V extends string | number | null>({
     <div
       role="group"
       aria-label={label}
-      className="flex divide-x divide-[var(--border)] overflow-hidden rounded border border-[var(--border)]"
+      className="flex divide-x divide-[var(--border)] overflow-hidden rounded-[var(--radius)] border border-[var(--border)]"
     >
       {options.map((o) => {
         const on = o.value === value

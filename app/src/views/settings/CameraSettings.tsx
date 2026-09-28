@@ -32,6 +32,7 @@ import { useCameraCapabilities } from '../../hooks/useCameraCapabilities'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
 import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type CameraLite = { id: number; name: string }
 
@@ -119,7 +120,7 @@ function Toggle({
 }
 
 const INPUT_CLS =
-  'bg-[var(--panel-2)] border border-[var(--border)] rounded px-2 py-1.5 text-sm'
+  'bg-[var(--panel-2)] border border-[var(--border)]  px-2 py-1.5 text-sm'
 type EncForm = {
   width?: number
   height?: number
@@ -262,6 +263,7 @@ function NetworkTab({ cameraId }: { cameraId: number }) {
 }
 
 function UsersTab({ cameraId }: { cameraId: number }) {
+  const confirm = useConfirm()
   const { t } = useTranslation()
   const { showSuccess, showError } = useSnackbar()
   const [data, setData] = useState<any>(null)
@@ -301,7 +303,7 @@ function UsersTab({ cameraId }: { cameraId: number }) {
     }
   }
   const remove = async (name: string) => {
-    if (!window.confirm(`Delete camera user "${name}"? This cannot be undone.`)) return
+    if (!(await confirm({ title: `Delete camera user "${name}"?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return
     setBusy(name)
     try {
       await apiService.deleteCameraUser(cameraId, name)
@@ -315,10 +317,11 @@ function UsersTab({ cameraId }: { cameraId: number }) {
   }
   const reboot = async () => {
     if (
-      !window.confirm(
-        'Reboot this camera? Live view and recording will drop for ~30–60 seconds. ' +
-          'No settings are changed.'
-      )
+      !(await confirm({
+        title: 'Reboot this camera?',
+        message: 'Live view and recording will drop for ~30–60 seconds. No settings are changed.',
+        confirmLabel: 'Reboot',
+      }))
     )
       return
     setBusy('reboot')
@@ -440,7 +443,7 @@ function PtzTab({ cameraId }: { cameraId: number }) {
     className?: string
   }) => (
     <button
-      className={`px-3 py-3 bg-[var(--panel-2)] border border-[var(--border)] rounded hover:bg-[var(--panel)] ${className}`}
+      className={`px-3 py-3 bg-[var(--panel-2)] border border-[var(--border)]  hover:bg-[var(--panel)] ${className}`}
       onMouseDown={() => move(x, y, z || 0)}
       onMouseUp={stop}
       onMouseLeave={stop}
@@ -459,7 +462,7 @@ function PtzTab({ cameraId }: { cameraId: number }) {
         <div />
         <Pad x={-0.5} y={0} label="◀" />
         <button
-          className="px-3 py-3 bg-[var(--panel-2)] border border-[var(--border)] rounded hover:bg-[var(--panel)]"
+          className="px-3 py-3 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[var(--panel)]"
           onClick={stop}
         >
           ■
@@ -628,7 +631,7 @@ function AiTab({ cameraId }: { cameraId: number }) {
       {models.map((m) => (
         <div
           key={m.id}
-          className="flex items-center gap-3 rounded border border-[var(--border)] p-3"
+          className="flex items-center gap-3 border border-[var(--border)] p-3"
         >
           <div className="flex-1">
             <div className="font-medium text-sm">{m.name}</div>
@@ -827,7 +830,7 @@ function ServicesTab({ cameraId }: { cameraId: number }) {
       {(data.services || []).map((s: any) => (
         <div
           key={s.key}
-          className="flex items-center justify-between gap-3 border border-[var(--border)] rounded px-3 py-2"
+          className="flex items-center justify-between gap-3 border border-[var(--border)] px-3 py-2"
         >
           <div className="min-w-0">
             <div className="text-sm">{s.label}</div>
@@ -898,7 +901,7 @@ function MaintenanceTab({ cameraId }: { cameraId: number }) {
 
   return (
     <div className="space-y-4">
-      <div className="border border-[var(--border)] rounded p-3 space-y-2">
+      <div className="border border-[var(--border)] p-3 space-y-2">
         <div className="text-sm">{t('device.backup')}</div>
         <p className="text-xs text-[var(--text-dim)]">
           Download the camera's full settings as a vendor backup file. Useful
@@ -910,7 +913,7 @@ function MaintenanceTab({ cameraId }: { cameraId: number }) {
           value={secretKey}
           onChange={(e) => setSecretKey(e.target.value)}
         />
-        <p className="text-xs text-amber-500">
+        <p className="text-xs text-[var(--warn)]">
           The camera encrypts the backup with this key and the same key is
           required to restore it. Store it somewhere safe — without it the
           backup is useless.
@@ -920,7 +923,7 @@ function MaintenanceTab({ cameraId }: { cameraId: number }) {
         </Button>
       </div>
 
-      <div className="border border-[var(--border)] rounded p-3 space-y-2">
+      <div className="border border-[var(--border)] p-3 space-y-2">
         <div className="text-sm">{t('device.reboot')}</div>
         <p className="text-xs text-[var(--text-dim)]">
           The camera will drop its stream and recording for roughly a minute.
@@ -1015,7 +1018,7 @@ function SecurityTab({ cameraId }: { cameraId: number }) {
   return (
     <div className="space-y-5">
       {/* --- IP allowlist (lockout-capable) --- */}
-      <div className="border border-[var(--border)] rounded p-3 space-y-3">
+      <div className="border border-[var(--border)] p-3 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm">Restrict access to OpenNVR only</span>
           {locked ? (
@@ -1056,7 +1059,7 @@ function SecurityTab({ cameraId }: { cameraId: number }) {
                 value={extra}
                 onChange={(e) => setExtra(e.target.value)}
                 placeholder="e.g. 192.168.1.20"
-                className="bg-[var(--panel-2)] border border-[var(--border)] rounded px-3 py-2 text-sm font-mono"
+                className="bg-[var(--panel-2)] border border-[var(--border)] px-3 py-2 text-sm font-mono"
               />
             </label>
 
@@ -1069,7 +1072,7 @@ function SecurityTab({ cameraId }: { cameraId: number }) {
                 Lock camera to OpenNVR
               </Button>
             ) : (
-              <div className="space-y-2 border border-amber-600/50 bg-amber-600/10 rounded p-3">
+              <div className="space-y-2 border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))] bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] p-3">
                 <p className="text-xs">
                   <strong>Read this first.</strong> If OpenNVR's address changes
                   later (for example on DHCP), it will no longer be able to reach
@@ -1095,7 +1098,7 @@ function SecurityTab({ cameraId }: { cameraId: number }) {
 
       {/* --- vendor cloud --- */}
       {data.cloud_supported && (
-        <div className="border border-[var(--border)] rounded p-3 space-y-2">
+        <div className="border border-[var(--border)] p-3 space-y-2">
           <Toggle
             label="Vendor cloud (P2P)"
             checked={!!data.cloud_enabled}
@@ -1199,7 +1202,7 @@ function SmartTab({ cameraId }: { cameraId: number }) {
       {(data.detectors || []).map((d: any) => (
         <div
           key={d.key}
-          className="border border-[var(--border)] rounded p-3 space-y-3"
+          className="border border-[var(--border)] p-3 space-y-3"
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1393,7 +1396,7 @@ function VideoTab({ cameraId }: { cameraId: number }) {
         const resVal = `${f.width}x${f.height}`
         const dirty = JSON.stringify(f) !== JSON.stringify(encFormOf(c))
         return (
-          <div key={c.token} className="rounded border border-[var(--border)] p-3 space-y-3">
+          <div key={c.token} className="border border-[var(--border)] p-3 space-y-3">
             <div className="flex items-center gap-2">
               <span className="font-medium text-sm">{c.name || c.token}</span>
               <Badge variant="info">{c.encoding}</Badge>
@@ -1568,7 +1571,7 @@ function ImageTab({ cameraId }: { cameraId: number }) {
               <select
                 value={form[k] ?? ''}
                 onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                className="bg-[var(--panel-2)] border border-[var(--border)] rounded px-3 py-2 text-sm"
+                className="bg-[var(--panel-2)] border border-[var(--border)] px-3 py-2 text-sm"
               >
                 {data.ranges[k].options.map((o: string) => (
                   <option key={o} value={o}>
@@ -1582,7 +1585,7 @@ function ImageTab({ cameraId }: { cameraId: number }) {
               <input
                 value={form[k] ?? ''}
                 onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                className="bg-[var(--panel-2)] border border-[var(--border)] rounded px-3 py-2 text-sm font-mono"
+                className="bg-[var(--panel-2)] border border-[var(--border)] px-3 py-2 text-sm font-mono"
               />
             )}
           </label>
@@ -1663,7 +1666,7 @@ function TimeTab({ cameraId }: { cameraId: number }) {
   if (error) return <ErrorCard message={error} onRetry={load} />
 
   const inputCls =
-    'bg-[var(--panel-2)] border border-[var(--border)] rounded px-3 py-2 text-sm font-mono'
+    'bg-[var(--panel-2)] border border-[var(--border)]  px-3 py-2 text-sm font-mono'
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1742,7 +1745,7 @@ function StorageTab({ cameraId }: { cameraId: number }) {
       {(data.slots || []).map((s: any, i: number) => (
         <div
           key={i}
-          className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded border border-[var(--border)] p-3"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-4 border border-[var(--border)] p-3"
         >
           <ReadOnlyField label="Name" value={s.name} />
           <ReadOnlyField label="Status" value={s.status} />
@@ -1773,7 +1776,7 @@ function StorageTab({ cameraId }: { cameraId: number }) {
             data.nas_mounts.map((n: any, i: number) => (
               <div
                 key={i}
-                className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded border border-[var(--border)] p-3"
+                className="grid grid-cols-2 sm:grid-cols-4 gap-4 border border-[var(--border)] p-3"
               >
                 <ReadOnlyField label="Address" value={n.address} />
                 <ReadOnlyField label="Path" value={n.path} />
@@ -1847,7 +1850,7 @@ export function CameraSettingsPanel({
             )}
             {caps?.capabilities?.hardware_verified === false && (
               <span
-                className="text-xs text-amber-500"
+                className="text-xs text-[var(--warn)]"
                 title="This vendor driver's write paths have not yet been verified against real hardware."
               >
                 not hardware-verified

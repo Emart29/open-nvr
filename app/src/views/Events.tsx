@@ -113,25 +113,25 @@ export function Events() {
       {/* Filters */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-sm">
         <input
-          className="border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 rounded"
+          className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1"
           placeholder={t('admin.actionPlaceholder')}
           value={action}
           onChange={(e) => { setPage(1); setAction(e.target.value) }}
         />
         <input
-          className="border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 rounded"
+          className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1"
           placeholder={t('admin.entityPlaceholder')}
           value={entityType}
           onChange={(e) => { setPage(1); setEntityType(e.target.value) }}
         />
         <input
-          className="border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 rounded"
+          className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1"
           placeholder={t('admin.userId')}
           value={userId}
           onChange={(e) => { setPage(1); setUserId(e.target.value) }}
         />
         <select
-          className="border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 rounded"
+          className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1"
           value={pageSize}
           onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)) }}
         >
@@ -189,7 +189,7 @@ export function Events() {
         <Button disabled={page >= totalPages} onClick={() => goto(page + 1)}>{t('admin.next')}</Button>
       </div>
 
-      {error && <div className="text-red-400 text-sm">{error}</div>}
+      {error && <div className="text-[var(--danger)] text-sm">{error}</div>}
 
       {/* Details modal */}
   <Modal open={!!selected} onClose={() => setSelected(null)} title="Audit log details" widthClassName="w-[800px]">
@@ -202,11 +202,11 @@ export function Events() {
               <div><span className="text-[var(--text-dim)]">IP: </span>{selected.ip || '-'}</div>
               <div className="col-span-2"><span className="text-[var(--text-dim)]">Entity: </span>{selected.entity_type || '-'}{selected.entity_id ? `:${selected.entity_id}` : ''}</div>
             </div>
-            <div className="border border-neutral-700 rounded overflow-hidden">
-              <div className="flex items-center justify-between bg-[var(--panel-1)] px-3 py-2 text-[var(--text-dim)]">
+            <div className="border border-[var(--border)] overflow-hidden">
+              <div className="flex items-center justify-between bg-[var(--panel-2)] px-3 py-2 text-[var(--text-dim)]">
                 <span>Raw JSON</span>
                 <button
-                  className="px-2 py-0.5 border border-neutral-700 rounded hover:bg-neutral-800 text-xs"
+                  className="px-2 py-0.5 border border-[var(--border)] hover:bg-[var(--panel-2)] text-xs"
                   onClick={() => {
                     const text = typeof selected.details === 'string' ? selected.details : JSON.stringify(selected.details, null, 2)
                     navigator.clipboard?.writeText(text)

@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react'
 import { apiService } from '../../../lib/apiService'
 import { Plus, Trash2, Grid, LayoutGrid, Eye, EyeOff } from 'lucide-react'
+import { Modal } from '../../../components/Modal'
 
 // Predefined layout definitions
 const PREDEFINED_LAYOUTS: Record<string, { name: string; description: string; gridCols: number; gridRows: number; tiles: Array<{ row: number; col: number; rowSpan: number; colSpan: number }> }> = {
@@ -306,8 +307,8 @@ export function WindowSettings() {
         Window Division Settings
       </h2>
 
-      {error && <div className="text-sm text-red-400 bg-red-900/20 border border-red-800 p-2">{error}</div>}
-      {notice && <div className="text-sm text-emerald-400 bg-emerald-900/20 border border-emerald-800 p-2">{notice}</div>}
+      {error && <div className="text-sm text-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] p-2">{error}</div>}
+      {notice && <div className="text-sm text-[var(--ok)] bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] p-2">{notice}</div>}
 
       {/* Predefined Layouts */}
       <section className="space-y-3">
@@ -321,7 +322,7 @@ export function WindowSettings() {
             return (
               <div
                 key={id}
-                className={`relative border p-3 ${enabled ? 'border-neutral-600 bg-[var(--panel-2)]' : 'border-neutral-800 bg-[var(--bg-2)] opacity-60'}`}
+                className={`relative border p-3 ${enabled ? 'border-[var(--border)] bg-[var(--panel-2)]' : 'border-[var(--border)] bg-[var(--bg-2)] opacity-60'}`}
               >
                 {/* Preview Grid */}
                 <div
@@ -355,7 +356,7 @@ export function WindowSettings() {
 
                 <div className="mt-2 flex items-center gap-2">
                   <button
-                    className={`px-2 py-1 text-xs border ${enabled ? 'border-emerald-600 bg-emerald-900/20 text-emerald-400' : 'border-neutral-600 bg-neutral-800 text-neutral-400'}`}
+                    className={`px-2 py-1 text-xs border ${enabled ? 'border-[var(--ok)] bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]' : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text-dim)]'}`}
                     onClick={() => toggleLayout(id)}
                     title={enabled ? 'Disable' : 'Enable'}
                   >
@@ -363,7 +364,7 @@ export function WindowSettings() {
                     {enabled ? 'Enabled' : 'Disabled'}
                   </button>
                   <button
-                    className={`px-2 py-1 text-xs border ${isDefault ? 'border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]' : 'border-neutral-600 bg-neutral-800 text-neutral-400'}`}
+                    className={`px-2 py-1 text-xs border ${isDefault ? 'border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]' : 'border-[var(--border)] bg-[var(--panel-2)] text-[var(--text-dim)]'}`}
                     onClick={() => setDefaultLayout(id)}
                     disabled={!enabled}
                     title="Set as default"
@@ -390,7 +391,7 @@ export function WindowSettings() {
         </div>
 
         {settings.custom_layouts.length === 0 ? (
-          <div className="text-sm text-[var(--text-dim)] bg-[var(--bg-2)] border border-neutral-700 p-4 text-center">
+          <div className="text-sm text-[var(--text-dim)] bg-[var(--bg-2)] border border-[var(--border)] p-4 text-center">
             No custom layouts defined. Click "Add Custom Layout" to create one.
           </div>
         ) : (
@@ -401,7 +402,7 @@ export function WindowSettings() {
               return (
                 <div
                   key={layout.id}
-                  className={`relative border p-3 ${layout.enabled ? 'border-neutral-600 bg-[var(--panel-2)]' : 'border-neutral-800 bg-[var(--bg-2)] opacity-60'}`}
+                  className={`relative border p-3 ${layout.enabled ? 'border-[var(--border)] bg-[var(--panel-2)]' : 'border-[var(--border)] bg-[var(--bg-2)] opacity-60'}`}
                 >
                   {/* Preview Grid */}
                   <div
@@ -417,7 +418,7 @@ export function WindowSettings() {
                     {layout.tiles.map((tile, i) => (
                       <div
                         key={i}
-                        className="bg-blue-500/30 border border-blue-500/50"
+                        className="bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))]"
                         style={{
                           gridRow: `${tile.row + 1} / span ${tile.rowSpan}`,
                           gridColumn: `${tile.col + 1} / span ${tile.colSpan}`,
@@ -435,20 +436,20 @@ export function WindowSettings() {
 
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
                     <button
-                      className="px-2 py-1 text-xs border border-neutral-600 bg-neutral-800"
+                      className="px-2 py-1 text-xs border border-[var(--border)] bg-[var(--panel-2)]"
                       onClick={() => openEditor(layout)}
                     >
                       Edit
                     </button>
                     <button
-                      className={`px-2 py-1 text-xs border ${isDefault ? 'border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]' : 'border-neutral-600 bg-neutral-800'}`}
+                      className={`px-2 py-1 text-xs border ${isDefault ? 'border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]' : 'border-[var(--border)] bg-[var(--panel-2)]'}`}
                       onClick={() => setDefaultLayout(layout.id)}
                       disabled={!layout.enabled}
                     >
                       {isDefault ? '★ Default' : 'Set Default'}
                     </button>
                     <button
-                      className="px-2 py-1 text-xs border border-red-600 bg-red-900/20 text-red-400"
+                      className="px-2 py-1 text-xs border border-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)]"
                       onClick={() => deleteCustomLayout(layout.id)}
                     >
                       <Trash2 size={12} />
@@ -462,7 +463,7 @@ export function WindowSettings() {
       </section>
 
       {/* Save Button */}
-      <div className="flex justify-end pt-4 border-t border-neutral-700">
+      <div className="flex justify-end pt-4 border-t border-[var(--border)]">
         <button
           disabled={saving}
           onClick={onSave}
@@ -522,14 +523,14 @@ function CustomLayoutEditor({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-[var(--panel)] border border-neutral-600 w-full max-w-4xl max-h-[90vh] overflow-auto">
-        <div className="p-4 border-b border-neutral-700 flex items-center justify-between">
-          <h3 className="font-semibold">Custom Layout Editor</h3>
-          <button className="px-2 py-1 text-xs border border-neutral-600" onClick={onCancel}>
-            Cancel
-          </button>
-        </div>
+    <Modal
+      open
+      title="Custom Layout Editor"
+      onClose={onCancel}
+      widthClassName="w-[calc(100vw-2rem)] max-w-4xl"
+      bodyClassName="p-0"
+      closeOnBackdrop={false}
+    >
 
         <div className="p-4 grid grid-cols-2 gap-6">
           {/* Left: Settings */}
@@ -539,7 +540,7 @@ function CustomLayoutEditor({
                 <span className="text-xs text-[var(--text-dim)]">Layout Name</span>
                 <input
                   type="text"
-                  className="bg-[var(--bg-2)] border border-neutral-700 px-2 py-1 text-sm"
+                  className="bg-[var(--bg-2)] border border-[var(--border)] px-2 py-1 text-sm"
                   value={form.name}
                   onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
                 />
@@ -548,7 +549,7 @@ function CustomLayoutEditor({
                 <span className="text-xs text-[var(--text-dim)]">Description</span>
                 <input
                   type="text"
-                  className="bg-[var(--bg-2)] border border-neutral-700 px-2 py-1 text-sm"
+                  className="bg-[var(--bg-2)] border border-[var(--border)] px-2 py-1 text-sm"
                   value={form.description || ''}
                   onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
                 />
@@ -562,7 +563,7 @@ function CustomLayoutEditor({
                   type="number"
                   min={1}
                   max={8}
-                  className="bg-[var(--bg-2)] border border-neutral-700 px-2 py-1 text-sm"
+                  className="bg-[var(--bg-2)] border border-[var(--border)] px-2 py-1 text-sm"
                   value={form.grid_columns}
                   onChange={(e) => setForm(prev => ({ ...prev, grid_columns: parseInt(e.target.value) || 4 }))}
                 />
@@ -573,7 +574,7 @@ function CustomLayoutEditor({
                   type="number"
                   min={1}
                   max={8}
-                  className="bg-[var(--bg-2)] border border-neutral-700 px-2 py-1 text-sm"
+                  className="bg-[var(--bg-2)] border border-[var(--border)] px-2 py-1 text-sm"
                   value={form.grid_rows}
                   onChange={(e) => setForm(prev => ({ ...prev, grid_rows: parseInt(e.target.value) || 4 }))}
                 />
@@ -605,13 +606,13 @@ function CustomLayoutEditor({
                 {form.tiles.map((tile, i) => (
                   <div
                     key={i}
-                    className={`p-2 border text-xs cursor-pointer ${selectedTile === i ? 'border-[var(--accent)] bg-[var(--accent)]/10' : 'border-neutral-700 bg-[var(--bg-2)]'}`}
+                    className={`p-2 border text-xs cursor-pointer ${selectedTile === i ? 'border-[var(--accent)] bg-[var(--accent)]/10' : 'border-[var(--border)] bg-[var(--bg-2)]'}`}
                     onClick={() => setSelectedTile(i)}
                   >
                     <div className="flex items-center justify-between">
                       <span>Tile {i + 1}</span>
                       <button
-                        className="text-red-400 hover:text-red-300"
+                        className="text-[var(--danger)] hover:text-[var(--danger)]"
                         onClick={(e) => { e.stopPropagation(); removeTile(i) }}
                       >
                         <Trash2 size={12} />
@@ -624,7 +625,7 @@ function CustomLayoutEditor({
                           type="number"
                           min={0}
                           max={form.grid_rows - 1}
-                          className="bg-[var(--panel)] border border-neutral-600 px-1 py-0.5 w-full"
+                          className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5 w-full"
                           value={tile.row}
                           onChange={(e) => updateTile(i, 'row', parseInt(e.target.value) || 0)}
                           onClick={(e) => e.stopPropagation()}
@@ -636,7 +637,7 @@ function CustomLayoutEditor({
                           type="number"
                           min={0}
                           max={form.grid_columns - 1}
-                          className="bg-[var(--panel)] border border-neutral-600 px-1 py-0.5 w-full"
+                          className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5 w-full"
                           value={tile.col}
                           onChange={(e) => updateTile(i, 'col', parseInt(e.target.value) || 0)}
                           onClick={(e) => e.stopPropagation()}
@@ -648,7 +649,7 @@ function CustomLayoutEditor({
                           type="number"
                           min={1}
                           max={form.grid_rows}
-                          className="bg-[var(--panel)] border border-neutral-600 px-1 py-0.5 w-full"
+                          className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5 w-full"
                           value={tile.rowSpan}
                           onChange={(e) => updateTile(i, 'rowSpan', parseInt(e.target.value) || 1)}
                           onClick={(e) => e.stopPropagation()}
@@ -660,7 +661,7 @@ function CustomLayoutEditor({
                           type="number"
                           min={1}
                           max={form.grid_columns}
-                          className="bg-[var(--panel)] border border-neutral-600 px-1 py-0.5 w-full"
+                          className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5 w-full"
                           value={tile.colSpan}
                           onChange={(e) => updateTile(i, 'colSpan', parseInt(e.target.value) || 1)}
                           onClick={(e) => e.stopPropagation()}
@@ -677,7 +678,7 @@ function CustomLayoutEditor({
           <div className="space-y-2">
             <span className="text-sm font-medium">Preview</span>
             <div
-              className="aspect-video bg-[var(--bg)] border border-neutral-700"
+              className="aspect-video bg-[var(--bg)] border border-[var(--border)]"
               style={{
                 display: 'grid',
                 gridTemplateColumns: `repeat(${form.grid_columns}, 1fr)`,
@@ -689,7 +690,7 @@ function CustomLayoutEditor({
               {form.tiles.map((tile, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-center text-xs ${selectedTile === i ? 'bg-[var(--accent)]/50 border-2 border-[var(--accent)]' : 'bg-blue-500/30 border border-blue-500/50'}`}
+                  className={`flex items-center justify-center text-xs ${selectedTile === i ? 'bg-[var(--accent)]/50 border-2 border-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))]'}`}
                   style={{
                     gridRow: `${tile.row + 1} / span ${tile.rowSpan}`,
                     gridColumn: `${tile.col + 1} / span ${tile.colSpan}`,
@@ -706,9 +707,9 @@ function CustomLayoutEditor({
           </div>
         </div>
 
-        <div className="p-4 border-t border-neutral-700 flex justify-end gap-2">
+        <div className="p-4 border-t border-[var(--border)] flex justify-end gap-2">
           <button
-            className="px-4 py-2 border border-neutral-600 bg-neutral-800"
+            className="px-4 py-2 border border-[var(--border)] bg-[var(--panel-2)]"
             onClick={onCancel}
           >
             Cancel
@@ -720,7 +721,6 @@ function CustomLayoutEditor({
             Save Layout
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

@@ -26,6 +26,7 @@ import { AppShell } from './shell/AppShell'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { PermissionsProvider } from './hooks/usePermissions'
 import { SnackbarProvider } from './components/Snackbar'
+import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './views/Login'
 import { MFASetup } from './views/MFASetup'
@@ -98,7 +99,6 @@ const Updates = lazy(reloadOnStale(() => import('./views/Updates').then((m) => (
 const Logs = lazy(reloadOnStale(() => import('./views/Logs').then((m) => ({ default: m.Logs }))))
 const Compliance = lazy(reloadOnStale(() => import('./views/Compliance').then((m) => ({ default: m.Compliance }))))
 const AlertsIncidents = lazy(reloadOnStale(() => import('./views/AlertsIncidents').then((m) => ({ default: m.AlertsIncidents }))))
-const Alarms = lazy(reloadOnStale(() => import('./views/Alarms').then((m) => ({ default: m.Alarms }))))
 const Integrations = lazy(reloadOnStale(() => import('./views/Integrations').then((m) => ({ default: m.Integrations }))))
 const Support = lazy(reloadOnStale(() => import('./views/Support').then((m) => ({ default: m.Support }))))
 const AccessControl = lazy(reloadOnStale(() => import('./views/AccessControl').then((m) => ({ default: m.AccessControl }))))
@@ -204,7 +204,9 @@ const router = createBrowserRouter([
           { path: 'apps/:appId', element: <AppView /> },
           { path: 'compliance', element: <Compliance /> },
           { path: 'alerts-incidents', element: <AlertsIncidents /> },
-          { path: 'alarms', element: <Alarms /> },
+          // One alarms page: Alerts & Incidents opens on its Alarms tab, which
+          // renders this same view. /alarms stays valid for old links.
+          { path: 'alarms', element: <Navigate to="/alerts-incidents" replace /> },
           { path: 'integrations', element: <Integrations /> },
           { path: 'onvif-tools', element: <OnvifTools /> },
           { path: 'cloud', element: <Cloud /> },
@@ -230,7 +232,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <PermissionsProvider>
             <SnackbarProvider>
-              <RouterProvider router={router} />
+              <ConfirmProvider>
+                <RouterProvider router={router} />
+              </ConfirmProvider>
             </SnackbarProvider>
           </PermissionsProvider>
         </AuthProvider>

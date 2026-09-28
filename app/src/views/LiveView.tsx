@@ -27,7 +27,7 @@ import { useFullscreen } from '../hooks/useFullscreen'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { usePermissions } from '../hooks/usePermissions'
 import { useCameraStatus } from '../hooks/useCameraStatus'
-import { Camera, Maximize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, X, Grid, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye } from 'lucide-react'
+import { Camera, Maximize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, Grid, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye } from 'lucide-react'
 import { 
   DndContext, 
   DragOverlay, 
@@ -42,6 +42,11 @@ import {
 } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { useTranslation } from '../i18n'
+import { useNavigate } from 'react-router-dom'
+import { useSnackbar } from '../components/Snackbar'
+import { Button } from '../components/ui'
+import { Modal } from '../components/Modal'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // Layout definitions - matching the WindowSettings
 interface LayoutDefinition {
@@ -606,17 +611,17 @@ export function LiveView() {
             const cameraId = cameraDisplayOrder[tileIndex]
             const camera = availableCameras.find(c => c.id === cameraId)
             return (
-              <div className="w-32 bg-[var(--bg-2)] border-2 border-[var(--accent)] shadow-2xl rounded overflow-hidden pointer-events-none">
+              <div className="w-32 bg-[var(--bg-2)] border-2 border-[var(--accent)] shadow-2xl overflow-hidden pointer-events-none">
                 <div className="flex flex-col">
                   {/* Camera name header */}
                   <div className="bg-black/80 px-2 py-1 flex items-center justify-between">
                     <span className="text-[10px] font-medium text-white truncate">
                       {camera?.name || `Camera ${cameraId}`}
                     </span>
-                    <span className="text-[8px] bg-red-600 px-1 rounded text-white">{t('live.live')}</span>
+                    <span className="text-[8px] bg-[var(--critical)] px-1 text-white">{t('live.live')}</span>
                   </div>
                   {/* Preview area */}
-                  <div className="h-16 bg-neutral-800 flex items-center justify-center">
+                  <div className="h-16 bg-[var(--panel-2)] flex items-center justify-center">
                     <div className="text-center">
                       <Move size={14} className="mx-auto text-[var(--accent)]" />
                     </div>
@@ -836,7 +841,7 @@ function Tile({
                     <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)]" onClick={() => ptzStop(cameraId)}><Square size={12} /></button>
                     <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[var(--accent)]/30" onMouseDown={() => ptzMove(cameraId, 0, -0.5)} onMouseUp={() => ptzStop(cameraId)} onMouseLeave={() => ptzStop(cameraId)}>&darr;</button>
                     <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[var(--accent)]/30" onMouseDown={() => ptzMove(cameraId, -0.5, 0)} onMouseUp={() => ptzStop(cameraId)} onMouseLeave={() => ptzStop(cameraId)}>&larr;</button>
-                    <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-red-500/30" onClick={() => setPtzOpen(false)}>Close</button>
+                    <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[color-mix(in_oklab,var(--danger)_30%,transparent)]" onClick={() => setPtzOpen(false)}>Close</button>
                     <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[var(--accent)]/30" onMouseDown={() => ptzMove(cameraId, 0.5, 0)} onMouseUp={() => ptzStop(cameraId)} onMouseLeave={() => ptzStop(cameraId)}>&rarr;</button>
                     <button className="px-1 py-1 bg-[var(--panel-2)] border border-[var(--border)] hover:bg-[var(--accent)]/30" onMouseDown={() => ptzMove(cameraId, 0, 0, 0.5)} onMouseUp={() => ptzStop(cameraId)} onMouseLeave={() => ptzStop(cameraId)}><Plus size={12} /></button>
                     <div />
@@ -853,16 +858,16 @@ function Tile({
               ) : canManage ? (
                 <>
                   <button
-                    className="w-16 h-16 rounded-full bg-[var(--panel)] border-2 border-dashed border-neutral-600 hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors flex items-center justify-center group"
+                    className="w-16 h-16 rounded-full bg-[var(--panel)] border-2 border-dashed border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors flex items-center justify-center group"
                     onClick={() => setShowCameraDialog(true)}
                     title={t('live.addCamera')}
                   >
-                    <Plus size={28} className="text-neutral-500 group-hover:text-[var(--accent)]" />
+                    <Plus size={28} className="text-[var(--text-dim)] group-hover:text-[var(--accent)]" />
                   </button>
-                  <span className="text-neutral-500">{t('live.clickToAdd')}</span>
+                  <span className="text-[var(--text-dim)]">{t('live.clickToAdd')}</span>
                 </>
               ) : (
-                <span className="text-neutral-500">{t('live.noAssigned')}</span>
+                <span className="text-[var(--text-dim)]">{t('live.noAssigned')}</span>
               )}
             </div>
           )}
@@ -874,9 +879,9 @@ function Tile({
             interaction needed. */}
         {cameraId && effectiveConnectivity === 'offline' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/70 text-center">
-            <AlertCircle size={24} className="text-yellow-400" />
-            <div className="text-xs uppercase tracking-wide text-yellow-300">{t('live.cameraOffline')}</div>
-            <div className="text-[11px] text-[var(--text-dim)]">{t('live.waitingReconnect')}</div>
+            <AlertCircle size={24} className="text-[var(--on-video-warn)]" />
+            <div className="text-xs uppercase tracking-wide text-[var(--on-video-warn)]">{t('live.cameraOffline')}</div>
+            <div className="text-[11px] text-[var(--on-video-dim)]">{t('live.waitingReconnect')}</div>
           </div>
         )}
 
@@ -943,39 +948,50 @@ function ToolbarContents({
   showFitToggle?: boolean
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [layoutDropdownOpen, setLayoutDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   useClickOutside(dropdownRef, layoutDropdownOpen, () => setLayoutDropdownOpen(false))
 
   return (
     <>
-      <button className="inline-flex items-center gap-1 px-2 py-1 bg-[var(--panel-2)] border border-[var(--border)]" onClick={onOpenMenu}>
+      <Button size="sm" variant="outline" onClick={onOpenMenu}>
         <Grid size={14} /> {t('live.menu')}
-      </button>
+      </Button>
       <div className="ml-auto flex items-center gap-1">
         {/* Quick layout buttons — collapse into the dropdown below md */}
         {['1x1', '2x2', '3x3', '4x4'].map((layoutId) => {
           const available = availableLayouts.find(l => l.id === layoutId)
           if (!available) return null
           return (
-            <button
-              key={layoutId}
-              className={`px-2 py-1 border hidden md:inline-flex ${currentLayout === layoutId ? 'bg-[var(--accent)]/80 border-[var(--accent)]' : 'bg-[var(--panel-2)] border-[var(--border)]'}`}
-              onClick={() => setCurrentLayout(layoutId)}
-            >
-              {available.name}
-            </button>
+            // Wrapped: Button is inline-flex, and `hidden` on the same element
+            // would compete with it on stylesheet order rather than intent.
+            <span key={layoutId} className="hidden md:inline-flex">
+              <Button
+                size="sm"
+                variant={currentLayout === layoutId ? 'primary' : 'outline'}
+                aria-pressed={currentLayout === layoutId}
+                onClick={() => setCurrentLayout(layoutId)}
+              >
+                {available.name}
+              </Button>
+            </span>
           )
         })}
         {/* More layouts dropdown */}
         <div className="relative" ref={dropdownRef}>
-          <button
-            className="px-2 py-1 bg-[var(--panel-2)] border border-[var(--border)] inline-flex items-center gap-1"
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setLayoutDropdownOpen(!layoutDropdownOpen)}
+            aria-haspopup="menu"
+            aria-expanded={layoutDropdownOpen}
+            aria-label={t('live.layouts')}
+            title={t('live.layouts')}
           >
             <Grid size={14} />
             <ChevronDown size={12} />
-          </button>
+          </Button>
           {layoutDropdownOpen && (
             <div className={`absolute right-0 z-50 bg-[var(--panel)] border border-[var(--border)] shadow-lg min-w-[160px] ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
               {availableLayouts.map(layout => (
@@ -992,7 +1008,7 @@ function ToolbarContents({
                   className="text-xs text-[var(--text-dim)] hover:text-[var(--accent)]"
                   onClick={() => {
                     setLayoutDropdownOpen(false)
-                    ;(window as any).routerNavigate?.('/settings/more-settings/window-settings')
+                    navigate('/settings/more-settings/window-settings')
                   }}
                 >
                   ⚙ {t('live.configureLayouts')}
@@ -1003,20 +1019,22 @@ function ToolbarContents({
         </div>
         {/* Fit/Fill toggle (hidden in fullscreen, which always fills) */}
         {showFitToggle && onToggleFillMode && (
-          <button
-            className={`px-2 py-1 border inline-flex items-center gap-1 ${fillMode ? 'bg-[var(--accent)]/80 border-[var(--accent)]' : 'bg-[var(--panel-2)] border-[var(--border)]'}`}
+          <Button
+            size="sm"
+            variant={fillMode ? 'primary' : 'outline'}
             onClick={onToggleFillMode}
             title={fillMode ? t('live.fill') : t('live.fit')}
           >
             {fillMode ? <Expand size={14} /> : <Scan size={14} />}
             <span className="hidden sm:inline">{fillMode ? t('live.fill') : t('live.fit')}</span>
-          </button>
+          </Button>
         )}
         {/* Detection boxes on/off — same visual grammar as Fit/Fill: lit
             when on. Reads "Boxes", not "AI", because that is what it does. */}
         {onToggleDetections && (
-          <button
-            className={`px-2 py-1 border inline-flex items-center gap-1 ${showDetections ? 'bg-[var(--accent)]/80 border-[var(--accent)]' : 'bg-[var(--panel-2)] border-[var(--border)]'}`}
+          <Button
+            size="sm"
+            variant={showDetections ? 'primary' : 'outline'}
             onClick={onToggleDetections}
             aria-pressed={showDetections}
             title={showDetections
@@ -1025,12 +1043,12 @@ function ToolbarContents({
           >
             <ScanEye size={14} />
             <span className="hidden sm:inline">{t('live.boxes')}</span>
-          </button>
+          </Button>
         )}
-        <button className="px-2 py-1 bg-[var(--panel-2)] border border-[var(--border)] inline-flex items-center gap-1" onClick={onToggleFullscreen} title={t('live.fullscreen')}>
+        <Button size="sm" variant="outline" onClick={onToggleFullscreen} title={t('live.fullscreen')}>
           <Maximize size={14} />
           <span className="hidden sm:inline">{t('live.fullscreen')}</span>
-        </button>
+        </Button>
       </div>
     </>
   )
@@ -1048,51 +1066,58 @@ function MenuOverlay({ onClose }: { onClose: () => void }) {
     { icon: <Power />, label: 'Shutdown', action: 'shutdown' },
   ]
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
-      <div className="bg-[var(--panel)] border border-[var(--accent)]/60 p-4 w-[520px] max-w-[90vw]">
-        <div className="flex items-center mb-3">
-          <div className="text-sm font-semibold">Menu</div>
-          <button className="ml-auto px-2 py-1 bg-[var(--panel-2)] border border-neutral-700 inline-flex items-center gap-1" onClick={onClose}>
-            <X size={14} /> Close
-          </button>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          {items.map((it) => (
-            <MenuItem key={it.label} item={it as any} onClose={onClose} />
-          ))}
-        </div>
+    <Modal open title="Menu" onClose={onClose} widthClassName="w-[520px] max-w-[92vw]">
+      <div className="grid grid-cols-3 gap-3">
+        {items.map((it) => (
+          <MenuItem key={it.label} item={it as any} onClose={onClose} />
+        ))}
       </div>
-    </div>
+    </Modal>
   )
 }
 
 function MenuItem({ item, onClose }: { item: { icon: React.ReactNode; label: string; action: string; highlight?: boolean }, onClose: () => void }) {
-  const navigate = (window as any).routerNavigate as ((path: string) => void) | undefined
+  const navigate = useNavigate()
+  const { showSuccess, showError } = useSnackbar()
+  const confirm = useConfirm()
   async function handleClick() {
     switch (item.action) {
       case 'live':
-        navigate && navigate('/live')
+        navigate('/live')
         break
       case 'export':
-        navigate && navigate('/playback')
+        navigate('/playback')
         break
+      // /settings/webrtc was never a tab key; this is the real first tab.
       case 'settings':
-        navigate && navigate('/settings/webrtc')
+        navigate('/settings/camera-config/device')
         break
       case 'hdd':
-        navigate && navigate('/settings/media-source')
+        navigate('/settings/media-source')
         break
       case 'image':
-        navigate && navigate('/search')
+        navigate('/search')
+        break
+      // These two tiles did nothing at all before: no case handled them.
+      case 'manual':
+        navigate('/support')
+        break
+      case 'camera':
+        navigate('/cameras')
         break
       case 'shutdown':
         try {
-          const ok = window.confirm('Are you sure you want to shutdown the system?')
+          const ok = await confirm({
+            title: 'Shut down the system?',
+            message: 'Live view, recording and every app stop until the machine is powered on again.',
+            confirmLabel: 'Shut down',
+            danger: true,
+          })
           if (!ok) break
           await apiService.systemShutdown()
-          alert('Shutdown requested. The system may go offline shortly.')
+          showSuccess('Shutdown requested. The system may go offline shortly.')
         } catch (e: any) {
-          alert(e?.message || 'Failed to request shutdown')
+          showError(e?.message || 'Failed to request shutdown')
         }
         break
       default:
@@ -1101,8 +1126,8 @@ function MenuItem({ item, onClose }: { item: { icon: React.ReactNode; label: str
     onClose()
   }
   return (
-    <button onClick={handleClick} className={`flex flex-col items-center gap-2 py-3 bg-[var(--bg-2)] border ${item.highlight ? 'border-[var(--accent)]' : 'border-neutral-700'} hover:border-[var(--accent)]`}>
-      <div className="w-10 h-10 flex items-center justify-center bg-[var(--panel-2)] border border-neutral-700">
+    <button onClick={handleClick} className={`flex flex-col items-center gap-2 py-3 bg-[var(--bg-2)] border ${item.highlight ? 'border-[var(--accent)]' : 'border-[var(--border)]'} hover:border-[var(--accent)]`}>
+      <div className="w-10 h-10 flex items-center justify-center bg-[var(--panel-2)] border border-[var(--border)]">
         {item.icon}
       </div>
       <span className="text-xs">{item.label}</span>

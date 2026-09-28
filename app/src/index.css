@@ -34,6 +34,25 @@
   --series-1: #3987e5;    /* blue   */
   --series-2: #d95926;    /* orange */
   --series-3: #199e70;    /* aqua   */
+  /* Aliases for names some views reached for that were never defined. An
+     undefined var() with no fallback resolves to nothing (Cameras' --muted
+     text, Updates' --bg-sub), and one with a hex fallback ignores the light
+     theme. Pointing them at the real tokens fixes both at once; new code
+     should use the real names. */
+  --success: var(--ok);
+  --warning: var(--warn);
+  --muted: var(--text-dim);
+  --bg-sub: var(--bg-2);
+  --bg-1: var(--panel);
+  --bg-3: var(--panel-2);
+  /* Colours for things drawn ON VIDEO. A video surface is black in both
+     themes, so these deliberately have no light-theme override: theme text
+     tokens would turn near-black in the light theme, black on black. */
+  --on-video: #ffffff;
+  --on-video-dim: rgb(255 255 255 / 0.62);
+  --on-video-ok: #4ade80;
+  --on-video-warn: #facc15;
+  --on-video-danger: #f87171;
   --radius: 0px;          /* global corner radius for sharp UI */
   --radius-card: 0px;
   --radius-input: 0px;

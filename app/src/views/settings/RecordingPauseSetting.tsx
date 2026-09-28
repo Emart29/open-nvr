@@ -24,6 +24,7 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { usePermissions } from '../../hooks/usePermissions'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type PauseInfo = { since: string; resume_at: string | null; by: string; reason: string | null }
 
@@ -33,6 +34,7 @@ type PauseInfo = { since: string; resume_at: string | null; by: string; reason: 
  * Superuser only; the server enforces the same.
  */
 export function RecordingPauseSetting() {
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const { t } = useTranslation()
   const { isSuperuser } = usePermissions()
@@ -67,7 +69,7 @@ export function RecordingPauseSetting() {
 
   const toggle = async () => {
     const next = !enabled
-    if (!next || window.confirm(t('recordingPause.confirmEnable'))) {
+    if (!next || (await confirm({ title: t('recordingPause.confirmEnable') }))) {
       setBusy('toggle')
       try {
         const { data } = await apiService.setRecordingPauseSetting(next)
@@ -97,7 +99,7 @@ export function RecordingPauseSetting() {
   const entries = Object.entries(paused)
 
   return (
-    <div className="bg-[var(--panel)] border border-neutral-800 rounded-lg p-6 mb-8 space-y-4">
+    <div className="bg-[var(--panel)] border border-[var(--border)] p-6 mb-8 space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-medium flex items-center gap-2">
@@ -123,7 +125,7 @@ export function RecordingPauseSetting() {
         <div className="space-y-2">
           <div className="text-sm font-medium">{t('recordingPause.pausedNow')}</div>
           {entries.map(([camId, info]) => (
-            <div key={camId} className="flex items-center justify-between gap-3 border border-[var(--border)] rounded px-3 py-2 text-sm">
+            <div key={camId} className="flex items-center justify-between gap-3 border border-[var(--border)] px-3 py-2 text-sm">
               <div>
                 <div>{names[camId] ?? `#${camId}`}</div>
                 <div className="text-xs text-[var(--text-dim)]">

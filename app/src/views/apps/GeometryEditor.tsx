@@ -253,14 +253,14 @@ export function GeometryEditor({
           <span className="text-[var(--text-dim)]">Select a camera for this app first — Cameras, above.</span>
         ) : cameras.length === 0 ? (
           <input
-            className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)] w-24"
+            className="px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)] w-24"
             placeholder="camera id"
             value={cam}
             onChange={(e) => setCam(e.target.value)}
           />
         ) : (
           <select
-            className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             value={cam}
             onChange={(e) => setCam(e.target.value)}
           >
@@ -290,7 +290,7 @@ export function GeometryEditor({
         style={fit ? { containerType: 'size' } : undefined}
       >
       <div
-        className={`relative rounded border border-[var(--border)] overflow-hidden bg-[var(--bg-2)] ${fit ? '' : 'w-full'}`}
+        className={`relative  border border-[var(--border)] overflow-hidden bg-[var(--bg-2)] ${fit ? '' : 'w-full'}`}
         style={fit ? containStyle(drawAspect) : { aspectRatio: String(drawAspect) }}
       >
         {snap.data ? (
@@ -418,7 +418,7 @@ export function GeometryEditor({
               <button
                 key={d}
                 disabled={!wire}
-                className={`px-2 py-0.5 rounded border text-xs ${wire && wire.count_direction === d ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-[var(--border)]'}`}
+                className={`px-2 py-0.5  border text-xs ${wire && wire.count_direction === d ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-[var(--border)]'}`}
                 onClick={() => wire && write({ ...perCam, [cam]: { ...wire, count_direction: d } })}
               >
                 {d === 'both' ? 'both ways' : d === 'a_to_b' ? 'A→B' : 'B→A'}
@@ -426,7 +426,7 @@ export function GeometryEditor({
             ))}
           </>
         )}
-        {snap.isError && <span className="text-amber-400">(camera offline — drawing on a grid)</span>}
+        {snap.isError && <span className="text-[var(--warn)]">(camera offline — drawing on a grid)</span>}
       </div>
     </div>
   )
