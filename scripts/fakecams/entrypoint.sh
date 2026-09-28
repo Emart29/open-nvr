@@ -171,7 +171,10 @@ scan_groups() {
 
 # ffmpeg video args for a whole group. Stream-copy only when every clip already
 # agrees on codec and frame size: the concat demuxer cannot splice mismatched
-# streams without re-encoding them.
+# streams without re-encoding them. B-frames force a re-encode too: MediaMTX
+# can record them, but it cannot hand them to a WebRTC reader, so a
+# stream-copied B-frame clip records fine and never plays in the browser's
+# live view (it sits on "Reconnecting..." forever).
 video_args_for() {
   list="$1"
   case "$MODE" in
@@ -184,6 +187,9 @@ video_args_for() {
     info=$(ffprobe -v error -select_streams v:0 \
              -show_entries stream=codec_name,width,height \
              -of csv=p=0 "$f" 2>/dev/null | head -1)
+    bframes=$(ffprobe -v error -select_streams v:0 -show_entries stream=has_b_frames \
+                -of default=nw=1:nk=1 "$f" 2>/dev/null | head -1)
+    case "$bframes" in ''|0) ;; *) uniform=no ;; esac
     if [ -z "$first" ]; then
       first="$info"
     elif [ "$info" != "$first" ]; then
@@ -296,7 +302,9 @@ publish_forever() {
       vargs="$vargs -r $(rate_for "$(head -1 "$files")")"
     fi
 
-    if [ "$n" -gt 1 ] && [ "$vargs" != "-c:v copy" ] && render_group "$slug"; then
+    # Render once and loop the result by copy whenever a re-encode is needed,
+    # one clip or many: a live transcode costs a core per camera forever.
+    if [ "$vargs" != "-c:v copy" ] && render_group "$slug"; then
       set -- -i "$STATE/$slug.mp4"
       vargs="-c:v copy"
     elif [ "$n" -gt 1 ]; then
