@@ -710,7 +710,7 @@ export function Search() {
     </div>
   )
 
-  const shell = 'flex min-h-0 flex-1 flex-col rounded border border-[var(--border)] bg-[var(--panel)]'
+  const shell = 'flex min-h-0 flex-1 flex-col  border border-[var(--border)] bg-[var(--panel)]'
 
   return (
     // Bounded to the viewport, like Live View: the page itself never
@@ -718,7 +718,7 @@ export function Search() {
     // 5rem = the 3rem top bar + the shell's p-4.
     <section className="flex h-[calc(100vh-5rem)] min-h-[480px] flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-baseline gap-x-3">
-        <h2 className="text-lg font-semibold text-[var(--text)]">{t('search.title')}</h2>
+        <h1 className="text-lg font-semibold text-[var(--text)]">{t('search.title')}</h1>
         <p className="text-sm text-[var(--text-dim)]">{t('search.description')}</p>
       </div>
 
@@ -742,7 +742,7 @@ export function Search() {
               onChange={(e) => setDraft(e.target.value)}
               placeholder={t('search.placeholder')}
               aria-label={t('search.title')}
-              className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-2)] pl-10 pr-9 text-sm outline-none transition-colors placeholder:text-[var(--text-dim)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+              className="h-10 w-full border border-[var(--border)] bg-[var(--panel-2)] pl-10 pr-9 text-sm outline-none transition-colors placeholder:text-[var(--text-dim)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
             />
             {draft && (
               <button
@@ -819,7 +819,7 @@ export function Search() {
                 <select
                   value={pickedPerson}
                   onChange={(e) => setPerson(e.target.value)}
-                  className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                  className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]"
                 >
                   <option value="">Anyone</option>
                   {people.map((p) => (
@@ -990,7 +990,7 @@ function FollowButton({ onFollow, compact }: { onFollow: () => void; compact?: b
       onClick={(e) => { e.stopPropagation(); onFollow() }}
       title={t('search.follow')}
       aria-label={t('search.follow')}
-      className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+      className="inline-flex items-center gap-1 border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
     >
       <Route size={12} />
       {!compact && t('search.follow')}
@@ -1009,7 +1009,7 @@ function ResultCard(
   const fmt = useDateFormat()
   const at = hit.anchor?.at ?? hit.started_at
   return (
-    <div className="flex flex-col overflow-hidden rounded border border-[var(--border)] bg-[var(--panel-2)] transition-colors hover:border-[var(--accent)]">
+    <div className="flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--panel-2)] transition-colors hover:border-[var(--accent)]">
       <Link
         onClick={() => reportOpened(rank)}
         to={recordingHref(hit)}
@@ -1061,7 +1061,7 @@ function tableColumns(
       header: 'Snapshot',
       width: 'w-28',
       cell: (h) => (
-        <div className="h-12 w-20 overflow-hidden rounded bg-[var(--bg-2)]">
+        <div className="h-12 w-20 overflow-hidden bg-[var(--bg-2)]">
           <Thumb hit={h} className="h-full w-full object-cover" />
         </div>
       ),
@@ -1121,7 +1121,7 @@ function tableColumns(
           <Link
             to={recordingHref(h)}
             onClick={() => reportOpened(offset + i + 1)}
-            className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+            className="inline-flex items-center gap-1 border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
             title="Play the recording from this moment"
           >
             <Play size={12} /> Play

@@ -140,7 +140,7 @@ export function AlarmsTable({
           type="button"
           title="Acknowledge this alarm"
           aria-label={`Acknowledge: ${a.title}`}
-          className="rounded p-1 text-[var(--text-dim)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+          className="p-1 text-[var(--text-dim)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
           disabled={ackPending}
           onClick={() => onAck([a.id])}
         >
@@ -161,7 +161,7 @@ export function AlarmsTable({
               alertsInboxService.getAlertImage(a.id, name, signal)}
             alt={`Evidence for: ${a.title}`}
             className={clsx(
-              'h-8 w-8 cursor-zoom-in rounded object-cover',
+              'h-8 w-8 cursor-zoom-in  object-cover',
               'border border-[var(--border)]',
               a.acknowledged_at && 'opacity-60',
             )}
@@ -331,7 +331,7 @@ export function AlarmsSelectionBar({
     // ticked — the rows moving under the pointer that just clicked one.
     // The filter row already had empty space between the chips and the
     // pager, which is where a contextual action belongs.
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs">
       <span className="font-medium text-[var(--text)]">
         {allMatching
           ? `All ${matchingTotal ?? ''} ${noun} selected`
@@ -455,7 +455,7 @@ export function AlarmsFilters({
               value={alertType ?? ''}
               onChange={(e) => onAlertType(e.target.value || null)}
               aria-label="Filter by alert type"
-              className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs text-[var(--text)]"
+              className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs text-[var(--text)]"
             >
               <option value="">All types</option>
               {alertTypes.map((t) => (
@@ -471,7 +471,7 @@ export function AlarmsFilters({
               value={cameraId ?? ''}
               onChange={(e) => onCameraId(e.target.value === '' ? null : Number(e.target.value))}
               aria-label="Filter by camera"
-              className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs text-[var(--text)]"
+              className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs text-[var(--text)]"
             >
               <option value="">All cameras</option>
               {cameras.map((c) => (

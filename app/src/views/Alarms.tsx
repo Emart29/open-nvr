@@ -181,7 +181,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
       {!embedded && (
         <div className="flex items-center gap-2">
           <BellRing size={18} />
-          <h1 className="text-xl font-semibold">{t('alerts.title')}</h1>
+          <h1 className="text-lg font-semibold">{t('alerts.title')}</h1>
           {list.isPending && (
             <span className="text-xs text-[var(--text-dim)]">{t('common.loading')}</span>
           )}
@@ -190,7 +190,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
 
       {/* Sound policy + working-proof, side by side */}
       <div className="grid md:grid-cols-2 gap-3">
-        <div className="border border-[var(--border)] rounded p-3 space-y-2">
+        <div className="border border-[var(--border)] p-3 space-y-2">
           <div className="flex items-center gap-2 font-medium">
             <Volume2 size={14} /> {t('alerts.soundPolicy')}
           </div>
@@ -198,7 +198,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
             {t('alerts.soundPolicyHelp')}
           </div>
           <button
-            className="px-2 py-1 rounded border border-neutral-700 hover:bg-[var(--panel-2)] text-sm"
+            className="px-2 py-1 border border-[var(--border)] hover:bg-[var(--panel-2)] text-sm"
             onClick={playTestSound}
           >
             🔊 {t('alerts.playTest')}
@@ -215,7 +215,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
                 >
                   <span className="capitalize">{sev}</span>
                   <select
-                    className="bg-[var(--panel)] border border-[var(--border)] rounded px-1 py-0.5 disabled:opacity-60"
+                    className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5 disabled:opacity-60"
                     value={ring[sev]}
                     disabled={!isAdmin}
                     title={isAdmin ? undefined : 'Only an administrator can change the site alarm policy'}
@@ -239,7 +239,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
 
         {isAdmin && (
-        <div className="border border-[var(--border)] rounded p-3 space-y-2">
+        <div className="border border-[var(--border)] p-3 space-y-2">
           <div className="font-medium">Verify the alarm chain</div>
           <div className="text-[12px] text-[var(--text-dim)]">
             Fires a clearly-labelled test alarm through the real pipeline —
@@ -259,7 +259,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
             ))}
           </div>
           {testAlarm.isError && (
-            <div className="text-[12px] text-red-400">
+            <div className="text-[12px] text-[var(--danger)]">
               Test alarm failed — is the backend up to date?
             </div>
           )}
@@ -267,7 +267,7 @@ export function Alarms({ embedded = false }: { embedded?: boolean } = {}) {
         )}
 
         {isAdmin && (
-        <div className="border border-[var(--border)] rounded p-3 space-y-2 md:col-span-2">
+        <div className="border border-[var(--border)] p-3 space-y-2 md:col-span-2">
           <div className="font-medium">Arm vehicle alarms (LPR)</div>
           <div className="text-[12px] text-[var(--text-dim)]">
             Vehicle alarm policy lives in the ANPR — License Plate Recognition
@@ -395,7 +395,7 @@ function SiteModeCard({ canChange }: { canChange: boolean }) {
   if (!mode.data) return null
   const current = mode.data.mode
   return (
-    <div className="border border-[var(--border)] rounded p-3 space-y-2 md:col-span-2" data-testid="site-mode-card">
+    <div className="border border-[var(--border)] p-3 space-y-2 md:col-span-2" data-testid="site-mode-card">
       <div className="flex items-center gap-2 font-medium">
         <Shield size={14} /> {t('siteMode.title')}
       </div>
@@ -508,7 +508,7 @@ function AlarmActionsCard() {
 
   if (!current) return null
   return (
-    <div className="border border-[var(--border)] rounded p-3 space-y-3 md:col-span-2">
+    <div className="border border-[var(--border)] p-3 space-y-3 md:col-span-2">
       <div className="flex items-center gap-2 font-medium">
         <PhoneCall size={14} /> Call &amp; external alarm (beyond the browser)
       </div>
@@ -522,7 +522,7 @@ function AlarmActionsCard() {
       <label className="flex items-center gap-2 text-sm">
         Act at or above
         <select
-          className="bg-[var(--panel)] border border-[var(--border)] rounded px-1 py-0.5"
+          className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5"
           value={current.min_severity}
           onChange={(e) => patch({ min_severity: e.target.value })}
         >
@@ -533,7 +533,7 @@ function AlarmActionsCard() {
       </label>
 
       <div className="grid md:grid-cols-2 gap-3 text-sm">
-        <div className="space-y-1.5 border border-[var(--border)] rounded p-2">
+        <div className="space-y-1.5 border border-[var(--border)] p-2">
           <label className="flex items-center gap-2 font-medium">
             <input
               type="checkbox"
@@ -543,13 +543,13 @@ function AlarmActionsCard() {
             Phone call / SMS (Twilio)
           </label>
           <input
-            className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="w-full px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             placeholder="Account SID (ACxxxxxxxx…)"
             value={current.twilio.account_sid}
             onChange={(e) => patchTw({ account_sid: e.target.value })}
           />
           <input
-            className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="w-full px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             type="password"
             placeholder={
               current.twilio.auth_token_set
@@ -560,13 +560,13 @@ function AlarmActionsCard() {
             onChange={(e) => setToken(e.target.value)}
           />
           <input
-            className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="w-full px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             placeholder="From number (+1…)"
             value={current.twilio.from_number}
             onChange={(e) => patchTw({ from_number: e.target.value })}
           />
           <input
-            className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="w-full px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             placeholder="To numbers, comma-separated (+91…, +91…)"
             value={current.twilio.to_numbers.join(', ')}
             onChange={(e) =>
@@ -579,7 +579,7 @@ function AlarmActionsCard() {
           <label className="flex items-center gap-2">
             Mode
             <select
-              className="bg-[var(--panel)] border border-[var(--border)] rounded px-1 py-0.5"
+              className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5"
               value={current.twilio.mode}
               onChange={(e) =>
                 patchTw({ mode: e.target.value as 'call' | 'sms' | 'both' })
@@ -592,7 +592,7 @@ function AlarmActionsCard() {
           </label>
         </div>
 
-        <div className="space-y-1.5 border border-[var(--border)] rounded p-2">
+        <div className="space-y-1.5 border border-[var(--border)] p-2">
           <label className="flex items-center gap-2 font-medium">
             <input
               type="checkbox"
@@ -602,7 +602,7 @@ function AlarmActionsCard() {
             External hooter / speaker (HTTP relay)
           </label>
           <input
-            className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--bg-2)]"
+            className="w-full px-2 py-1 border border-[var(--border)] bg-[var(--bg-2)]"
             placeholder="Relay URL (http://192.168.1.50/relay/0?turn=on)"
             value={current.webhook.url}
             onChange={(e) => patchWh({ url: e.target.value })}
@@ -610,7 +610,7 @@ function AlarmActionsCard() {
           <label className="flex items-center gap-2">
             Method
             <select
-              className="bg-[var(--panel)] border border-[var(--border)] rounded px-1 py-0.5"
+              className="bg-[var(--panel)] border border-[var(--border)] px-1 py-0.5"
               value={current.webhook.method}
               onChange={(e) =>
                 patchWh({ method: e.target.value as 'POST' | 'GET' })
@@ -629,14 +629,14 @@ function AlarmActionsCard() {
 
       <div className="flex items-center gap-2">
         <button
-          className="px-3 py-1 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+          className="px-3 py-1 bg-[var(--accent)] text-white text-sm disabled:opacity-50"
           disabled={save.isPending || (!draft && !token.trim())}
           onClick={() => save.mutate()}
         >
           {save.isPending ? 'Saving…' : 'Save actions'}
         </button>
         <button
-          className="px-3 py-1 rounded border border-neutral-700 hover:bg-[var(--panel-2)] text-sm disabled:opacity-50"
+          className="px-3 py-1 border border-[var(--border)] hover:bg-[var(--panel-2)] text-sm disabled:opacity-50"
           disabled={test.isPending}
           onClick={() => test.mutate()}
           title="Runs every ENABLED action once with a synthetic alarm"
@@ -644,7 +644,7 @@ function AlarmActionsCard() {
           {test.isPending ? 'Testing…' : 'Send test action'}
         </button>
         {save.isError && (
-          <span className="text-[12px] text-red-400">save failed</span>
+          <span className="text-[12px] text-[var(--danger)]">save failed</span>
         )}
       </div>
       {testOut !== null && (
@@ -653,7 +653,7 @@ function AlarmActionsCard() {
             <div className="text-[var(--text-dim)]">{testOut || 'no actions enabled'}</div>
           ) : (
             testOut.map((r, i) => (
-              <div key={i} className={r.ok ? 'text-green-400' : 'text-red-400'}>
+              <div key={i} className={r.ok ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}>
                 {r.ok ? '✓' : '✗'} {r.action}: {r.detail}
               </div>
             ))

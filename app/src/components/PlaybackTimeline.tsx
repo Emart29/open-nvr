@@ -315,7 +315,7 @@ export function PlaybackTimeline({
         {currentVisible && hoverMs == null && (
           <span
             data-testid="playback-timeline-playhead"
-            className="absolute -translate-x-1/2 px-1 rounded bg-[var(--accent)] text-white whitespace-nowrap"
+            className="absolute -translate-x-1/2 px-1 bg-[var(--accent)] text-white whitespace-nowrap"
             style={{ left: `clamp(3.5rem, ${currentPct}%, calc(100% - 3.5rem))` }}
           >
             {fmtFull(currentTime, fmt)}
@@ -327,7 +327,7 @@ export function PlaybackTimeline({
       <div
         ref={trackRef}
         data-testid="playback-timeline-track"
-        className={`relative h-9 bg-neutral-800 overflow-hidden rounded-sm touch-none ${
+        className={`relative h-9 bg-[var(--panel-2)] overflow-hidden rounded-sm touch-none ${
           mode === 'clip' ? 'cursor-crosshair' : 'cursor-pointer'
         }`}
         onPointerDown={handleDown}
@@ -421,7 +421,7 @@ export function PlaybackTimeline({
           style={{ left: `clamp(3.5rem, ${hoverX}px, calc(100% - 3.5rem))`, transform: 'translate(-50%, -0.15rem)' }}
         >
           {fmtFull(hoverMs, fmt)}
-          {hoverInGap && <span className="text-amber-400 ml-1">· {t('shared.noRecordingLower')}</span>}
+          {hoverInGap && <span className="text-[var(--warn)] ml-1">· {t('shared.noRecordingLower')}</span>}
         </div>
       )}
     </div>

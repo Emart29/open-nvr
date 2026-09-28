@@ -563,7 +563,7 @@ export function SyncPlayback() {
             </span>
           )}
           {!mediamtxAvailable && (
-            <span className="text-sm text-amber-400">Playback server offline — playback unavailable</span>
+            <span className="text-sm text-[var(--warn)]">Playback server offline — playback unavailable</span>
           )}
           {!isFullscreen && (
             <button

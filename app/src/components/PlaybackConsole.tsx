@@ -701,11 +701,11 @@ export function PlaybackConsole({
         className={`flex flex-col ${
           isFullscreen
             ? 'bg-black w-screen h-screen'
-            : 'bg-[var(--panel)] border border-neutral-700 w-full max-w-5xl'
+            : 'bg-[var(--panel)] border border-[var(--border)] w-full max-w-5xl'
         }`}
       >
         {/* Header */}
-        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-neutral-700 bg-[var(--panel-2)]">
+        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] bg-[var(--panel-2)]">
           <div className="flex items-center gap-2 min-w-0">
             <Play size={16} className="text-[var(--accent)] shrink-0" />
             <span className="font-medium truncate">{cameraName}</span>
@@ -713,7 +713,7 @@ export function PlaybackConsole({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-[var(--panel)] rounded transition-colors"
+            className="p-1.5 hover:bg-[var(--panel)] transition-colors"
             aria-label="Close"
           >
             <X size={18} />
@@ -732,8 +732,8 @@ export function PlaybackConsole({
         >
           {error ? (
             <div className="text-center p-8">
-              <AlertCircle size={48} className="mx-auto mb-3 text-amber-400 opacity-70" />
-              <p className="text-neutral-300 text-sm">{error}</p>
+              <AlertCircle size={48} className="mx-auto mb-3 text-[var(--warn)] opacity-70" />
+              <p className="text-[var(--text)] text-sm">{error}</p>
             </div>
           ) : (
             <>
@@ -754,11 +754,11 @@ export function PlaybackConsole({
               {livePrompt && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
                   <div className="text-center p-6 max-w-sm">
-                    <Radio size={36} className="mx-auto mb-3 text-green-500 animate-pulse" />
-                    <p className="text-sm text-neutral-200 mb-1 font-medium">
+                    <Radio size={36} className="mx-auto mb-3 text-[var(--ok)] animate-pulse" />
+                    <p className="text-sm text-[var(--text)] mb-1 font-medium">
                       You've reached the live edge
                     </p>
-                    <p className="text-xs text-neutral-400 mb-4">
+                    <p className="text-xs text-[var(--text-dim)] mb-4">
                       This part is still being recorded and will appear here once
                       it's finished. Watch what's happening now in Live View.
                     </p>
@@ -768,13 +768,13 @@ export function PlaybackConsole({
                           navigate('/live')
                           onClose()
                         }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-green-600 text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--ok)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
                       >
                         <Radio size={13} /> Open Live View
                       </button>
                       <button
                         onClick={() => setLivePrompt(false)}
-                        className="px-3 py-1.5 rounded border border-neutral-600 text-xs text-neutral-300 hover:bg-white/5 transition-colors"
+                        className="px-3 py-1.5 border border-[var(--border)] text-xs text-[var(--text)] hover:bg-white/5 transition-colors"
                       >
                         Stay in playback
                       </button>
@@ -788,7 +788,7 @@ export function PlaybackConsole({
 
         {/* Toolbar */}
         {!error && (
-          <div className="shrink-0 flex items-center gap-1 px-3 py-2 bg-[var(--panel-2)] border-t border-neutral-700">
+          <div className="shrink-0 flex items-center gap-1 px-3 py-2 bg-[var(--panel-2)] border-t border-[var(--border)]">
             <IconBtn title="Previous frame" onClick={() => stepFrame(-1)}>
               <SkipBack size={16} />
             </IconBtn>
@@ -830,7 +830,7 @@ export function PlaybackConsole({
             <div className="flex-1" />
 
             {/* Zoom control */}
-            <div className="flex items-center rounded overflow-hidden border border-neutral-700">
+            <div className="flex items-center overflow-hidden border border-[var(--border)]">
               {ZOOMS.map((z, i) => (
                 <button
                   key={z.label}
@@ -868,14 +868,14 @@ export function PlaybackConsole({
             <button
               onClick={exportClip}
               disabled={selectionSeconds <= 0 || exporting}
-              className="flex items-center gap-1.5 px-3 py-1 rounded bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+              className="flex items-center gap-1.5 px-3 py-1 bg-[var(--accent)] text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
             >
               {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               {exporting ? 'Exporting…' : 'Export clip'}
             </button>
             <button
               onClick={toggleClipMode}
-              className="px-3 py-1 rounded border border-neutral-600 text-xs text-[var(--text-dim)] hover:bg-[var(--panel)] transition-colors"
+              className="px-3 py-1 border border-[var(--border)] text-xs text-[var(--text-dim)] hover:bg-[var(--panel)] transition-colors"
             >
               Cancel
             </button>
@@ -919,7 +919,7 @@ function IconBtn({
     <button
       title={title}
       onClick={onClick}
-      className="p-1.5 rounded text-[var(--text)] hover:bg-[var(--panel)] transition-colors"
+      className="p-1.5 text-[var(--text)] hover:bg-[var(--panel)] transition-colors"
     >
       {children}
     </button>
