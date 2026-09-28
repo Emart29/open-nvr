@@ -485,6 +485,23 @@ class Settings(BaseSettings):
     # gated per camera by the same skill assignments, so turning it on
     # without them costs nothing.
     events_enrichment_backfill: bool = False
+    # Admission control for the three enrichers above (services/
+    # enrichment_gate.py, #583). An adapter takes `scheduling.max_inflight`
+    # requests at once — its own declaration in adapters_index.yml, not a
+    # knob here. Beyond that, this many visits may WAIT for a slot; the
+    # next one is dropped (and described later by the backfill, when the
+    # box is idle) rather than queued without bound. 0 = no waiting at all.
+    events_enrichment_queue_depth: int = 8
+    # How long one adapter call may take before core gives up. High on
+    # purpose: with the gate bounding what is in flight, this is a guard
+    # against a HUNG adapter, not the load control it used to be — a slow
+    # model that does finish gets its answer saved instead of thrown away
+    # at 15 s while it kept computing.
+    events_enrichment_timeout_s: float = 90.0
+    # This many timeouts in a row on one adapter pauses enrichment for it
+    # (60 s, doubling to 10 min, one probe per cooldown) and records the
+    # `enrichment_adapter_too_slow` system event so the UI says why.
+    events_enrichment_breaker_timeouts: int = 5
     # Apps allowed to run on EVERY camera without an operator pick
     # (manifest all_cameras: true). A pick is also what an app may READ,
     # so honouring the flag from any manifest would let a third-party

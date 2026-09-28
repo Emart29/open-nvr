@@ -295,7 +295,8 @@ def test_the_vqa_call_sends_no_task_key_and_reads_answer(monkeypatch):
     assert "moondream" in sent["url"]
 
 
-def _asked_questions(label: str, *, people: bool, monkeypatch) -> list[str]:
+def _asked_questions(label: str, *, people: bool, monkeypatch,
+                     answer=None, out: dict | None = None) -> list[str]:
     """Run the real enricher over one visit and report what it ASKED.
 
     The kind selection is the whole cost story, and it lives inside
@@ -370,14 +371,19 @@ def _asked_questions(label: str, *, people: bool, monkeypatch) -> list[str]:
 
     async def _ask(jpeg, adapter, question, handle, event_id):
         asked.append(question)
-        return None      # nothing stored; we are counting the questions
+        return answer    # None by default: nothing stored, we count questions
 
     monkeypatch.setattr(mod, "_plan_skills", _plan)
     monkeypatch.setattr(mod, "_ask", _ask)
 
     loop = asyncio.new_event_loop()
     try:
-        loop.run_until_complete(mod.enrich_event_descriptors(1))
+        result = loop.run_until_complete(mod.enrich_event_descriptors(1))
+        if out is not None:
+            db.expire_all()
+            row = db.get(TimelineEvent, 1)
+            out["result"] = result
+            out["enriched_by"] = list((row.payload or {}).get("enriched_by") or [])
     finally:
         loop.close()
         db.close()
@@ -502,7 +508,7 @@ def test_a_vqa_timeout_is_logged_as_a_timeout(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="descriptor_enrichment"):
         assert _run_ask_with(monkeypatch, httpx.ReadTimeout("")) is None
     line = "\n".join(r.getMessage() for r in caplog.records)
-    assert "timed out after" in line and "limit 20s" in line, line
+    assert "timed out after" in line and "limit 90s" in line, line
     assert "unreachable" not in line
 
 
@@ -515,3 +521,27 @@ def test_a_vqa_connect_error_is_still_unreachable(monkeypatch, caplog):
         assert _run_ask_with(monkeypatch, httpx.ConnectError("refused")) is None
     line = "\n".join(r.getMessage() for r in caplog.records)
     assert "unreachable" in line and "ConnectError" in line, line
+
+
+# ── questions the gate refused are not "asked" (#583, review) ──────────
+
+def test_questions_dropped_at_the_gate_are_not_recorded_as_ran(monkeypatch):
+    """A visit whose every question was DROPPED used to be written as
+    'ran' with no claims — 'looked and found nothing' — so the backfill
+    and every later pass skipped it forever. Nobody looked."""
+    from services.enrichment_gate import DROPPED
+
+    out: dict = {}
+    asked = _asked_questions("truck", people=False, monkeypatch=monkeypatch,
+                             answer=DROPPED, out=out)
+    assert len(asked) == 2
+    assert out["result"] == "dropped"
+    assert "vqa" not in out["enriched_by"], "un-asked must stay un-ran"
+
+
+def test_questions_that_were_answered_are_still_recorded_as_ran(monkeypatch):
+    out: dict = {}
+    _asked_questions("truck", people=False, monkeypatch=monkeypatch,
+                     answer="the answer is blue", out=out)
+    assert out["result"] is None
+    assert "vqa" in out["enriched_by"]

@@ -54,13 +54,8 @@ needs no special registration.
 
 from __future__ import annotations
 
-import asyncio as _asyncio
 import logging
-import time
 from typing import Any
-
-#: Per-call ceiling, named so the timeout log line can say the limit.
-EMBED_TIMEOUT_S = 15.0
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +63,7 @@ __all__ = ["EMBED_SKILL", "EMBED_TASK", "EMBEDDABLE_LABELS",
            "embed_text", "enrich_event_embedding", "wants_embedding"]
 
 from services.embedding_store import EMBED_TASK
+from services.enrichment_gate import DROPPED
 
 #: Aliases an adapter might advertise instead of the canonical name.
 #: Mirrors the captioner's tolerance for the same reason: refusing to
@@ -82,9 +78,9 @@ EMBED_TASK_NAMES = {EMBED_TASK, "embedding", "image_embedding", "clip"}
 #: paid for inference on every camera to watch one gate.
 EMBED_SKILL = EMBED_TASK
 
-#: Burst guard. Enrichment is background work with no latency SLA, so a
-#: crowd finishing their tracks together waits rather than fanning out.
-_EMBED_CONCURRENCY = _asyncio.Semaphore(2)
+#: Burst control lives in ``services.enrichment_gate`` (one gate per
+#: adapter, drop when the short line is full, breaker on timeouts —
+#: #583). The semaphore that used to sit here released on timeout.
 
 #: Labels worth embedding. Same set the captioner uses, because the two
 #: describe the same things by different means and a visit worth a
@@ -200,39 +196,15 @@ def _vector_from(body: Any) -> list[float] | None:
 
 async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | None:
     """One embedding attempt through KAI-C. None on any failure."""
-    from core.config import settings
 
-    import httpx
 
-    started = 0.0
-    try:
-        async with _EMBED_CONCURRENCY:
-            started = time.monotonic()            # after the slot, see caption_enrichment
-            async with httpx.AsyncClient(timeout=EMBED_TIMEOUT_S,
-                                         trust_env=False) as client:
-                resp = await client.post(
-                    f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                    json=payload,
-                    headers={"X-Internal-Api-Key": settings.internal_api_key},
-                )
-    except (httpx.ReadTimeout, httpx.WriteTimeout):
-        # Same rule as the caption and descriptor enrichers (#583): a
-        # timeout means the adapter is up and too slow, not gone.
-        logger.warning(
-            "embed enrichment: %s timed out after %.1fs (limit %.0fs) for %s",
-            adapter, time.monotonic() - started, EMBED_TIMEOUT_S, what)
-        return None
-    except Exception as exc:                      # noqa: BLE001
-        logger.warning("embed enrichment: %s unreachable (%s: %s)",
-                       adapter, type(exc).__name__, exc)
-        return None
-    if resp.status_code != 200:
-        logger.warning("embed enrichment: %s returned %s for %s",
-                       adapter, resp.status_code, what)
-        return None
-    try:
-        body = resp.json()
-    except Exception:                             # noqa: BLE001
+    from services.enrichment_gate import infer_through_gate
+
+    body = await infer_through_gate(adapter, payload, log=logger,
+                                    caller="embed enrichment", what=what)
+    if body is DROPPED:
+        return DROPPED
+    if body is None:
         return None
     return _vector_from(body)
 
@@ -258,11 +230,13 @@ async def embed_text(text: str) -> tuple[list[float] | None, str | None]:
         return None, None
     payload = {"task": EMBED_TASK, "text": text}
     vector = await _infer(adapter, payload, what="a text query")
+    if vector is DROPPED:
+        vector = None                 # a search query is not retried later
     return vector, (adapter if vector else None)
 
 
 async def enrich_event_embedding(event_id: int,
-                                 evidence_jpeg: bytes | None = None) -> None:
+                                 evidence_jpeg: bytes | None = None) -> str | None:
     """Background task: embed the visit's best frame, once.
 
     Three phases. The middle one waits on a semaphore and then on a 15s
@@ -322,6 +296,8 @@ async def enrich_event_embedding(event_id: int,
         task=EMBED_TASK, jpeg_bytes=jpeg,
         params={"camera_id": camera_handle, "event_id": int(event_id)})
     vector = await _infer(adapter, payload, what=f"event {event_id}")
+    if vector is DROPPED:
+        return "dropped"
     if not vector:
         return
 

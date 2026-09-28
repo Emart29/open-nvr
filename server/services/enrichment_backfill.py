@@ -119,8 +119,14 @@ def _write_state(db, state: dict[str, Any]) -> None:
 
 
 def plan_batch(db, before_id: int | None, limit: int,
-               people: bool = False) -> list[dict[str, Any]]:
+               people: bool = False, *,
+               after_id: int | None = None,
+               older_than: Any = None) -> list[dict[str, Any]]:
     """The next batch of candidate visits, newest first.
+
+    With ``after_id`` the walk turns around: visits ABOVE that id, oldest
+    first, and only those that ``started_at`` before ``older_than`` — the
+    catch-up's view of what the live path dropped, see ``catch_up_once``.
 
     ``people`` is passed straight through to ``wants_descriptors`` — a
     scope question rather than a kill switch, so it belongs with the
@@ -156,9 +162,16 @@ def plan_batch(db, before_id: int | None, limit: int,
         .filter(TimelineEvent.label.in_(sorted(labels)))
         .filter(TimelineEvent.evidence_path.isnot(None))
     )
-    if before_id is not None:
-        q = q.filter(TimelineEvent.id < int(before_id))
-    rows = q.order_by(TimelineEvent.id.desc()).limit(int(limit)).all()
+    if after_id is not None:
+        q = q.filter(TimelineEvent.id > int(after_id))
+        if older_than is not None:
+            q = q.filter(TimelineEvent.started_at < older_than)
+        q = q.order_by(TimelineEvent.id.asc())
+    else:
+        if before_id is not None:
+            q = q.filter(TimelineEvent.id < int(before_id))
+        q = q.order_by(TimelineEvent.id.desc())
+    rows = q.limit(int(limit)).all()
 
     out: list[dict[str, Any]] = []
     plated: set[int] = set()
@@ -221,6 +234,156 @@ def plan_batch(db, before_id: int | None, limit: int,
     return out
 
 
+#: A visit the live path dropped is offered to the catch-up only once
+#: it is this old: a live enrichment still in flight (up to the gate's
+#: 90 s limit) must not be raced by a second one for the same visit.
+CATCH_UP_MIN_AGE_S = 600.0
+
+#: How long the loop waits before retrying a pass the gate held.
+HELD_RETRY_S = 5.0
+
+#: Cadence of the catch-up once history is done. Slow on purpose: it is
+#: a safety net for drops, not a second live path.
+CATCH_UP_INTERVAL_S = 60.0
+
+
+async def _enrich_items(items: list[dict[str, Any]], *, caption_on: bool,
+                        descriptor_on: bool, embed_on: bool,
+                        pause: float) -> dict[str, Any]:
+    """Hand each item to the SAME enrichers the ingest path calls.
+
+    Stops at the first visit the gate refuses (``"dropped"``) and says
+    which: nobody looked at it, so the caller must not count it or move
+    past it. ``handled`` is every visit that was actually offered.
+    """
+    import asyncio
+
+    from services.caption_enrichment import enrich_event_caption
+    from services.descriptor_enrichment import enrich_event_descriptors
+    from services.embed_enrichment import enrich_event_embedding
+    from services.enrichment_gate import wait_all_idle
+
+    out: dict[str, Any] = {"captioned": 0, "described": 0, "embedded": 0,
+                           "handled": [], "dropped_at": None}
+    for item in items:
+        event_id = int(item["event_id"])
+        # Live always wins, and "wins" means more than yielding between
+        # items: nothing from the back catalogue goes to an adapter while
+        # a live visit is in flight or waiting, or while a breaker is
+        # cooling. History has waited this long (#583).
+        await wait_all_idle()
+        dropped = False
+        if caption_on and item.get("caption"):
+            try:
+                if await enrich_event_caption(event_id) == "dropped":
+                    dropped = True
+                else:
+                    out["captioned"] += 1
+            except Exception:  # noqa: BLE001
+                # One unreachable adapter or one unreadable evidence file
+                # must not end the sweep — the cursor still advances past
+                # this visit, because retrying it forever would stall
+                # every visit behind it.
+                logger.warning("enrichment backfill: caption failed for %s",
+                               event_id, exc_info=True)
+        if descriptor_on and item.get("descriptors"):
+            try:
+                if await enrich_event_descriptors(event_id) == "dropped":
+                    dropped = True
+                else:
+                    out["described"] += 1
+            except Exception:  # noqa: BLE001
+                logger.warning("enrichment backfill: descriptors failed for %s",
+                               event_id, exc_info=True)
+        if embed_on and item.get("embed"):
+            try:
+                # Skips itself if the visit already has a vector, so a
+                # second pass costs nothing — same contract as the other two.
+                if await enrich_event_embedding(event_id) == "dropped":
+                    dropped = True
+                else:
+                    out["embedded"] += 1
+            except Exception:  # noqa: BLE001
+                logger.warning("enrichment backfill: embedding failed for %s",
+                               event_id, exc_info=True)
+        if dropped:
+            out["dropped_at"] = event_id
+            logger.info("enrichment backfill: visit %s refused by the gate — "
+                        "holding here, retrying next pass", event_id)
+            break
+        out["handled"].append(event_id)
+        if pause > 0:
+            # Live ingest shares these adapters. Yielding between items is
+            # what keeps a sweep of the back catalogue from delaying the
+            # caption of somebody at the door now.
+            await asyncio.sleep(pause)
+    return out
+
+
+async def catch_up_once(batch: int = DEFAULT_BATCH,
+                        pause: float = DEFAULT_PAUSE_SECONDS) -> dict[str, Any]:
+    """One pass over what arrived AFTER history and was not described.
+
+    The walk below is a one-shot sweep downward from where history ended
+    when it started (``state["top"]``); a live visit the gate dropped is
+    always newer than that, so without this it would never be looked at
+    again and the gate's "the backfill describes it later" would be a
+    lie. This offers, oldest first, every qualifying visit above ``top``
+    that is older than ``CATCH_UP_MIN_AGE_S`` (a live enrichment still in
+    flight must not be raced) and moves ``top`` past each one handled.
+    Visits the live path DID enrich short-circuit inside the enrichers
+    for the price of one row read. A drop holds ``top`` exactly as the
+    walk holds its cursor.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from core.config import settings
+    from core.database import SessionLocal
+
+    caption_on = bool(getattr(settings, "events_caption_enrichment", True))
+    descriptor_on = bool(getattr(settings, "events_descriptor_enrichment", True))
+    embed_on = bool(getattr(settings, "events_embed_enrichment", False))
+
+    db = SessionLocal()
+    try:
+        state = dict(read_state(db))
+        top = int(state.get("top") or 0)
+        cutoff = datetime.now(UTC) - timedelta(seconds=CATCH_UP_MIN_AGE_S)
+        items = plan_batch(db, None, batch,
+                           bool(getattr(settings, "events_descriptor_people", False)),
+                           after_id=top, older_than=cutoff)
+    finally:
+        db.close()
+    if not items:
+        return state
+
+    res = await _enrich_items(items, caption_on=caption_on,
+                              descriptor_on=descriptor_on, embed_on=embed_on,
+                              pause=pause)
+    handled = res["handled"]
+    new_top = max(handled) if handled else top
+
+    db = SessionLocal()
+    try:
+        state = dict(read_state(db))
+        state["top"] = int(new_top)
+        state["caught_up"] = int(state.get("caught_up", 0)) + len(handled)
+        state["captioned"] = int(state.get("captioned", 0)) + res["captioned"]
+        state["described"] = int(state.get("described", 0)) + res["described"]
+        state["embedded"] = int(state.get("embedded", 0)) + res["embedded"]
+        _write_state(db, state)
+    except Exception:  # noqa: BLE001
+        logger.exception("enrichment backfill: could not record catch-up progress")
+        db.rollback()
+    finally:
+        db.close()
+    if handled:
+        logger.info("enrichment backfill: catch-up handled %s visit(s) the live "
+                    "path missed, top now %s%s", len(handled), new_top,
+                    f" (held at {res['dropped_at']})" if res["dropped_at"] else "")
+    return state
+
+
 async def backfill_once(batch: int = DEFAULT_BATCH,
                         pause: float = DEFAULT_PAUSE_SECONDS) -> dict[str, Any]:
     """One pass: read a batch, enrich it, advance the cursor.
@@ -245,6 +408,16 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
         state = dict(read_state(db))
         if state.get("done"):
             return state
+        if "top" not in state:
+            # Where history ends and "new" begins, fixed on the first
+            # pass. Everything above it is the live path's — and the
+            # catch-up's, for what the live path dropped (#583).
+            from sqlalchemy import func
+
+            from models import TimelineEvent
+
+            state["top"] = int(db.query(func.max(TimelineEvent.id)).scalar() or 0)
+            _write_state(db, state)
         items = plan_batch(db, state.get("cursor"), batch,
                            bool(getattr(settings, "events_descriptor_people",
                                         False)))
@@ -266,47 +439,11 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
         return state
 
     # ── Phase 2: enrich, one at a time, no session held ─────────────
-    from services.caption_enrichment import enrich_event_caption
-    from services.descriptor_enrichment import enrich_event_descriptors
-    from services.embed_enrichment import enrich_event_embedding
-
-    captioned = 0
-    described = 0
-    embedded = 0
-    for item in items:
-        event_id = item["event_id"]
-        if caption_on and item["caption"]:
-            try:
-                await enrich_event_caption(event_id)
-                captioned += 1
-            except Exception:  # noqa: BLE001
-                # One unreachable adapter or one unreadable evidence file
-                # must not end the sweep — the cursor still advances past
-                # this visit, because retrying it forever would stall
-                # every visit behind it.
-                logger.warning("enrichment backfill: caption failed for %s",
-                               event_id, exc_info=True)
-        if descriptor_on and item["descriptors"]:
-            try:
-                await enrich_event_descriptors(event_id)
-                described += 1
-            except Exception:  # noqa: BLE001
-                logger.warning("enrichment backfill: descriptors failed for %s",
-                               event_id, exc_info=True)
-        if embed_on and item.get("embed"):
-            try:
-                # Skips itself if the visit already has a vector, so a
-                # second pass costs nothing — same contract as the other two.
-                await enrich_event_embedding(event_id)
-                embedded += 1
-            except Exception:  # noqa: BLE001
-                logger.warning("enrichment backfill: embedding failed for %s",
-                               event_id, exc_info=True)
-        if pause > 0:
-            # Live ingest shares this adapter and its semaphore. Yielding
-            # between items is what keeps a sweep of the back catalogue
-            # from delaying the caption of somebody at the door now.
-            await asyncio.sleep(pause)
+    res = await _enrich_items(items, caption_on=caption_on,
+                              descriptor_on=descriptor_on, embed_on=embed_on,
+                              pause=pause)
+    captioned, described, embedded = res["captioned"], res["described"], res["embedded"]
+    dropped_at = res["dropped_at"]
 
     # ── Phase 2b: the free repair ───────────────────────────────────
     # No adapter is called here, so this holds a session without the
@@ -317,7 +454,8 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
     if to_repair:
         from models import TimelineEvent
         from services.descriptor_store import (
-            project_attributes, sync_plate_claim,
+            project_attributes,
+            sync_plate_claim,
         )
 
         db = SessionLocal()
@@ -339,12 +477,24 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
             db.close()
 
     # ── Phase 3: reopen and advance ─────────────────────────────────
-    lowest = min(int(i["event_id"]) for i in items)
+    if dropped_at is not None:
+        # The gate refused this visit (live traffic arrived between the
+        # idle check and the call). Nobody looked, so the cursor holds
+        # just above it: the next pass re-offers it and everything below.
+        # Everything above it in this batch WAS handled and is not
+        # re-offered — plan_batch walks down from the cursor.
+        lowest = int(dropped_at) + 1
+    else:
+        lowest = min(int(i["event_id"]) for i in items)
     db = SessionLocal()
     try:
         state = dict(read_state(db))
         state["cursor"] = lowest
-        state["examined"] = int(state.get("examined", 0)) + len(items)
+        if dropped_at is not None:
+            state["held_at"] = int(dropped_at)
+        else:
+            state.pop("held_at", None)
+        state["examined"] = int(state.get("examined", 0)) + len(res["handled"])
         state["captioned"] = int(state.get("captioned", 0)) + captioned
         state["described"] = int(state.get("described", 0)) + described
         state["embedded"] = int(state.get("embedded", 0)) + embedded
@@ -366,12 +516,17 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
 
 async def run_backfill_loop(batch: int = DEFAULT_BATCH,
                             pause: float = DEFAULT_PAUSE_SECONDS,
-                            interval: float = DEFAULT_INTERVAL_SECONDS) -> None:
-    """Sweep history until it is done, then return.
+                            interval: float = DEFAULT_INTERVAL_SECONDS,
+                            *, catch_up: bool = True,
+                            catch_up_interval: float = CATCH_UP_INTERVAL_S) -> None:
+    """Sweep history until it is done, then stay as the catch-up.
 
-    Returning is the point: this is finite work, not a consumer. Once the
-    cursor reaches the oldest visit, new visits are the ingest path's job
-    and there is nothing left for a loop to do.
+    The walk is finite: once the cursor reaches the oldest visit there
+    is no more history. What remains is the safety net for the live
+    path — every visit the gate dropped (#583) is newer than where the
+    walk began, and ``catch_up_once`` is what describes it later. With
+    ``catch_up=False`` the loop returns when history is done, as it did
+    before the gate existed.
     """
     from core.config import settings
 
@@ -388,16 +543,32 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
     while True:
         state = await backfill_once(batch=batch, pause=pause)
         if state.get("done"):
-            return
+            break
         cursor = state.get("cursor")
-        if cursor == previous:
+        held = state.get("held_at") is not None
+        if cursor == previous and not held:
             # The cursor is the only thing guaranteeing forward progress.
             # If a pass ends where the last one did, something is wrong
             # with the walk, and a loop that spins on the same batch
             # forever is worse than one that stops and says so: it would
             # re-enrich the same visits for the life of the process.
+            # A HELD cursor is the one exception: the gate refused a
+            # visit, the pass stopped there on purpose, and retrying is
+            # the point.
             logger.error("enrichment backfill: cursor stuck at %s; stopping",
                          cursor)
             return
         previous = cursor
-        await asyncio.sleep(interval)
+        await asyncio.sleep(max(interval, HELD_RETRY_S) if held else interval)
+    if not catch_up:
+        return
+    logger.info("enrichment backfill: history complete — staying as the "
+                "catch-up for visits the live path drops (every %.0fs)",
+                catch_up_interval)
+    while True:
+        await asyncio.sleep(catch_up_interval)
+        try:
+            await catch_up_once(batch=batch, pause=pause)
+        except Exception:  # noqa: BLE001
+            logger.warning("enrichment backfill: catch-up pass failed",
+                           exc_info=True)

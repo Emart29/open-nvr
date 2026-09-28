@@ -43,3 +43,17 @@ def _restore_core_modules():
         if k not in before:
             del sys.modules[k]
     sys.modules.update(before)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_enrichment_gates():
+    """Gate state (in-flight counts, breaker) is per process; a timeout
+    one test provokes must not trip the breaker for the next."""
+    try:
+        from services.enrichment_gate import _reset_for_tests
+    except Exception:  # noqa: BLE001 — a test that never imports services
+        yield
+        return
+    _reset_for_tests()
+    yield
+    _reset_for_tests()
