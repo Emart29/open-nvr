@@ -146,7 +146,7 @@ export function Settings() {
           <NavLink
             key={tab.key}
             to={tab.submenu.length === 0 ? `/settings/${tab.key}` : `/settings/${tab.key}/${tab.submenu[0].slug}`}
-            className={() => `px-2 py-1 rounded whitespace-nowrap ${location.pathname.startsWith(`/settings/${tab.key}`) ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
+            className={() => `px-2 py-1  whitespace-nowrap ${location.pathname.startsWith(`/settings/${tab.key}`) ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
           >
             {t(SETTINGS_LABEL_KEYS[tab.label] ?? tab.label)}
           </NavLink>
@@ -163,7 +163,7 @@ export function Settings() {
                 <NavLink
                   key={s.slug}
                   to={`/settings/${tabDef.key}/${s.slug}`}
-                  className={`block px-2 py-2 rounded ${active ? 'bg-[var(--panel-2)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]'}`}
+                  className={`block px-2 py-2  ${active ? 'bg-[var(--panel-2)] text-[var(--text)]' : 'text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]'}`}
                 >
                   {t(SETTINGS_LABEL_KEYS[s.label] ?? s.label)}
                 </NavLink>

@@ -54,7 +54,7 @@ const HA_PRESET = ['cameras.view', 'live.view', 'recordings.view', 'alerts.view'
 
 const EXPIRY_OPTIONS = [0, 30, 90, 365]
 
-const inputCls = 'w-full bg-[var(--panel)] border border-[var(--border)] px-3 py-2 rounded text-sm'
+const inputCls = 'w-full bg-[var(--panel)] border border-[var(--border)] px-3 py-2  text-sm'
 
 function tokenStatus(tok: ApiToken): 'active' | 'revoked' | 'expired' {
   if (tok.revoked_at) return 'revoked'
@@ -211,11 +211,11 @@ export function ApiTokens() {
       </div>
 
       {secret && (
-        <div className="rounded border border-emerald-600/40 bg-emerald-600/10 p-4 space-y-2">
+        <div className="border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] p-4 space-y-2">
           <div className="text-sm font-medium">{t('apiTokens.createdTitle', { name: secret.name })}</div>
           <p className="text-xs text-[var(--text-dim)]">{t('apiTokens.shownOnce')}</p>
           <div className="flex items-center gap-2">
-            <code data-testid="api-token-secret" className="flex-1 font-mono text-xs break-all bg-[var(--panel)] border border-[var(--border)] rounded px-3 py-2 select-all">
+            <code data-testid="api-token-secret" className="flex-1 font-mono text-xs break-all bg-[var(--panel)] border border-[var(--border)] px-3 py-2 select-all">
               {secret.token}
             </code>
             <Button onClick={() => copy(secret.token)}>{t('apiTokens.copy')}</Button>
@@ -229,7 +229,7 @@ export function ApiTokens() {
       )}
 
       {creating && (
-        <div className="border border-[var(--border)] rounded p-4 space-y-4">
+        <div className="border border-[var(--border)] p-4 space-y-4">
           <label className="block space-y-1">
             <span className="text-sm">{t('apiTokens.name')}</span>
             <input
@@ -329,7 +329,7 @@ export function ApiTokens() {
         </div>
       )}
 
-      <div className="overflow-auto border border-[var(--border)] rounded">
+      <div className="overflow-auto border border-[var(--border)]">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[var(--text-dim)] border-b border-[var(--border)]">
@@ -361,7 +361,7 @@ export function ApiTokens() {
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
                       {tok.scopes.map((s) => (
-                        <span key={s} className="font-mono text-[11px] border border-[var(--border)] rounded px-1">
+                        <span key={s} className="font-mono text-[11px] border border-[var(--border)] px-1">
                           {s}
                         </span>
                       ))}

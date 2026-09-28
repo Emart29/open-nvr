@@ -111,7 +111,7 @@ export function NetworkView() {
           <NavLink
             key={s.key}
             to={`/network/${s.key}`}
-            className={({ isActive }) => `px-2 py-1 rounded ${isActive ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
+            className={({ isActive }) => `px-2 py-1  ${isActive ? 'bg-white/15' : 'opacity-90 hover:opacity-100'}`}
             end
           >
             {s.key === 'camera-lan' ? t('network.cameraLan') : t('network.uplink')}
@@ -120,13 +120,13 @@ export function NetworkView() {
       </div>
 
       <div className="p-4 bg-[var(--panel)] space-y-4">
-        {error && <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
+        {error && <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm">{error}</div>}
         {!loaded ? (
           <div className="text-sm text-[var(--text-dim)]">{t('common.loading')}</div>
         ) : active === 'camera-lan' && lanFailed ? (
-          <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{t('network.loadFailed')}</div>
+          <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm">{t('network.loadFailed')}</div>
         ) : active === 'uplink' && uplinkFailed ? (
-          <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{t('network.loadFailed')}</div>
+          <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm">{t('network.loadFailed')}</div>
         ) : active === 'camera-lan' ? (
           <div className="space-y-3 text-sm">
             <div className="text-[var(--text-dim)]">{t('network.isolatedDescription')}</div>
@@ -173,7 +173,7 @@ export function NetworkView() {
             </div>
             <div>
               <div className="font-medium mb-1">{t('network.whitelisted')}</div>
-              <div className="border border-neutral-700 bg-[var(--panel-2)] p-2 rounded">
+              <div className="border border-[var(--border)] bg-[var(--panel-2)] p-2">
                 {whitelist.length === 0 ? (
                   <div className="text-[var(--text-dim)]">{t('network.noProvisioned')}</div>
                 ) : (

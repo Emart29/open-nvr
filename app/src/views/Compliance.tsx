@@ -90,13 +90,13 @@ interface SecurityCheck {
 
 function Badge({ children, variant = 'neutral' }: { children: React.ReactNode; variant?: 'success' | 'warning' | 'destructive' | 'neutral' | 'info' }) {
   const styles = {
-    success: 'bg-green-900/50 text-green-400',
-    warning: 'bg-yellow-900/50 text-yellow-400',
-    destructive: 'bg-red-900/50 text-red-400',
-    neutral: 'bg-gray-900/50 text-gray-400',
-    info: 'bg-blue-900/50 text-blue-400',
+    success: 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]',
+    warning: 'bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] text-[var(--warn)]',
+    destructive: 'bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)]',
+    neutral: 'bg-[var(--bg-2)] text-[var(--text-dim)]',
+    info: 'bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)]',
   } as const
-  return <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${styles[variant]}`}>{children}</span>
+  return <span className={`inline-flex items-center gap-1  px-2 py-0.5 text-[11px] ${styles[variant]}`}>{children}</span>
 }
 
 function Button({ children, onClick, disabled, className = '' }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; className?: string }) {
@@ -104,7 +104,7 @@ function Button({ children, onClick, disabled, className = '' }: { children: Rea
     <button 
       onClick={onClick} 
       disabled={disabled} 
-      className={`inline-flex items-center gap-2 rounded border border-neutral-700 bg-[var(--panel-2)] px-3 py-1.5 text-sm hover:bg-[var(--panel)] disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center gap-2  border border-[var(--border)] bg-[var(--panel-2)] px-3 py-1.5 text-sm hover:bg-[var(--panel)] disabled:opacity-50 ${className}`}
     >
       {children}
     </button>
@@ -113,16 +113,16 @@ function Button({ children, onClick, disabled, className = '' }: { children: Rea
 
 function KpiCard({ icon, label, value, tone = 'neutral' }: { icon: React.ReactNode; label: string; value: string | number; tone?: 'neutral' | 'success' | 'warning' | 'destructive' }) {
   const toneCls = {
-    neutral: 'text-slate-300',
-    success: 'text-emerald-300',
-    warning: 'text-amber-300',
-    destructive: 'text-red-300',
+    neutral: 'text-[var(--text)]',
+    success: 'text-[var(--ok)]',
+    warning: 'text-[var(--warn)]',
+    destructive: 'text-[var(--danger)]',
   } as const
   
   return (
     <Card>
       <CardHeader>
-        <div className={`p-2 rounded-md bg-[var(--bg-2)] ${toneCls[tone]}`}>{icon}</div>
+        <div className={`p-2  bg-[var(--bg-2)] ${toneCls[tone]}`}>{icon}</div>
         <div className="ml-2">
           <div className="text-xs uppercase tracking-wide text-[var(--text-dim)]">{label}</div>
           <div className="text-xl font-semibold text-[var(--text)]">{value}</div>
@@ -150,10 +150,10 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
   const sevVariant = (sev: string) =>
     sev === 'high' ? 'destructive' : sev === 'medium' ? 'warning' : 'neutral'
   const stats: [string, number, string][] = [
-    ['Covered-vendor', s.covered_vendor, s.covered_vendor ? 'text-red-400' : 'text-[var(--text)]'],
-    ['Internet-exposed', s.internet_exposed, s.internet_exposed ? 'text-red-400' : 'text-[var(--text)]'],
-    ['Plaintext stream', s.plaintext_stream, s.plaintext_stream ? 'text-yellow-400' : 'text-[var(--text)]'],
-    ['Default username', s.weak_credentials, s.weak_credentials ? 'text-yellow-400' : 'text-[var(--text)]'],
+    ['Covered-vendor', s.covered_vendor, s.covered_vendor ? 'text-[var(--danger)]' : 'text-[var(--text)]'],
+    ['Internet-exposed', s.internet_exposed, s.internet_exposed ? 'text-[var(--danger)]' : 'text-[var(--text)]'],
+    ['Plaintext stream', s.plaintext_stream, s.plaintext_stream ? 'text-[var(--warn)]' : 'text-[var(--text)]'],
+    ['Default username', s.weak_credentials, s.weak_credentials ? 'text-[var(--warn)]' : 'text-[var(--text)]'],
   ]
   return (
     <Card>
@@ -161,11 +161,11 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {covered ? (
-              <ShieldAlert size={18} className="text-red-400" />
+              <ShieldAlert size={18} className="text-[var(--danger)]" />
             ) : data.posture === 'attention' ? (
-              <ShieldAlert size={18} className="text-yellow-400" />
+              <ShieldAlert size={18} className="text-[var(--warn)]" />
             ) : (
-              <ShieldCheck size={18} className="text-green-400" />
+              <ShieldCheck size={18} className="text-[var(--ok)]" />
             )}
             <div>
               <CardTitle>Security &amp; §889 Compliance</CardTitle>
@@ -186,8 +186,8 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
           It is <span className="text-[var(--text)]">not</span> an official §889 attestation — the full OpenNVR assessment below is.
         </div>
         {covered && (
-          <div className="mb-4 rounded border border-red-500/50 bg-red-900/20 p-4">
-            <div className="text-sm font-medium text-red-300 mb-1">
+          <div className="mb-4 border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] p-4">
+            <div className="text-sm font-medium text-[var(--danger)] mb-1">
               NDAA §889 covered-vendor cameras detected ({s.covered_vendor}).
             </div>
             <p className="text-xs text-[var(--text-dim)] mb-3">
@@ -205,7 +205,7 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
                     alt="Scan to reach OpenNVR about a §889 assessment"
                     width={92}
                     height={92}
-                    className="rounded bg-white p-1"
+                    className="bg-white p-1"
                   />
                   <div className="mt-1 text-[10px] text-[var(--text-dim)]">Scan from your phone</div>
                 </div>
@@ -213,7 +213,7 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
               <div className="flex flex-col gap-1.5">
                 <a
                   href="mailto:contact@opennvr.org?subject=OpenNVR%20%C2%A7889%20assessment%20request"
-                  className="inline-flex w-fit items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500"
+                  className="inline-flex w-fit items-center gap-1.5 bg-[var(--critical)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--critical)]"
                 >
                   <Mail size={14} /> contact@opennvr.org
                 </a>
@@ -228,7 +228,7 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {stats.map(([label, val, cls]) => (
-            <div key={label} className="rounded border border-neutral-800 bg-[var(--panel-2)] p-3">
+            <div key={label} className="border border-[var(--border)] bg-[var(--panel-2)] p-3">
               <div className={`text-xl font-semibold ${cls}`}>{val}</div>
               <div className="mt-0.5 text-[11px] text-[var(--text-dim)]">{label}</div>
             </div>
@@ -240,7 +240,7 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
             {flagged.map((c) => (
               <div
                 key={c.id}
-                className="flex items-start justify-between gap-3 rounded border border-neutral-800 bg-[var(--panel-2)] p-2.5"
+                className="flex items-start justify-between gap-3 border border-[var(--border)] bg-[var(--panel-2)] p-2.5"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm text-[var(--text)]">
@@ -259,12 +259,12 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
             ))}
           </div>
         ) : (
-          <div className="text-sm text-green-400">
+          <div className="text-sm text-[var(--ok)]">
             No covered-vendor or high-risk cameras found in your inventory.
           </div>
         )}
 
-        <div className="mt-4 rounded border border-cyan-500/30 bg-[var(--panel-2)] p-3.5">
+        <div className="mt-4 border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] bg-[var(--panel-2)] p-3.5">
           <div className="text-sm font-semibold text-[var(--text)]">The full OpenNVR §889 Security Assessment</div>
           <div className="mt-0.5 mb-2.5 text-xs text-[var(--text-dim)]">
             A hands-on engagement led by our security team — not a self-serve scan. We assess every camera on
@@ -283,12 +283,12 @@ function SecuritySection({ data }: { data: SecurityCheck | null }) {
               'An expert remediation roadmap to a compliant, sovereign estate',
             ].map((t) => (
               <li key={t} className="flex gap-1.5">
-                <span className="text-cyan-400">+</span>
+                <span className="text-[var(--accent)]">+</span>
                 <span>{t}</span>
               </li>
             ))}
           </ul>
-          <div className="mt-2.5 text-xs text-cyan-300">
+          <div className="mt-2.5 text-xs text-[var(--accent)]">
             …and much more — a defensible compliance package, not just a scan.
           </div>
         </div>
@@ -405,7 +405,7 @@ export function Compliance() {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-900/20 border border-red-500/50 rounded p-4 text-red-400 text-sm">
+        <div className="bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] p-4 text-[var(--danger)] text-sm">
           <strong>{t('compliance.error')}</strong> {error}
         </div>
       )}
@@ -462,7 +462,7 @@ export function Compliance() {
           />
         </div>
       ) : !loading && !error ? (
-        <div className="bg-yellow-900/20 border border-yellow-500/50 rounded p-4 text-yellow-400 text-sm">
+        <div className="bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))] p-4 text-[var(--warn)] text-sm">
           No summary data available. This could mean the backend is not responding or no cameras are configured.
         </div>
       ) : null}
@@ -477,7 +477,7 @@ export function Compliance() {
             <select 
               value={coverageDays}
               onChange={(e) => setCoverageDays(Number(e.target.value))}
-              className="rounded border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 text-sm"
+              className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-sm"
             >
               <option value={7}>7</option>
               <option value={14}>14</option>
@@ -491,7 +491,7 @@ export function Compliance() {
           {coverage && coverage.coverage.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-b border-neutral-700">
+                <thead className="border-b border-[var(--border)]">
                   <tr className="text-left text-xs uppercase text-[var(--text-dim)]">
                     <th className="pb-2">{t('compliance.camera')}</th>
                     <th className="pb-2">{t('compliance.date')}</th>
@@ -499,7 +499,7 @@ export function Compliance() {
                     <th className="pb-2 text-right">{t('compliance.duration')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-800">
+                <tbody className="divide-y divide-[var(--border)]">
                   {coverage.coverage.slice(0, 50).map((item, idx) => (
                     <tr key={idx} className="hover:bg-[var(--bg-2)]">
                       <td className="py-2">
@@ -541,7 +541,7 @@ export function Compliance() {
             <select 
               value={auditDays}
               onChange={(e) => setAuditDays(Number(e.target.value))}
-              className="rounded border border-neutral-700 bg-[var(--panel-2)] px-2 py-1 text-sm"
+              className="border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-sm"
             >
               <option value={1}>1</option>
               <option value={7}>7</option>
@@ -554,7 +554,7 @@ export function Compliance() {
           {accessAudit && accessAudit.logs.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-b border-neutral-700">
+                <thead className="border-b border-[var(--border)]">
                   <tr className="text-left text-xs uppercase text-[var(--text-dim)]">
                     <th className="pb-2">{t('compliance.timestamp')}</th>
                     <th className="pb-2">{t('compliance.user')}</th>
@@ -563,7 +563,7 @@ export function Compliance() {
                     <th className="pb-2">{t('compliance.ip')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-800">
+                <tbody className="divide-y divide-[var(--border)]">
                   {accessAudit.logs.map((log) => (
                     <tr key={log.id} className="hover:bg-[var(--bg-2)]">
                       <td className="py-2 text-xs">

@@ -30,7 +30,7 @@ type Zone = { id: number; camera_id: number; name: string; polygon: Pt[]; labels
 type Camera = { id: number; name: string }
 type Draft = { id: number | null; name: string; polygon: Pt[]; labels: string }
 
-const inputCls = 'w-full bg-[var(--panel)] border border-[var(--border)] px-3 py-2 rounded text-sm'
+const inputCls = 'w-full bg-[var(--panel)] border border-[var(--border)] px-3 py-2  text-sm'
 
 /**
  * Named areas of a camera's picture ("driveway", "front door"). Detection

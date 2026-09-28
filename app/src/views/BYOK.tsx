@@ -154,7 +154,7 @@ export function BYOK() {
       {/* Info Dialog */}
       {showInfo && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--panel)] border border-neutral-700 p-6 max-w-lg w-full mx-4">
+          <div className="bg-[var(--panel)] border border-[var(--border)] p-6 max-w-lg w-full mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Info size={20} className="text-[var(--accent)]" />
@@ -221,9 +221,9 @@ export function BYOK() {
           </p>
         </div>
         <div className={`px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 ${
-          isComplete ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
-          hasCert || hasKey ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 
-          'bg-neutral-500/20 text-neutral-400 border border-neutral-500/30'
+          isComplete ? 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))]' : 
+          hasCert || hasKey ? 'bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] text-[var(--warn)] border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))]' : 
+          'bg-[var(--badge-neutral-bg)] text-[var(--text-dim)] border border-[var(--border)]'
         }`}>
           {isComplete ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
           {isComplete ? t('byok.configured') : hasCert || hasKey ? t('byok.incomplete') : t('byok.notConfigured')}
@@ -232,13 +232,13 @@ export function BYOK() {
 
       {/* Alerts */}
       {notice && (
-        <div className="p-3 bg-green-500/10 border border-green-500/30 text-green-300 text-sm flex items-center gap-2">
+        <div className="p-3 bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] text-[var(--ok)] text-sm flex items-center gap-2">
           <CheckCircle size={16} />
           {notice}
         </div>
       )}
       {error && (
-        <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center gap-2">
+        <div className="p-3 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm flex items-center gap-2">
           <AlertCircle size={16} />
           {error}
           <button className="ml-auto text-xs underline" onClick={() => setError(null)}>{t('common.dismiss')}</button>
@@ -246,7 +246,7 @@ export function BYOK() {
       )}
 
       {/* Tab Selector */}
-      <div className="flex gap-2 border-b border-neutral-700">
+      <div className="flex gap-2 border-b border-[var(--border)]">
         <button
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
             activeTab === 'paste' 
@@ -276,13 +276,13 @@ export function BYOK() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Certificate */}
-            <div className="border border-neutral-700 bg-[var(--panel-2)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-neutral-700 flex items-center justify-between">
+            <div className="border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
                 <div className="font-medium flex items-center gap-2">
                   <FileText size={16} className="text-[var(--accent)]" />
                   {t('byok.certificate')} (PEM)
                 </div>
-                {hasCert && <span className="text-xs text-green-400 flex items-center gap-1"><CheckCircle size={12} /> {t('byok.loaded')}</span>}
+                {hasCert && <span className="text-xs text-[var(--ok)] flex items-center gap-1"><CheckCircle size={12} /> {t('byok.loaded')}</span>}
               </div>
               <div className="p-4 space-y-3">
                 <label className="block">
@@ -295,7 +295,7 @@ export function BYOK() {
                   />
                 </label>
                 <textarea 
-                  className="w-full h-48 bg-[var(--panel)] border border-neutral-700 px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:border-[var(--accent)]" 
+                  className="w-full h-48 bg-[var(--panel)] border border-[var(--border)] px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:border-[var(--accent)]" 
                   value={draft.cert_pem || ''} 
                   onChange={(e) => setDraft({ ...draft, cert_pem: e.target.value })} 
                   placeholder="-----BEGIN CERTIFICATE-----&#10;MIIDXTCCAkWgAwIBAgIJAJC1...&#10;-----END CERTIFICATE-----" 
@@ -307,13 +307,13 @@ export function BYOK() {
             </div>
 
             {/* Private Key */}
-            <div className="border border-neutral-700 bg-[var(--panel-2)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-neutral-700 flex items-center justify-between">
+            <div className="border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
                 <div className="font-medium flex items-center gap-2">
-                  <KeyRound size={16} className="text-amber-400" />
+                  <KeyRound size={16} className="text-[var(--warn)]" />
                   {t('byok.privateKey')} (PEM)
                 </div>
-                {hasKey && <span className="text-xs text-green-400 flex items-center gap-1"><CheckCircle size={12} /> {t('byok.loaded')}</span>}
+                {hasKey && <span className="text-xs text-[var(--ok)] flex items-center gap-1"><CheckCircle size={12} /> {t('byok.loaded')}</span>}
               </div>
               <div className="p-4 space-y-3">
                 <label className="block">
@@ -326,7 +326,7 @@ export function BYOK() {
                   />
                 </label>
                 <textarea 
-                  className="w-full h-48 bg-[var(--panel)] border border-neutral-700 px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:border-[var(--accent)]" 
+                  className="w-full h-48 bg-[var(--panel)] border border-[var(--border)] px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:border-[var(--accent)]" 
                   value={draft.key_pem || ''} 
                   onChange={(e) => setDraft({ ...draft, key_pem: e.target.value })} 
                   placeholder="-----BEGIN PRIVATE KEY-----&#10;MIIEvgIBADANBgkqhkiG9w0B...&#10;-----END PRIVATE KEY-----" 
@@ -339,11 +339,11 @@ export function BYOK() {
           </div>
 
           {/* Description & Actions */}
-          <div className="border border-neutral-700 bg-[var(--panel-2)] p-4 space-y-4">
+          <div className="border border-[var(--border)] bg-[var(--panel-2)] p-4 space-y-4">
             <div>
               <label className="text-sm text-[var(--text-dim)] mb-1 block">{t('byok.description')}</label>
               <input 
-                className="w-full bg-[var(--panel)] border border-neutral-700 px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)]" 
+                className="w-full bg-[var(--panel)] border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)]" 
                 placeholder="e.g., Production certificate for cloud streaming - expires Dec 2025" 
                 value={draft.description || ''} 
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })} 
@@ -360,14 +360,14 @@ export function BYOK() {
               </button>
               {(hasCert || hasKey) && (
                 <button 
-                  className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 font-medium hover:bg-red-500/30 transition-colors" 
+                  className="px-4 py-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] font-medium hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] transition-colors" 
                   onClick={clearCertificates}
                 >
                   {t('byok.clearCertificates')}
                 </button>
               )}
               {!canAdmin && (
-                <span className="text-xs text-amber-400">{t('byok.adminRequired')}</span>
+                <span className="text-xs text-[var(--warn)]">{t('byok.adminRequired')}</span>
               )}
             </div>
           </div>
@@ -376,7 +376,7 @@ export function BYOK() {
 
       {/* Upload Tab */}
       {activeTab === 'upload' && (
-        <div className="border border-neutral-700 bg-[var(--panel-2)] p-6 space-y-6">
+        <div className="border border-[var(--border)] bg-[var(--panel-2)] p-6 space-y-6">
           <div className="text-center">
             <Upload size={40} className="mx-auto text-[var(--text-dim)] mb-3" />
             <h3 className="font-medium mb-1">{t('byok.uploadCertificateFiles')}</h3>
@@ -385,7 +385,7 @@ export function BYOK() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Cert Upload */}
-            <div className="border border-dashed border-neutral-600 p-4 text-center hover:border-[var(--accent)] transition-colors">
+            <div className="border border-dashed border-[var(--border)] p-4 text-center hover:border-[var(--accent)] transition-colors">
               <input
                 id="byok-upload-cert"
                 type="file"
@@ -399,12 +399,12 @@ export function BYOK() {
                 <div className="text-xs text-[var(--text-dim)]">
                   {uploadNames.cert || t('byok.selectCertificate')}
                 </div>
-                {uploadNames.cert && <CheckCircle size={14} className="mx-auto mt-2 text-green-400" />}
+                {uploadNames.cert && <CheckCircle size={14} className="mx-auto mt-2 text-[var(--ok)]" />}
               </label>
             </div>
 
             {/* Key Upload */}
-            <div className="border border-dashed border-neutral-600 p-4 text-center hover:border-[var(--accent)] transition-colors">
+            <div className="border border-dashed border-[var(--border)] p-4 text-center hover:border-[var(--accent)] transition-colors">
               <input
                 id="byok-upload-key"
                 type="file"
@@ -413,17 +413,17 @@ export function BYOK() {
                 onChange={(e) => setUploadNames((n) => ({ ...n, key: e.target.files?.[0]?.name || '' }))}
               />
               <label htmlFor="byok-upload-key" className="cursor-pointer block">
-                <KeyRound size={24} className="mx-auto text-amber-400 mb-2" />
+                <KeyRound size={24} className="mx-auto text-[var(--warn)] mb-2" />
                 <div className="text-sm font-medium mb-1">{t('byok.privateKey')}</div>
                 <div className="text-xs text-[var(--text-dim)]">
                   {uploadNames.key || t('byok.selectKey')}
                 </div>
-                {uploadNames.key && <CheckCircle size={14} className="mx-auto mt-2 text-green-400" />}
+                {uploadNames.key && <CheckCircle size={14} className="mx-auto mt-2 text-[var(--ok)]" />}
               </label>
             </div>
 
             {/* CA Bundle Upload */}
-            <div className="border border-dashed border-neutral-600 p-4 text-center hover:border-[var(--accent)] transition-colors">
+            <div className="border border-dashed border-[var(--border)] p-4 text-center hover:border-[var(--accent)] transition-colors">
               <input
                 id="byok-upload-ca"
                 type="file"
@@ -432,12 +432,12 @@ export function BYOK() {
                 onChange={(e) => setUploadNames((n) => ({ ...n, ca: e.target.files?.[0]?.name || '' }))}
               />
               <label htmlFor="byok-upload-ca" className="cursor-pointer block">
-                <Shield size={24} className="mx-auto text-blue-400 mb-2" />
+                <Shield size={24} className="mx-auto text-[var(--accent)] mb-2" />
                 <div className="text-sm font-medium mb-1">{t('byok.caBundle')} <span className="text-[var(--text-dim)]">({t('byok.optional')})</span></div>
                 <div className="text-xs text-[var(--text-dim)]">
                   {uploadNames.ca || t('byok.selectCa')}
                 </div>
-                {uploadNames.ca && <CheckCircle size={14} className="mx-auto mt-2 text-green-400" />}
+                {uploadNames.ca && <CheckCircle size={14} className="mx-auto mt-2 text-[var(--ok)]" />}
               </label>
             </div>
           </div>

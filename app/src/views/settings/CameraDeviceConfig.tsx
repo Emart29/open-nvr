@@ -131,7 +131,7 @@ export function CameraDeviceConfig() {
           )}
         </div>
         {!canWrite && (
-          <div className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel-2)]/40 px-3 py-2 text-xs text-[var(--text-dim)]">
+          <div className="flex items-center gap-2 border border-[var(--border)] bg-[var(--panel-2)]/40 px-3 py-2 text-xs text-[var(--text-dim)]">
             <Eye size={14} className="shrink-0" />
             {t('settings.readOnlyDevice')}
           </div>
@@ -156,7 +156,7 @@ export function CameraDeviceConfig() {
           <button
             key={c.id}
             onClick={() => setSelected(c)}
-            className="w-full flex items-center justify-between gap-4 rounded border border-[var(--border)] bg-[var(--panel-2)]/40 px-4 py-3 text-left hover:bg-[var(--panel-2)] transition-colors"
+            className="w-full flex items-center justify-between gap-4 border border-[var(--border)] bg-[var(--panel-2)]/40 px-4 py-3 text-left hover:bg-[var(--panel-2)] transition-colors"
           >
             <div className="min-w-0">
               <div className="text-sm">{c.name}</div>
