@@ -194,14 +194,16 @@ def _vector_from(body: Any) -> list[float] | None:
     return None
 
 
-async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | None:
+async def _infer(adapter: str, payload: dict, *, what: str,
+                 interactive: bool = False) -> list[float] | None:
     """One embedding attempt through KAI-C. None on any failure."""
 
 
     from services.enrichment_gate import infer_through_gate
 
-    body = await infer_through_gate(adapter, payload, log=logger,
-                                    caller="embed enrichment", what=what)
+    body = await infer_through_gate(adapter, payload, kind="embed", log=logger,
+                                    caller="embed enrichment", what=what,
+                                    interactive=interactive)
     if body is DROPPED:
         return DROPPED
     if body is None:
@@ -229,9 +231,11 @@ async def embed_text(text: str) -> tuple[list[float] | None, str | None]:
     if adapter is None:
         return None, None
     payload = {"task": EMBED_TASK, "text": text}
-    vector = await _infer(adapter, payload, what="a text query")
+    # A person is waiting on this one: it takes its turn at the adapter
+    # but is never refused for load — that is background work's job.
+    vector = await _infer(adapter, payload, what="a text query", interactive=True)
     if vector is DROPPED:
-        vector = None                 # a search query is not retried later
+        vector = None
     return vector, (adapter if vector else None)
 
 

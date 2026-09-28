@@ -194,33 +194,6 @@ def test_a_waiter_dropped_by_a_trip_gives_its_slot_back():
     _run(scenario())
 
 
-# ── the backfill holds while live is busy ─────────────────────────────
-
-def test_wait_all_idle_returns_at_once_when_nothing_is_happening():
-    _run(asyncio.wait_for(eg.wait_all_idle(), timeout=1))
-
-
-def test_wait_all_idle_holds_while_a_slot_is_held_or_a_breaker_is_open(clock):
-    gate = eg.gate_for("moondream-vlm")
-
-    async def scenario():
-        assert await gate.admit() is True
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(eg.wait_all_idle(poll_s=0.01), timeout=0.05)
-        gate.release("ok")
-        await asyncio.wait_for(eg.wait_all_idle(poll_s=0.01), timeout=1)
-        # And an open breaker is "busy" too: no point sweeping history
-        # through an adapter that cannot keep up with today.
-        gate.breaker_timeouts = 1
-        assert await gate.admit() is True
-        gate.release("timeout")
-        assert gate.is_open
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(eg.wait_all_idle(poll_s=0.01), timeout=0.05)
-
-    _run(scenario())
-
-
 # ── through the real caller ───────────────────────────────────────────
 
 def test_the_captioner_stops_sending_once_the_breaker_trips(monkeypatch, clock):
@@ -378,7 +351,7 @@ def test_an_expired_cooldown_with_no_traffic_reads_as_idle(clock):
     clock["t"] += eg.COOLDOWN_BASE_S + 1
     assert gate.is_open and not gate.cooling and gate.idle(), (
         "cooldown over, nobody probing: the next caller may be the backfill")
-    _run(asyncio.wait_for(eg.wait_all_idle(poll_s=0.01), timeout=1))
+    assert eg.all_idle()
 
 
 def test_a_connect_timeout_is_short_and_is_not_a_breaker_timeout(monkeypatch, caplog):
@@ -416,3 +389,109 @@ def test_a_connect_timeout_is_short_and_is_not_a_breaker_timeout(monkeypatch, ca
     assert seen["timeout"].read == eg.timeout_s()
     assert "unreachable" in caplog.text and "ConnectTimeout" in caplog.text
     assert not gate.is_open and gate.errors == 1 and gate.timeouts == 0
+
+
+# ── review round three (#592) ─────────────────────────────────────────
+
+def test_a_straggler_finishing_while_open_does_not_move_the_breaker(_quiet_notify, clock):
+    """max_inflight=2: A trips the breaker; B, admitted before the trip,
+    times out later. B is old news — it must not extend the cooldown or
+    double the backoff, and a 200 from B must not close the breaker
+    either. Only the PROBE's outcome moves it."""
+    gate = eg.AdapterGate("m", max_inflight=2, queue_depth=8, breaker_timeouts=1)
+
+    async def scenario():
+        assert await gate.admit() is True      # A
+        assert await gate.admit() is True      # B
+        gate.release("timeout")                # A trips
+        assert gate.is_open
+        opened_until, cooldown = gate.open_until, gate.cooldown_s
+        gate.release("timeout")                # B, a straggler
+        assert gate.open_until == opened_until and gate.cooldown_s == cooldown, (
+            "a straggler's timeout extended the cooldown")
+        assert gate.trips == 1
+        clock["t"] += eg.COOLDOWN_BASE_S + 1
+        assert await gate.admit() is True      # the probe
+        assert await gate.admit() is False, "while the probe is out nobody else goes"
+        gate.release("ok")                     # the probe's answer closes it
+        assert not gate.is_open
+
+    _run(scenario())
+
+
+def test_a_probe_refused_by_the_wait_line_does_not_burn_its_token():
+    """Cooldown over, a straggler still holds the only slot, the governor
+    passes max_waiting=0: the probe cannot get in. It must not have
+    spent the probe token, or the gate stays cooling with no probe out
+    until the straggler releases."""
+    import services.enrichment_gate as m
+
+    gate = eg.AdapterGate("m", max_inflight=1, queue_depth=8, breaker_timeouts=1)
+    now = {"t": 100.0}
+    m_now = m._now
+    m._now = lambda: now["t"]
+    try:
+        async def scenario():
+            assert await gate.admit() is True          # the straggler
+            gate2 = None
+            # trip via a second gate call path: simulate with a direct trip
+            gate.timeouts_in_row = 1
+            gate._trip()
+            now["t"] += eg.COOLDOWN_BASE_S + 1
+            assert await gate.admit(max_waiting=0) is False, "slot busy, no line"
+            assert gate._probe_out is False, "the token was not spent"
+            assert gate.dropped_full == 1 and gate.dropped_open == 0
+            gate.release("ok")                         # straggler done; breaker still open
+            assert gate.is_open
+            assert await gate.admit() is True, "now the probe gets in"
+            assert gate._probe_out is True
+            gate.release("ok")
+            assert not gate.is_open
+
+        _run(scenario())
+    finally:
+        m._now = m_now
+
+
+def test_latency_is_stamped_so_a_stale_figure_can_expire(clock):
+    gate = eg.AdapterGate("m", max_inflight=1, queue_depth=8, breaker_timeouts=5)
+    assert gate.snapshot()["latency_age_s"] is None
+    _run(gate.admit()); gate.release("ok", elapsed_s=30.0)
+    assert gate.snapshot()["latency_age_s"] == 0.0
+    clock["t"] += 400
+    assert gate.snapshot()["latency_age_s"] == 400.0
+
+
+def test_an_interactive_call_waits_its_turn_but_is_never_refused_for_load(monkeypatch):
+    """The search box embedding its query goes through the adapter's
+    slots (the model cannot do more) but not through the governor."""
+    import httpx
+
+    from services import enrichment_governor as gov
+
+    async def _no(gate, kind):
+        raise AssertionError("an interactive call asked the governor")
+
+    monkeypatch.setattr(gov, "admit_live", _no)
+
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"result": {"embedding": [0.1, 0.2]}}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
+    body = _run(eg.infer_through_gate("clip", {"text": "white van"}, kind="embed",
+                                      log=eg.logger, caller="t", interactive=True))
+    assert body == {"result": {"embedding": [0.1, 0.2]}}

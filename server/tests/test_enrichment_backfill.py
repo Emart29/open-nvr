@@ -241,6 +241,16 @@ def _run(coro):
         loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _no_idle_period(monkeypatch):
+    """run_backfill_loop waits for the governor's idle period before each
+    pass; that wait is the governor's own test. Here the sweep's walk is
+    under test, so the period is zero."""
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "events_enrichment_backfill_idle_s", 0, raising=False)
+
+
 @pytest.fixture()
 def calls(monkeypatch):
     """Record which enricher was asked about which visit."""
@@ -596,8 +606,11 @@ def test_the_sweep_holds_while_live_enrichment_is_busy(session_local, calls, mon
     """Live always wins (#583): with a live visit holding an adapter
     slot, a backfill pass does not send history to that adapter; it
     waits, and proceeds the moment the slot is free."""
+    from core.config import settings
     from services import enrichment_gate as eg
 
+    # backfill_once is one PASS; the idle period gates the loop that
+    # starts passes, and that is the governor's own test. Here: the slot.
     db = session_local
     _camera(db, 1, ["image_captioning"])
     _visit(db, event_id=1, camera_id=1, label="car")
@@ -609,7 +622,7 @@ def test_the_sweep_holds_while_live_enrichment_is_busy(session_local, calls, mon
             await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=0.2)
         assert calls["caption"] == [], "nothing went out while live held the slot"
         gate.release("ok")
-        state = await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=2)
+        state = await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=3)
         assert calls["caption"] == [1]
         return state
 
@@ -692,6 +705,9 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
         _visit(db, event_id=i, camera_id=1, label="car", minutes_ago=60)
     from core.config import settings
     monkeypatch.setattr(settings, "events_enrichment_backfill", True, raising=False)
+    # WALL is stamped at collection; in a full run this test executes
+    # minutes later. A one-hour window keeps "young" young regardless.
+    monkeypatch.setattr(bf, "CATCH_UP_MIN_AGE_S", 3600.0)
     _run(asyncio.wait_for(bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up=False), 10))
     from services import site_settings
     assert site_settings.get_json(db, bf.STATE_KEY)["top"] == 3, "where history ended"
@@ -699,8 +715,8 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
 
     # Two newer visits: one old enough to be safely re-offered, one that
     # may still have a live enrichment in flight.
-    _visit(db, event_id=5, camera_id=1, label="car", minutes_ago=20)
-    _visit(db, event_id=6, camera_id=1, label="car", minutes_ago=0)
+    _visit(db, event_id=5, camera_id=1, label="car", minutes_ago=120)
+    _visit(db, event_id=6, camera_id=1, label="car", minutes_ago=30)
 
     state = _run(bf.catch_up_once(batch=10, pause=0))
     assert calls["caption"] == [5], "only the one older than the in-flight window"
@@ -713,8 +729,8 @@ def test_catch_up_describes_the_newer_visits_the_live_path_dropped(
 
     # A drop in the catch-up holds top exactly as the walk holds its cursor.
     import services.caption_enrichment as cap_mod
-    _visit(db, event_id=7, camera_id=1, label="car", minutes_ago=0)
-    _visit(db, event_id=8, camera_id=1, label="car", minutes_ago=0)
+    _visit(db, event_id=7, camera_id=1, label="car", minutes_ago=30)
+    _visit(db, event_id=8, camera_id=1, label="car", minutes_ago=30)
     monkeypatch.setattr(cap_mod, "enrich_event_caption", _cap_stub(calls, {7}))
     state = _run(bf.catch_up_once(batch=10, pause=0))
     assert calls["caption"][-1] == 7 and state["top"] == 6, "held below the refused visit"
@@ -735,8 +751,67 @@ def test_the_loop_stays_on_as_the_catch_up_after_history(session_local, calls, m
         return {}
 
     monkeypatch.setattr(bf, "catch_up_once", _catch_up)
-    with pytest.raises(asyncio.TimeoutError):
-        _run(asyncio.wait_for(
-            bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up_interval=0.01), 0.3))
+
+    async def scenario():
+        # Not a fixed time budget — under a loaded full-suite run two
+        # passes did not fit in 300 ms. Wait for the passes, then cancel.
+        task = asyncio.ensure_future(
+            bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up_interval=0.01))
+        try:
+            for _ in range(1000):
+                if passes["n"] >= 2:
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert not task.done() or task.cancelled(), "the loop never returns on its own"
+
+    _run(scenario())
     assert calls["caption"] == [1], "history was walked first"
     assert passes["n"] >= 2, "then the catch-up keeps running"
+
+
+def test_catch_up_never_steps_over_a_younger_visit_with_a_lower_id(
+        session_local, calls, monkeypatch):
+    """Ids are assigned when a track ENDS; started_at is when it began.
+    A long visit can carry a lower id than a short one that started
+    later — so top must stop below the youngest visit still held back."""
+    db = session_local
+    _camera(db, 1, ["image_captioning"])
+    _visit(db, event_id=1, camera_id=1, label="car", minutes_ago=60)
+    from core.config import settings
+    monkeypatch.setattr(settings, "events_enrichment_backfill", True, raising=False)
+    monkeypatch.setattr(bf, "CATCH_UP_MIN_AGE_S", 3600.0)   # drift-proof, see above
+    _run(asyncio.wait_for(bf.run_backfill_loop(batch=10, pause=0, interval=0, catch_up=False), 10))
+    calls["caption"].clear()
+    # 120 started 30 min ago (young, held); 121 started 2 h ago (old).
+    _visit(db, event_id=120, camera_id=1, label="car", minutes_ago=30)
+    _visit(db, event_id=121, camera_id=1, label="car", minutes_ago=120)
+    state = _run(bf.catch_up_once(batch=10, pause=0))
+    assert calls["caption"] == [121]
+    assert state["top"] == 119, "held below 120, which is still inside the in-flight window"
+    monkeypatch.setattr(bf, "CATCH_UP_MIN_AGE_S", 0.0)
+    state = _run(bf.catch_up_once(batch=10, pause=0))
+    assert calls["caption"] == [121, 120, 121], "120 offered; 121 re-offered, harmlessly"
+    assert state["top"] == 121
+
+
+def test_a_walk_finished_before_top_existed_starts_the_catch_up_from_now(
+        session_local, calls):
+    """Upgrade path: state says done, no top. The catch-up must not sweep
+    the whole table from id 0 — it seeds top at the current maximum."""
+    db = session_local
+    _camera(db, 1, ["image_captioning"])
+    for i in (1, 2, 3):
+        _visit(db, event_id=i, camera_id=1, label="car", minutes_ago=60)
+    from services import site_settings
+    site_settings.set_json(db, bf.STATE_KEY, {"done": True, "cursor": 1})
+    db.commit()
+    state = _run(bf.catch_up_once(batch=10, pause=0))
+    assert calls["caption"] == [], "nothing re-offered"
+    assert state["top"] == 3
+    _visit(db, event_id=4, camera_id=1, label="car", minutes_ago=30)
+    state = _run(bf.catch_up_once(batch=10, pause=0))
+    assert calls["caption"] == [4] and state["top"] == 4

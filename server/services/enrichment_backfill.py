@@ -261,7 +261,7 @@ async def _enrich_items(items: list[dict[str, Any]], *, caption_on: bool,
     from services.caption_enrichment import enrich_event_caption
     from services.descriptor_enrichment import enrich_event_descriptors
     from services.embed_enrichment import enrich_event_embedding
-    from services.enrichment_gate import wait_all_idle
+    from services.enrichment_governor import wait_for_backfill_slot
 
     out: dict[str, Any] = {"captioned": 0, "described": 0, "embedded": 0,
                            "handled": [], "dropped_at": None}
@@ -269,9 +269,10 @@ async def _enrich_items(items: list[dict[str, Any]], *, caption_on: bool,
         event_id = int(item["event_id"])
         # Live always wins, and "wins" means more than yielding between
         # items: nothing from the back catalogue goes to an adapter while
-        # a live visit is in flight or waiting, or while a breaker is
-        # cooling. History has waited this long (#583).
-        await wait_all_idle()
+        # a live visit is in flight or waiting, while a breaker is
+        # cooling, while the governor says the box is busy, or outside
+        # the operator's window. History has waited this long (#583).
+        await wait_for_backfill_slot()
         dropped = False
         if caption_on and item.get("caption"):
             try:
@@ -344,14 +345,33 @@ async def catch_up_once(batch: int = DEFAULT_BATCH,
     descriptor_on = bool(getattr(settings, "events_descriptor_enrichment", True))
     embed_on = bool(getattr(settings, "events_embed_enrichment", False))
 
+    from sqlalchemy import func
+
+    from models import TimelineEvent
+
     db = SessionLocal()
     try:
         state = dict(read_state(db))
+        if "top" not in state:
+            # A box whose walk finished before "top" existed: start from
+            # where history ends NOW, not from id 0 — a catch-up that
+            # re-offers 200k visits oldest-first reaches the dropped
+            # ones at the top of the table in days.
+            state["top"] = int(db.query(func.max(TimelineEvent.id)).scalar() or 0)
+            _write_state(db, state)
+            return state
         top = int(state.get("top") or 0)
         cutoff = datetime.now(UTC) - timedelta(seconds=CATCH_UP_MIN_AGE_S)
         items = plan_batch(db, None, batch,
                            bool(getattr(settings, "events_descriptor_people", False)),
                            after_id=top, older_than=cutoff)
+        # Ids are assigned when a track ENDS; started_at is when it began.
+        # A long visit can carry a lower id than a short one that started
+        # later, so the youngest visit still inside the in-flight window
+        # may sit BELOW something handled now. top must not step over it.
+        youngest_held = db.query(func.min(TimelineEvent.id)).filter(
+            TimelineEvent.id > top,
+            TimelineEvent.started_at >= cutoff).scalar()
     finally:
         db.close()
     if not items:
@@ -362,6 +382,12 @@ async def catch_up_once(batch: int = DEFAULT_BATCH,
                               pause=pause)
     handled = res["handled"]
     new_top = max(handled) if handled else top
+    if youngest_held is not None:
+        # Anything handled above it is re-offered later and short-
+        # circuits inside the enrichers for one row read — cheaper than
+        # a visit that is never looked at again.
+        new_top = min(new_top, int(youngest_held) - 1)
+    new_top = max(new_top, top)
 
     db = SessionLocal()
     try:
@@ -539,8 +565,15 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
     # with captions and descriptors off can still have real work here.
     logger.info("enrichment backfill: starting (batch=%s, pause=%ss)",
                 batch, pause)
+    from services.enrichment_governor import wait_for_backfill_slot
+
     previous: Any = object()
     while True:
+        # A pass begins only once the governor has seen the box NORMAL
+        # for the idle period (and inside the operator's window, if
+        # any): history is swept when the box finds the resources, never
+        # while it is busy with today (#583).
+        await wait_for_backfill_slot(starting=True)
         state = await backfill_once(batch=batch, pause=pause)
         if state.get("done"):
             break
@@ -567,6 +600,9 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
                 catch_up_interval)
     while True:
         await asyncio.sleep(catch_up_interval)
+        # Same bar as a pass of the walk: NORMAL for the idle period,
+        # nothing live in hand, inside the window.
+        await wait_for_backfill_slot(starting=True)
         try:
             await catch_up_once(batch=batch, pause=pause)
         except Exception:  # noqa: BLE001

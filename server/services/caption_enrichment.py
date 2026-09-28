@@ -148,7 +148,7 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
     # slot held until the adapter answered all live in the gate (#583).
     from services.enrichment_gate import infer_through_gate
 
-    body = await infer_through_gate(adapter, payload, log=logger,
+    body = await infer_through_gate(adapter, payload, kind="caption", log=logger,
                                     caller="caption enrichment")
     if body is DROPPED:
         return DROPPED

@@ -47,9 +47,11 @@ see?" while a caption is in flight puts two requests on a one-slot
 model. The gate keeps enrichment from being the thing that piles on;
 it does not make the adapter's total load observable from here.
 
-The backfill asks :func:`wait_all_idle` before every item, so the back
-catalogue is only swept when nothing live is waiting and no adapter is
-in cooldown. Live always wins; history has waited this long.
+The backfill asks the governor (``enrichment_governor.
+wait_for_backfill_slot``) before every item; that wait includes
+:func:`all_idle` here, so the back catalogue is only swept when nothing
+live is in hand and no breaker is cooling. Live always wins; history
+has waited this long.
 """
 
 from __future__ import annotations
@@ -70,9 +72,6 @@ ALERT_TYPE = "enrichment_adapter_too_slow"
 #: First cooldown after a trip, and the ceiling the doubling stops at.
 COOLDOWN_BASE_S = 60.0
 COOLDOWN_MAX_S = 600.0
-
-#: How often :func:`wait_all_idle` re-checks.
-_IDLE_POLL_S = 0.5
 
 #: TCP connect ceiling, separate from the per-call limit. The 90 s limit
 #: is for a model computing; a host that never answers the SYN should
@@ -100,6 +99,10 @@ class _Dropped:
 
 
 DROPPED = _Dropped()
+
+#: Weight of the newest call in the latency average. ~0.2 means the
+#: figure settles in a handful of calls and forgets one outlier quickly.
+LATENCY_ALPHA = 0.2
 
 
 def _now() -> float:
@@ -180,6 +183,10 @@ class AdapterGate:
         self.cooldown_s = COOLDOWN_BASE_S
         self.trips = 0
         self._probe_out = False
+        # Smoothed seconds per call; None until the first answer, and
+        # stamped so a stale figure can be ignored.
+        self.latency_ewma_s: float | None = None
+        self.latency_updated_at: float | None = None
 
     # ── state ─────────────────────────────────────────────────────
 
@@ -218,27 +225,40 @@ class AdapterGate:
             "breaker_cooling": self.cooling,
             "breaker_trips": self.trips,
             "cooldown_s": self.cooldown_s if self.is_open else 0.0,
+            "latency_ewma_s": self.latency_ewma_s,
+            "latency_age_s": (None if self.latency_updated_at is None
+                              else max(0.0, _now() - self.latency_updated_at)),
         }
 
     # ── admission ─────────────────────────────────────────────────
 
-    async def admit(self) -> bool:
+    async def admit(self, *, max_waiting: int | None = None) -> bool:
         """Take a slot, or say no. ``True`` means the caller HOLDS a slot
-        and must call :meth:`release` exactly once, whatever happens."""
+        and must call :meth:`release` exactly once, whatever happens.
+
+        ``max_waiting`` narrows the wait line for this call only — the
+        governor uses it to keep a slow box's line short for callers
+        that matter less (a caption sentence) than others (the colour
+        the filters match on)."""
+        depth = self.queue_depth if max_waiting is None else min(self.queue_depth, max(0, int(max_waiting)))
+        probe = False
         if self.is_open:
             now = _now()
             if now < (self.open_until or 0.0) or self._probe_out:
                 self.dropped_open += 1
                 self._note_drop("breaker open")
                 return False
-            # Cooldown over: exactly one probe goes through.
-            self._probe_out = True
+            # Cooldown over: exactly one probe goes through — but the
+            # token is only spent once it HOLDS a slot. Spending it here
+            # and then losing on the wait-line check left the gate cooling
+            # with no probe in flight until a straggler released.
+            probe = True
         if not self._slots.locked():
             # A slot is free: take it without joining the line. (No await
             # between the check and the acquire, so nothing can steal it.)
             await self._slots.acquire()
         else:
-            if self.waiting >= self.queue_depth:
+            if self.waiting >= depth:
                 self.dropped_full += 1
                 self._note_drop("wait line full")
                 return False
@@ -247,36 +267,52 @@ class AdapterGate:
                 await self._slots.acquire()
             finally:
                 self.waiting -= 1
-        if self.is_open and not self._probe_out:
+        if self.is_open and not probe:
             # The breaker tripped while this one was waiting. Its wait
             # bought nothing; give the slot back and drop.
             self._slots.release()
             self.dropped_open += 1
             return False
+        if probe:
+            self._probe_out = True
         self.inflight += 1
         self.admitted += 1
         return True
 
-    def release(self, outcome: Outcome) -> None:
+    def release(self, outcome: Outcome, *, elapsed_s: float | None = None) -> None:
         self.inflight = max(0, self.inflight - 1)
         self._slots.release()
+        if elapsed_s is not None and outcome != "error":
+            # How long this adapter really takes, smoothed — the governor's
+            # second signal beside CPU%. A timeout counts at the full limit,
+            # which is the honest number: that is how long the caller waited.
+            # Stamped, because a number nobody has refreshed in an hour says
+            # nothing about now — the governor lets it expire.
+            e = max(0.0, float(elapsed_s))
+            self.latency_ewma_s = e if self.latency_ewma_s is None \
+                else LATENCY_ALPHA * e + (1.0 - LATENCY_ALPHA) * self.latency_ewma_s
+            self.latency_updated_at = _now()
+        # While open, only the PROBE's outcome moves the breaker. A call
+        # admitted before the trip (max_inflight > 1) finishing late is
+        # old news: it must not extend the cooldown or double the backoff.
+        probe_result = self.is_open and self._probe_out
         if outcome == "ok":
             self.completed += 1
             self.timeouts_in_row = 0
-            if self.is_open:
+            if probe_result:
                 self._close()
             return
         if outcome == "timeout":
             self.timeouts += 1
             self.timeouts_in_row += 1
-            if self.is_open:
+            if probe_result:
                 # The probe failed: stay open, back off further.
                 self._reopen()
-            elif self.timeouts_in_row >= self.breaker_timeouts:
+            elif not self.is_open and self.timeouts_in_row >= self.breaker_timeouts:
                 self._trip()
             return
         self.errors += 1
-        if self.is_open:
+        if probe_result:
             # A probe that errored is not a success; stay open.
             self._reopen()
 
@@ -352,37 +388,34 @@ def all_idle() -> bool:
     return all(g.idle() for g in _gates.values())
 
 
-async def wait_all_idle(*, poll_s: float = _IDLE_POLL_S) -> None:
-    """Block until no gate has work in hand, work waiting, or a breaker
-    open. For the backfill only — live callers never wait on this."""
-    said = False
-    while not all_idle():
-        if not said:
-            busy = [g.adapter for g in _gates.values() if not g.idle()]
-            logger.info("enrichment backfill: holding while live enrichment "
-                        "is busy on %s", ", ".join(sorted(busy)))
-            said = True
-        await asyncio.sleep(poll_s)
-
-
 def _reset_for_tests() -> None:
     _gates.clear()
+    _notify_tasks.clear()
 
 
 # ── the one call the enrichers make ───────────────────────────────
 
 async def infer_through_gate(adapter: str, body: dict[str, Any], *,
-                             log: logging.Logger, caller: str,
-                             what: str = "") -> dict[str, Any] | None:
-    """POST one infer request to KAI-C through the adapter's gate and
-    return the decoded JSON body, or None.
+                             kind: str, log: logging.Logger, caller: str,
+                             what: str = "",
+                             interactive: bool = False) -> dict[str, Any] | None:
+    """POST one infer request to KAI-C through the governor and the
+    adapter's gate, and return the decoded JSON body, or None.
 
-    :data:`DROPPED` means the call was never made (refused at the gate).
-    None covers every way a call that WAS made failed, each logged in
-    the caller's voice (``caller`` is the log prefix, ``log`` the
-    caller's logger so the line lands where an operator grepping for
-    that enricher looks): timed out, unreachable, a non-200, or a body
-    that is not JSON. The caller decides what the body means.
+    :data:`DROPPED` means the call was never made — refused by the
+    governor or dropped at the gate. None covers every way a call that
+    WAS made failed, each logged in the caller's voice (``caller`` is the
+    log prefix, ``log`` the caller's logger so the line lands where an
+    operator grepping for that enricher looks): timed out, unreachable,
+    a non-200, or a body that is not JSON. The caller decides what the
+    body means. ``kind`` ("caption" / "vqa" / "embed") is what the
+    governor ranks when there is budget for one call and not three.
+
+    ``interactive`` is for a person waiting on the answer — the search
+    box embedding its query. It still respects the adapter's slots (the
+    model cannot do more) but never asks the governor and never drops
+    for load: it waits its turn. Background enrichment yields to the
+    box; a person typing "white van" does not.
 
     Only a 200 is "ok" to the breaker. A 503 from KAI-C or a crashed
     adapter is an answer in the HTTP sense and nothing else: it must not
@@ -403,9 +436,12 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
     import httpx
 
     from core.config import settings
+    from services.enrichment_governor import admit_live
 
     gate = gate_for(adapter)
-    if not await gate.admit():
+    admitted = (await gate.admit() if interactive
+                else await admit_live(gate, kind))
+    if not admitted:
         return DROPPED
     limit = timeout_s()
     suffix = f" for {what}" if what else ""
@@ -434,7 +470,7 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
                     type(exc).__name__, exc)
         return None
     finally:
-        gate.release(outcome)
+        gate.release(outcome, elapsed_s=time.monotonic() - started)
     if resp.status_code != 200:
         log.warning("%s: %s returned %s%s", caller, adapter, resp.status_code, suffix)
         return None
@@ -447,13 +483,7 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
 # ── the operator-visible side ─────────────────────────────────────
 
 def _notify(gate: AdapterGate, *, active: bool) -> None:
-    """Record the breaker edge as a system event and push it on the bus.
-
-    Fire-and-forget from the gate's point of view: the DB write runs in
-    a worker thread (``system_events`` is deliberately sync), the bus
-    publish is scheduled, and neither can fail the enrichment call that
-    tripped it.
-    """
+    """The breaker's edge, as the operator sees it."""
     description = (
         f"{gate.adapter} is too slow for the visit rate — enrichment paused "
         f"for {gate.cooldown_s:.0f}s after {gate.timeouts_in_row} timeouts in a row"
@@ -463,6 +493,22 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
     data = {"adapter": gate.adapter, "trips": gate.trips,
             "cooldown_s": gate.cooldown_s if active else 0,
             "timeouts_in_row": gate.timeouts_in_row}
+    # One edge PER ADAPTER: system events dedupe on the type alone, so a
+    # shared type made clip's trip vanish behind moondream's and
+    # moondream's recovery announce "resumed" while clip stayed paused.
+    notify_edge(f"{ALERT_TYPE}:{gate.adapter}", active=active,
+                description=description, data=data)
+
+
+def notify_edge(event_type: str, *, active: bool, description: str,
+                data: dict[str, Any]) -> None:
+    """Record an edge as a system event and push it on the bus.
+
+    Fire-and-forget from the caller's point of view: the DB write runs
+    in a worker thread (``system_events`` is deliberately sync), the bus
+    publish is scheduled, and neither can fail the enrichment call that
+    raised it. Shared by the breaker and the governor.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -476,12 +522,7 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
 
             await asyncio.to_thread(
                 record_system_event_edge,
-                # One edge PER ADAPTER: system events dedupe on the type
-                # alone, so a shared type made clip's trip vanish behind
-                # moondream's and moondream's recovery announce "resumed"
-                # while clip stayed paused.
-                event_type=f"{ALERT_TYPE}:{gate.adapter}", active=active,
-                severity="warning",
+                event_type=event_type, active=active, severity="warning",
                 description=description, data=data)
         except Exception:                          # noqa: BLE001
             logger.debug("enrichment gate: system event write failed", exc_info=True)
@@ -489,7 +530,7 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
             from services.event_bus_service import publish_system_alert
 
             await publish_system_alert(
-                alert_type=f"{ALERT_TYPE}:{gate.adapter}",
+                alert_type=event_type,
                 state="active" if active else "inactive",
                 severity="warning" if active else "info",
                 payload={"description": description, **data})

@@ -187,6 +187,17 @@ class SystemMonitorService:
         cutoff = datetime.now(UTC).timestamp() - minutes * 60
         return [p for p in self._coarse if p["ts"] >= cutoff]
 
+    def latest_sample(self) -> dict[str, Any] | None:
+        """The most recent host sample, or None before the first tick.
+        For in-process readers (the enrichment governor) that want the
+        number the monitor already paid for rather than a second probe."""
+        return self._last_sample
+
+    def alert_active(self, alert_type: str) -> bool:
+        """Is this edge-triggered alert currently raised? False before
+        the state machine has been seeded."""
+        return bool((self._active or {}).get(alert_type, False))
+
     def snapshot(self, settings: SystemMonitoringSettings) -> dict[str, Any]:
         """Current state for GET /system/resources."""
         base = self._last_sample or {}
