@@ -32,6 +32,7 @@ import { extractApiError } from '../lib/apiError'
 import { Modal } from '../components/Modal'
 import { useSnackbar } from '../components/Snackbar'
 import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, ErrorCard, PageHeader, Skeleton, type BadgeVariant } from '../components/ui'
 import { GeometryEditor } from './apps/GeometryEditor'
 import { ChipListEditor } from './apps/ChipListEditor'
@@ -1476,6 +1477,8 @@ function skillStatusVariant(status: SkillEntry['status']): BadgeVariant {
 function LicensePanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }) {
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useSnackbar()
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const [key, setKey] = useState('')
   const ent = app.entitlement
   const status = ent?.status ?? 'none'
@@ -1539,7 +1542,21 @@ function LicensePanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
           {ent?.has_license_key && (
             <>
               <Button variant="ghost" onClick={() => verify.mutate()} disabled={verify.isPending}>Re-check</Button>
-              <Button variant="ghost" onClick={() => clear.mutate()} disabled={clear.isPending}>Forget</Button>
+              <Button
+                variant="ghost"
+                disabled={clear.isPending}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: t('catalog.confirmForgetLicenceTitle'),
+                    message: t('catalog.confirmForgetLicenceMessage', { name: app.name }),
+                    confirmLabel: t('catalog.forget'),
+                    danger: true,
+                  })
+                  if (ok) clear.mutate()
+                }}
+              >
+                Forget
+              </Button>
             </>
           )}
         </div>

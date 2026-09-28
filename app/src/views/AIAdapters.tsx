@@ -28,6 +28,7 @@ import { Activity, Cpu, Database, Globe, HardDrive, Info, Layers, Lock, RefreshC
 import { apiService } from '../lib/apiService'
 import { extractApiError } from '../lib/apiError'
 import { useTranslation, useDateFormat } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useSnackbar } from '../components/Snackbar'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, ErrorCard, PageHeader, Skeleton, type BadgeVariant } from '../components/ui'
 import { MetricPanel, Sparkline, SparkRow, StatTile } from '../components/ui/stats'
@@ -399,6 +400,8 @@ function AdapterPermissionsSection({ name }: { name: string }) {
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useSnackbar()
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const query = useAdapterPermissions(name)
 
   const invalidate = () => {
@@ -494,7 +497,15 @@ function AdapterPermissionsSection({ name }: { name: string }) {
                             variant="danger"
                             className="text-xs px-2 py-1"
                             disabled={busy}
-                            onClick={() => revoke.mutate([perm.key])}
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: t('adapters.confirmRevokeTitle'),
+                                message: t('adapters.confirmRevokeMessage', { permission: perm.key, adapter: name }),
+                                confirmLabel: t('adapters.revoke'),
+                                danger: true,
+                              })
+                              if (ok) revoke.mutate([perm.key])
+                            }}
                           >
                             Revoke
                           </Button>

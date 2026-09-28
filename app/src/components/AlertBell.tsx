@@ -27,6 +27,7 @@ import {
 } from '../services/alertsInboxService'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useTranslation } from '../i18n'
+import { useConfirm } from './ui/ConfirmDialog'
 import { useUnackedAlerts } from '../lib/queries'
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
@@ -194,6 +195,7 @@ function timeAgo(iso: string | null): string {
 
 export function AlertBell() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   useClickOutside(panelRef, open, () => setOpen(false))
@@ -317,7 +319,16 @@ export function AlertBell() {
               {unackedCount > 0 && (
                 <button
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-[var(--panel-2)]"
-                  onClick={() => ack.mutate(undefined)}
+                  // One click in a small dropdown silenced every alarm in
+                  // scope; the count makes the consequence explicit first.
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: t('alerts.confirmAckAllTitle'),
+                      message: t('alerts.confirmAckAllMessage', { count: unackedCount }),
+                      confirmLabel: t('alerts.ackAll'),
+                    })
+                    if (ok) ack.mutate(undefined)
+                  }}
                   title="Acknowledge all"
                 >
                   <CheckCheck size={13} /> {t('alerts.ackAll')}

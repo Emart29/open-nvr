@@ -43,6 +43,7 @@ import { useSnackbar } from '../components/Snackbar'
 import { VideoPlayer } from '../components/VideoPlayer/VideoPlayer'
 import { PlaybackConsole } from '../components/PlaybackConsole'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // Daily recording - one entry per camera per day
 interface DailyRecording {
@@ -97,6 +98,7 @@ export function PlaybackView() {
   const { t } = useTranslation()
   const { token, loading: authLoading, user } = useAuth()
   const { showError, showSuccess } = useSnackbar()
+  const confirm = useConfirm()
   // Recordings hold the camera's coded frames untouched, so an anamorphic
   // camera needs the same correction here as in Live View (#354).
   const cameraAspects = useCameraAspects()
@@ -537,7 +539,15 @@ export function PlaybackView() {
                             const isQueued = queuedDayKey === dayKey
                             return (
                               <button
-                                onClick={() => uploadRecordingDay(camera, rec)}
+                                onClick={async () => {
+                                  // A whole day of footage leaves the box: say so first.
+                                  const ok = await confirm({
+                                    title: t('playback.confirmUploadTitle'),
+                                    message: t('playback.confirmUploadMessage', { camera: camera.camera_name || `Camera ${camera.camera_id}`, date: rec.date }),
+                                    confirmLabel: t('playback.upload'),
+                                  })
+                                  if (ok) uploadRecordingDay(camera, rec)
+                                }}
                                 className="px-3 py-2 text-sm flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-60"
                                 title={isQueueing ? 'Queueing cloud upload' : isQueued ? 'Queued for cloud upload' : 'Queue this day for cloud upload'}
                                 disabled={isQueueing}

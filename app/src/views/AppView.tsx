@@ -24,6 +24,8 @@
 // card uses — this page just gives them room to breathe.
 
 import { useMemo, useState } from 'react'
+import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Settings2, Trash2, Activity, ExternalLink, BookOpen } from 'lucide-react'
@@ -121,6 +123,8 @@ export function AppView() {
   const { appId = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const { showSuccess, showError } = useSnackbar()
 
   const appQuery = useApp(appId)
@@ -241,7 +245,20 @@ export function AppView() {
           >
             <Switch
               checked={app.enabled}
-              onChange={() => toggle.mutate()}
+              onChange={async () => {
+                // Turning an app off stops its detections and alerts on every
+                // camera at once; turning it on needs no second thought.
+                if (app.enabled) {
+                  const ok = await confirm({
+                    title: t('apps.confirmDisableTitle', { name: app.name }),
+                    message: t('apps.confirmDisableMessage'),
+                    confirmLabel: t('apps.disable'),
+                    danger: true,
+                  })
+                  if (!ok) return
+                }
+                toggle.mutate()
+              }}
               disabled={toggle.isPending}
               label={`${app.name} enabled`}
             />

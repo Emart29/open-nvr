@@ -20,7 +20,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSnackbar } from '../../components/Snackbar'
 import { Badge, Button, ErrorCard, Skeleton } from '../../components/ui'
 import { apiService } from '../../lib/apiService'
-import { useDateFormat, type DateFormatters } from '../../i18n'
+import { useDateFormat, useTranslation, type DateFormatters } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type Device = {
   id: number
@@ -74,6 +75,8 @@ const STATUS_BADGE: Record<string, 'success' | 'warning' | 'destructive'> = {
 export function DeviceFirewall() {
   const fmt = useDateFormat()
   const { showSuccess, showError } = useSnackbar()
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const [devices, setDevices] = useState<Device[]>([])
   const [active, setActive] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -233,14 +236,32 @@ export function DeviceFirewall() {
                     {d.status !== 'blocked' && (
                       <Button
                         disabled={busy === String(d.id)}
-                        onClick={() => act(() => apiService.blockDevice(d.id), String(d.id))}
+                        onClick={async () => {
+                          // Blocking the browser you are using locks you out,
+                          // so this one asks first and says so.
+                          const ok = await confirm({
+                            title: t('firewall.confirmBlockTitle'),
+                            message: t('firewall.confirmBlockMessage', { name: d.label || d.ip_address || `#${d.id}` }),
+                            confirmLabel: t('firewall.block'),
+                            danger: true,
+                          })
+                          if (ok) act(() => apiService.blockDevice(d.id), String(d.id))
+                        }}
                       >
                         Block
                       </Button>
                     )}
                     <Button
                       disabled={busy === String(d.id)}
-                      onClick={() => act(() => apiService.deleteDevice(d.id), String(d.id))}
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: t('firewall.confirmForgetTitle'),
+                          message: t('firewall.confirmForgetMessage', { name: d.label || d.ip_address || `#${d.id}` }),
+                          confirmLabel: t('firewall.forget'),
+                          danger: true,
+                        })
+                        if (ok) act(() => apiService.deleteDevice(d.id), String(d.id))
+                      }}
                     >
                       Forget
                     </Button>

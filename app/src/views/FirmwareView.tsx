@@ -19,12 +19,16 @@
 import { useEffect, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { useAuth } from '../auth/AuthContext'
+import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type OsInfo = { os?: string; kernel?: string; bios?: string; distro?: string; version?: string }
 type UpdateStatus = { available?: boolean; count?: number; packages?: string[]; method?: string }
 type AutoUpdateSettings = { enabled?: boolean; schedule?: string; reboot_if_required?: boolean }
 
 export function FirmwareView() {
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const { user } = useAuth()
   const canAdmin = !!user?.is_superuser
   const [loading, setLoading] = useState(true)
@@ -121,6 +125,14 @@ export function FirmwareView() {
               className="px-3 py-1 bg-[var(--accent)] text-white rounded disabled:opacity-50" 
               disabled={!canAdmin || loading || !updateStatus.available}
               onClick={async () => {
+                // Applying OS updates can restart services under a live NVR.
+                const ok = await confirm({
+                  title: t('firmware.confirmApplyTitle'),
+                  message: t('firmware.confirmApplyMessage'),
+                  confirmLabel: t('firmware.apply'),
+                  danger: true,
+                })
+                if (!ok) return
                 try {
                   setLoading(true)
                   const { data } = await apiService.applyUpdates()
