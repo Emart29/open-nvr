@@ -81,7 +81,12 @@ class CamerasPage(BasePage):
         self.find(S.FIELD_IP).fill(ip)
         self.find(S.FIELD_RTSP).fill(rtsp)
 
-        self.find(S.ADD_CAMERA_SUBMIT).last.click()
+        # Scoped to the dialog: with an empty list the page's empty state has
+        # its own "Add Camera" button, which sits AFTER the dialog in the DOM,
+        # so an unscoped `.last` clicked it -- behind the overlay -- whenever
+        # the shuffled suite ran this test with no cameras present.
+        dialog = self.page.get_by_role("dialog").last
+        self.find(S.ADD_CAMERA_SUBMIT, scope=dialog).last.click()
         self._confirm_duplicate_if_prompted()
 
     def _confirm_duplicate_if_prompted(self) -> None:

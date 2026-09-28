@@ -29,7 +29,9 @@ class AlertsPage(BasePage):
         self.find(S.FIRE_TEST_ALARM).first.click()
 
     def unacked_rows(self):
-        return self.page.get_by_role("row").filter(has_text="unacked")
+        # A row is unacknowledged exactly while it still has its own
+        # Acknowledge button (the status text column is gone).
+        return self.page.get_by_role("row").filter(has=self.find(S.UNACKED_STATUS))
 
     def wait_for_unacked(self, budget: float | None = None) -> int:
         return self.wait_for_count(
