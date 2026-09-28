@@ -89,7 +89,8 @@ def test_a_user_can_be_deleted_through_the_form(authed_page, client, admin):
     if code is None:
         pytest.skip("the e2e admin has no MFA secret, so the gated delete cannot be confirmed")
     authed_page.get_by_placeholder("123456").fill(code)
-    authed_page.get_by_role("button", name=re.compile(r"^(Delete|Confirm)")).last.click()
+    # "Delete User" in the confirmation, not the row's own "Delete" behind it.
+    authed_page.get_by_role("button", name=re.compile(r"^(Delete User|Confirm)$")).click()
 
     expect(row).to_have_count(0, timeout=20_000)
 
