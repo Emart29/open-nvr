@@ -867,7 +867,7 @@ function Tile({
                   <span className="text-[var(--text-dim)]">{t('live.clickToAdd')}</span>
                 </>
               ) : (
-                <span className="text-neutral-500">{t('live.noAssigned')}</span>
+                <span className="text-[var(--text-dim)]">{t('live.noAssigned')}</span>
               )}
             </div>
           )}
@@ -879,9 +879,9 @@ function Tile({
             interaction needed. */}
         {cameraId && effectiveConnectivity === 'offline' && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/70 text-center">
-            <AlertCircle size={24} className="text-yellow-400" />
-            <div className="text-xs uppercase tracking-wide text-yellow-300">{t('live.cameraOffline')}</div>
-            <div className="text-[11px] text-[var(--text-dim)]">{t('live.waitingReconnect')}</div>
+            <AlertCircle size={24} className="text-[var(--on-video-warn)]" />
+            <div className="text-xs uppercase tracking-wide text-[var(--on-video-warn)]">{t('live.cameraOffline')}</div>
+            <div className="text-[11px] text-[var(--on-video-dim)]">{t('live.waitingReconnect')}</div>
           </div>
         )}
 

@@ -793,7 +793,7 @@ export function AIDetectionResults() {
                   <div className="text-xs text-[var(--text-dim)] mt-1">Models Used</div>
                 </div>
                 <div className="bg-[var(--panel)] p-3 border border-[var(--border)]">
-                  <div className="text-2xl font-bold text-purple-400">
+                  <div className="text-2xl font-bold text-[var(--accent)]">
                     {new Set(results.filter(r => r.camera_id === dialogCamera.id).map(r => r.task)).size}
                   </div>
                   <div className="text-xs text-[var(--text-dim)] mt-1">Task Types</div>

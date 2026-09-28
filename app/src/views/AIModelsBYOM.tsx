@@ -900,7 +900,7 @@ export function AIModelsBYOM() {
                         )
                       ) : (
                         <div className="text-xs">
-                          <div className="text-purple-400 font-medium">🎬 Recording</div>
+                          <div className="text-[var(--accent)] font-medium">🎬 Recording</div>
                           <div className="text-[var(--text-dim)] truncate max-w-[150px]" title={model.recording_path || ''}>
                             {model.recording_path ? model.recording_path.split('/').pop() : 'Not selected'}
                           </div>
@@ -940,10 +940,10 @@ export function AIModelsBYOM() {
                             <button
                               onClick={() => runningModels.has(model.id) ? stopInference(model.id) : analyzeRecording(model)}
                               disabled={!canAdmin || inferenceLoading.has(model.id)}
-                              className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-50 ${
+                              className={`px-3 py-1 text-xs font-medium disabled:opacity-50 ${
                                 runningModels.has(model.id)
                                   ? 'bg-[var(--critical)] hover:bg-[var(--critical)] text-white'
-                                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                  : 'bg-[var(--accent)] hover:opacity-90 text-white'
                               }`}
                             >
                               {inferenceLoading.has(model.id) ? (
@@ -955,7 +955,7 @@ export function AIModelsBYOM() {
                               )}
                             </button>
                             {runningModels.has(model.id) && !inferenceLoading.has(model.id) && (
-                              <div className="text-[10px] text-purple-400 mt-1">● Processing</div>
+                              <div className="text-[10px] text-[var(--accent)] mt-1">● Processing</div>
                             )}
                           </>
                         ) : (
