@@ -969,6 +969,7 @@ export const translations: TranslationCatalog = {
   'mfa.differentAccount': 'Use a different account',
   'mfa.missingCredentials': 'Your sign-in expired. Please sign in again.',
   'network.title': 'Network',
+  'network.loadFailed': 'Could not load these settings. Reload the page to try again; saving is disabled so the stored values are not overwritten with blanks.',
   'network.isolatedDescription': 'Isolated camera network (no internet). Configure interface and IP.', 'network.subnetCidr': 'Subnet CIDR', 'network.additionalSubnets': 'Additional Scan Subnets', 'network.commaSeparated': 'comma-separated', 'network.description': 'Description', 'network.whitelisted': 'Whitelisted IPs (provisioned cameras)', 'network.noProvisioned': 'No provisioned cameras yet.', 'network.uplinkDescription': 'Uplink network used for internet connectivity. Configure the second NIC.', 'network.blacklisted': 'Blacklisted IPs (comma-separated)',
   'network.cameraLan': 'Camera LAN',
   'network.uplink': 'Uplink',

@@ -35,6 +35,13 @@ export function NetworkView() {
   const [uplink, setUplink] = useState<any | null>(null)
   const [whitelist, setWhitelist] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  // The fields below are uncontrolled (defaultValue), and React reads a
+  // defaultValue only on first render -- so a form rendered before the load
+  // finished kept its empty defaults forever, and a save then wrote those
+  // blanks back. Each form now mounts only once its settings have arrived.
+  const [loaded, setLoaded] = useState(false)
+  const [lanFailed, setLanFailed] = useState(false)
+  const [uplinkFailed, setUplinkFailed] = useState(false)
   const [savingLan, setSavingLan] = useState(false)
   const [savingUplink, setSavingUplink] = useState(false)
   const { showSuccess, showError } = useSnackbar()
@@ -80,10 +87,15 @@ export function NetworkView() {
         if (lanRes.status === 'fulfilled') {
           setLan(lanRes.value.data?.settings || null)
           setWhitelist(lanRes.value.data?.whitelisted_ips || [])
+        } else {
+          setLanFailed(true)
         }
         if (uplinkRes.status === 'fulfilled') setUplink(uplinkRes.value.data?.settings || null)
+        else setUplinkFailed(true)
       } catch (e: any) {
         setError(e?.data?.detail || e?.message || 'Failed to load network settings')
+      } finally {
+        setLoaded(true)
       }
     })()
   }, [])
@@ -109,7 +121,13 @@ export function NetworkView() {
 
       <div className="p-4 bg-[var(--panel)] space-y-4">
         {error && <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
-        {active === 'camera-lan' ? (
+        {!loaded ? (
+          <div className="text-sm text-[var(--text-dim)]">{t('common.loading')}</div>
+        ) : active === 'camera-lan' && lanFailed ? (
+          <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{t('network.loadFailed')}</div>
+        ) : active === 'uplink' && uplinkFailed ? (
+          <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{t('network.loadFailed')}</div>
+        ) : active === 'camera-lan' ? (
           <div className="space-y-3 text-sm">
             <div className="text-[var(--text-dim)]">{t('network.isolatedDescription')}</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
