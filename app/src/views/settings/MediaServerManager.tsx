@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { useAuth } from '../../auth/AuthContext'
 import { useSnackbar } from '../../components/Snackbar'
+import { Link } from 'react-router-dom'
 
 export function MediaServerManager() {
   const { user: me } = useAuth()
@@ -156,6 +157,11 @@ export function MediaServerManager() {
         {selectedTab === 'setup' && <SetupTab setupData={setupData} />}
         {selectedTab === 'streams' && <StreamsTab activePaths={activePaths} onPushStream={pushRTSPStream} />}
         {selectedTab === 'recordings' && <RecordingsTab recordings={recordings} />}
+        {selectedTab === 'config' && (
+          <p className="text-xs text-[var(--text-dim)] mb-3">
+            Read-only view. To change these settings, open <Link to="/updates" className="text-[var(--accent)] hover:underline">Media Server Config</Link>.
+          </p>
+        )}
         {selectedTab === 'config' && <ConfigTab globalConfig={globalConfig} onReload={loadData} />}
       </div>
     </div>

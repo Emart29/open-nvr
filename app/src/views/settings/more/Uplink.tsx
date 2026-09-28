@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react'
 import { apiService } from '../../../lib/apiService'
 import { useAuth } from '../../../auth/AuthContext'
+import { Link } from 'react-router-dom'
 
 export function MoreUplink() {
   const { user: me } = useAuth()
@@ -70,6 +71,10 @@ export function MoreUplink() {
         <h2 className="text-base font-semibold">Uplink Servers</h2>
         <button className="ml-auto px-2 py-1 bg-[var(--accent)] text-white" onClick={save} disabled={loading}>Save</button>
       </div>
+      <p className="text-xs text-[var(--text-dim)]">
+        Where the media server pushes and pulls streams. The NVR host's own network
+        uplink (interface, gateway, DNS) is under <Link to="/network/uplink" className="text-[var(--accent)] hover:underline">Network &rsaquo; Uplink</Link>.
+      </p>
       {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
 
       <div className="grid grid-cols-2 gap-3 text-sm">

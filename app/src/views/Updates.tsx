@@ -20,6 +20,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { useTranslation } from '../i18n'
 import { useAuth } from '../auth/AuthContext'
+import { Link } from 'react-router-dom'
 import { ChevronDown, Check, X, RotateCcw, AlertTriangle, FileText, Settings } from 'lucide-react'
 
 type Jsonish = any
@@ -381,6 +382,9 @@ export function Updates() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{t('updates.title')}</h1>
           <p className="text-[var(--text-dim)] mt-1">{t('updates.description')}</p>
+          <p className="text-xs text-[var(--text-dim)] mt-1">
+            Setup, active streams and recordings are under <Link to="/settings/media-source/media-server-manager" className="text-[var(--accent)] hover:underline">Settings &rsaquo; Media-Source &rsaquo; Media Server Manager</Link>.
+          </p>
         </div>
         <div className="text-xs text-[var(--text-dim)] bg-white/5 px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${health ? 'bg-[var(--ok)]' : 'bg-[var(--warn)]'}`}></span>

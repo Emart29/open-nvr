@@ -191,6 +191,9 @@ export function NetworkView() {
         ) : active === 'uplink' ? (
           <div className="space-y-3 text-sm">
             <div className="text-[var(--text-dim)]">{t('network.uplinkDescription')}</div>
+            <div className="text-xs text-[var(--text-dim)]">
+              Media uplink servers (where streams are pushed) are under <NavLink to="/settings/more-settings/uplink" className="text-[var(--accent)] hover:underline">Settings &rsaquo; More Settings &rsaquo; Uplink</NavLink>.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <label className="flex flex-col gap-1">
                   <span className="text-[var(--text-dim)]">{t('network.interface')}</span>
