@@ -49,6 +49,11 @@ type ModalProps = {
   placement?: 'center' | 'side'
   /** Passed to the dialog element, for tests. */
   'data-testid'?: string
+  /**
+   * False for forms: a stray click beside a half-filled form must not throw
+   * the typing away. Escape and the close button still close it.
+   */
+  closeOnBackdrop?: boolean
 }
 
 // Open modals, innermost last. Escape and the Tab trap act only for the top
@@ -61,7 +66,7 @@ const FOCUSABLE =
 
 export function Modal({
   open, title, onClose, children, widthClassName, footer, bodyClassName,
-  placement = 'center', 'data-testid': testId,
+  placement = 'center', 'data-testid': testId, closeOnBackdrop = true,
 }: ModalProps) {
   const { t } = useTranslation()
   const titleId = useId()
@@ -126,7 +131,7 @@ export function Modal({
     <div className={`fixed inset-0 z-50 flex ${
       side ? 'justify-end' : 'items-center justify-center'}`}>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60" onClick={closeOnBackdrop ? onClose : undefined} />
       {/* Dialog. flex-col + min-h-0 so content taller than the box
           scrolls in the body instead of being clipped by
           overflow-hidden. A side panel is full-height and bounded by

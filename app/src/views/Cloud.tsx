@@ -19,8 +19,9 @@
 import { useEffect, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { useTranslation } from '../i18n'
-import { Play, Square, Server, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Info, X, Shield, Pencil } from 'lucide-react'
+import { Play, Square, Server, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Info, Shield, Pencil } from 'lucide-react'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 type CloudSettings = {
   streaming: {
@@ -294,17 +295,12 @@ export function Cloud() {
     <section className="space-y-4">
       {/* Info Dialog */}
       {showInfo && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--panel)] border border-[var(--border)] p-6 max-w-lg w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Info size={20} className="text-[var(--accent)]" />
-                About Cloud Streaming
-              </h3>
-              <button onClick={() => setShowInfo(false)} className="text-[var(--text-dim)] hover:text-[var(--text)]">
-                <X size={20} />
-              </button>
-            </div>
+        <Modal
+          open
+          title={<><Info size={18} className="text-[var(--accent)]" /> About Cloud Streaming</>}
+          onClose={() => setShowInfo(false)}
+          widthClassName="w-[calc(100vw-2rem)] max-w-lg"
+        >
             <div className="space-y-4 text-sm">
               <div>
                 <h4 className="font-medium text-[var(--text)] mb-1">{t('cloud.whatIs')}</h4>
@@ -343,15 +339,18 @@ export function Cloud() {
                 {t('cloud.gotIt')}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Add/Edit Stream Target Dialog */}
       {showAddDialog && editingTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--panel)] border border-[var(--border)] p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">{editingTarget.is_edit ? 'Edit Stream Target' : 'Configure Stream Target'}</h3>
+        <Modal
+          open
+          title={editingTarget.is_edit ? 'Edit Stream Target' : 'Configure Stream Target'}
+          onClose={() => { setShowAddDialog(false); setEditingTarget(null) }}
+          widthClassName="w-[calc(100vw-2rem)] max-w-md"
+          closeOnBackdrop={false}
+        >
             <div className="space-y-4">
               <label className="flex flex-col gap-1">
                 <span className="text-[var(--text-dim)] text-sm">{t('cloud.camera')}</span>
@@ -460,8 +459,7 @@ export function Cloud() {
                 {loading ? <Loader2 className="animate-spin" size={16} /> : 'Save'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Header */}

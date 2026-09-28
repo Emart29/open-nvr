@@ -21,8 +21,9 @@ import { apiService } from '../lib/apiService'
 import { extractApiError } from '../lib/apiError'
 import { useAuth } from '../auth/AuthContext'
 import { useTranslation } from '../i18n'
-import { KeyRound, Upload, FileText, Shield, CheckCircle, AlertCircle, Loader2, Info, X } from 'lucide-react'
+import { KeyRound, Upload, FileText, Shield, CheckCircle, AlertCircle, Loader2, Info } from 'lucide-react'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 type KeyItem = { id: string; name: string; description?: string; cert_pem?: string; key_pem?: string; created_at?: string }
 
@@ -155,17 +156,12 @@ export function BYOK() {
     <section className="space-y-6">
       {/* Info Dialog */}
       {showInfo && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--panel)] border border-[var(--border)] p-6 max-w-lg w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Info size={20} className="text-[var(--accent)]" />
-                {t('byok.about')}
-              </h3>
-              <button onClick={() => setShowInfo(false)} className="text-[var(--text-dim)] hover:text-[var(--text)]">
-                <X size={20} />
-              </button>
-            </div>
+        <Modal
+          open
+          title={<><Info size={18} className="text-[var(--accent)]" /> {t('byok.about')}</>}
+          onClose={() => setShowInfo(false)}
+          widthClassName="w-[calc(100vw-2rem)] max-w-lg"
+        >
             <div className="space-y-4 text-sm">
               <div>
                 <h4 className="font-medium text-[var(--text)] mb-1">{t('byok.what')}</h4>
@@ -200,8 +196,7 @@ export function BYOK() {
                 {t('common.close')}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Header */}

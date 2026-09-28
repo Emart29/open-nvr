@@ -22,6 +22,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useTranslation, useDateFormat } from '../i18n'
 import { extractApiError } from '../lib/apiError'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 type DetectionResult = {
   id: number
@@ -709,19 +710,13 @@ export function AIDetectionResults() {
 
     {/* Camera Details Dialog */}
     {showCameraDialog && dialogCamera && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCameraDialog(false)}>
-        <div className="bg-[var(--panel-2)] border border-[var(--border)] shadow-2xl w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
-            <h2 className="text-lg font-semibold">Camera Details</h2>
-            <button
-              onClick={() => setShowCameraDialog(false)}
-              className="p-1 hover:bg-[var(--panel)] transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+      <Modal
+        open
+        title="Camera Details"
+        onClose={() => setShowCameraDialog(false)}
+        widthClassName="w-[calc(100vw-2rem)] max-w-2xl"
+        bodyClassName="p-0"
+      >
 
           <div className="p-4 space-y-4 max-h-[70vh] overflow-auto">
             {/* Camera Info */}
@@ -886,8 +881,7 @@ export function AIDetectionResults() {
               Close
             </button>
           </div>
-        </div>
-      </div>
+      </Modal>
     )}
   </div>
   )

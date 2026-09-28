@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react'
 import { apiService } from '../../../lib/apiService'
 import { Plus, Trash2, Grid, LayoutGrid, Eye, EyeOff } from 'lucide-react'
+import { Modal } from '../../../components/Modal'
 
 // Predefined layout definitions
 const PREDEFINED_LAYOUTS: Record<string, { name: string; description: string; gridCols: number; gridRows: number; tiles: Array<{ row: number; col: number; rowSpan: number; colSpan: number }> }> = {
@@ -522,14 +523,14 @@ function CustomLayoutEditor({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-[var(--panel)] border border-[var(--border)] w-full max-w-4xl max-h-[90vh] overflow-auto">
-        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
-          <h3 className="font-semibold">Custom Layout Editor</h3>
-          <button className="px-2 py-1 text-xs border border-[var(--border)]" onClick={onCancel}>
-            Cancel
-          </button>
-        </div>
+    <Modal
+      open
+      title="Custom Layout Editor"
+      onClose={onCancel}
+      widthClassName="w-[calc(100vw-2rem)] max-w-4xl"
+      bodyClassName="p-0"
+      closeOnBackdrop={false}
+    >
 
         <div className="p-4 grid grid-cols-2 gap-6">
           {/* Left: Settings */}
@@ -720,7 +721,6 @@ function CustomLayoutEditor({
             Save Layout
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

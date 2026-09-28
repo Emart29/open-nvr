@@ -24,6 +24,7 @@ import { extractApiError } from '../lib/apiError'
 import { RecordingBrowser } from '../components/RecordingBrowser'
 import { Cloud } from 'lucide-react'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 type AIModel = {
   id: number
@@ -1025,17 +1026,14 @@ export function AIModelsBYOM() {
 
       {/* Cloud AI Dialog */}
       {showCloudDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--panel)] border border-[var(--border)] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-[var(--border)] flex justify-between items-center">
-              <h3 className="text-lg font-medium">{t('models.cloudProviders')}</h3>
-              <button
-                onClick={() => setShowCloudDialog(false)}
-                className="text-[var(--text-dim)] hover:text-[var(--text)]"
-              >
-                ✕
-              </button>
-            </div>
+        <Modal
+          open
+          title={t('models.cloudProviders')}
+          onClose={() => setShowCloudDialog(false)}
+          widthClassName="w-[calc(100vw-2rem)] max-w-4xl"
+          bodyClassName="p-0 flex flex-col"
+          closeOnBackdrop={false}
+        >
 
             {/* Tabs */}
             <div className="flex gap-2 px-4 pt-4 border-b border-[var(--border)]">
@@ -1301,8 +1299,7 @@ export function AIModelsBYOM() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </section>
   )

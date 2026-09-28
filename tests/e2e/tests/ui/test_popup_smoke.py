@@ -48,7 +48,7 @@ DIALOGS = [
 ]
 
 # Popups that must close on Escape. Grows as popups move onto the shared Modal.
-ESCAPE_CLOSES = {"add-camera"}
+ESCAPE_CLOSES = {"add-camera", "add-user", "add-role", "add-integration", "add-stream", "byok-info"}
 
 CLOSE = re.compile(r"^(Cancel|Close|×|✕)$", re.IGNORECASE)
 
