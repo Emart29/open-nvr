@@ -21,6 +21,24 @@ import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig } from 'eslint/config'
+import tseslint from 'typescript-eslint'
+
+// Every rule in the TypeScript block starts life as a warning. The .ts/.tsx
+// source was never linted before, so turning these on as errors would fail
+// CI on day one; warnings make the debt visible without blocking anyone.
+// Rules get promoted to errors one at a time as the code is cleaned up.
+const asWarnings = (configs) =>
+  configs.map((c) => ({
+    ...c,
+    rules: Object.fromEntries(
+      Object.entries(c.rules ?? {}).map(([name, value]) => [
+        name,
+        Array.isArray(value)
+          ? (value[0] === 'off' || value[0] === 0 ? value : ['warn', ...value.slice(1)])
+          : (value === 'off' || value === 0 ? value : 'warn'),
+      ]),
+    ),
+  }))
 
 export default defineConfig([
   { ignores: ['dist', 'dev-dist'] },
@@ -43,6 +61,24 @@ export default defineConfig([
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    extends: asWarnings([
+      ...tseslint.configs.recommended,
+      reactHooks.configs['recommended-latest'],
+      reactRefresh.configs.vite,
+    ]),
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+  },
+  {
+    // Promoted: zero violations when TS linting was switched on, and a hook
+    // called conditionally is a crash waiting for the branch that skips it.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: { 'react-hooks/rules-of-hooks': 'error' },
   },
 ])
 
