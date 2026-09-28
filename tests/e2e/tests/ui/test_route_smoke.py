@@ -36,16 +36,7 @@ pytestmark = pytest.mark.ui
 
 # Endpoints that return 5xx on a correctly working stack today, with why.
 # Matched as substrings of the request URL.
-KNOWN_5XX: dict[str, str] = {
-    "/ai-model-management/inference/running": (
-        "NameError in get_inference_manager(): the module-level singleton was "
-        "never defined. Every AI Models page load 500s."
-    ),
-    "/ai-models/adapters-metrics": (
-        "NameError: the handler used kai_c_service without binding it. The AI "
-        "Adapters fleet strip never loads."
-    ),
-}
+KNOWN_5XX: dict[str, str] = {}
 
 # Routes whose layout is wider than the 1400px test window today.
 KNOWN_OVERFLOW: dict[str, str] = {
