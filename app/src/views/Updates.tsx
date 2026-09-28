@@ -409,7 +409,7 @@ export function Updates() {
       )}
 
       {/* Control Bar */}
-      <div className="flex items-center gap-4 bg-[var(--card-bg)] p-4 rounded-xl border border-[var(--border)] shadow-sm flex-wrap">
+      <div className="flex items-center gap-4 bg-[var(--panel-2)] p-4 rounded-xl border border-[var(--border)] shadow-sm flex-wrap">
         <div className="flex-1 min-w-[200px]">
         <label className="text-xs font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1 block">{t('updates.section')}</label>
         <div className="relative">
@@ -460,7 +460,7 @@ export function Updates() {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  className="btn bg-[var(--bg)] hover:bg-[var(--bg-hover)] border border-[var(--border)]"
+                  className="btn bg-[var(--bg)] hover:bg-[var(--panel-2)] border border-[var(--border)]"
                   onClick={() => setGlobalDraft(JSON.stringify(globalCfg ?? {}, null, 2))}
                   disabled={loading}
                 ><RotateCcw size={14} className="mr-2" /> {t('updates.revert')}</button>
@@ -498,7 +498,7 @@ export function Updates() {
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  className="btn bg-[var(--bg)] hover:bg-[var(--bg-hover)] border border-[var(--border)]"
+                  className="btn bg-[var(--bg)] hover:bg-[var(--panel-2)] border border-[var(--border)]"
                   onClick={() => setPdDraft(JSON.stringify(pdCfg ?? {}, null, 2))}
                   disabled={loading}
                 ><RotateCcw size={14} className="mr-2" /> {t('updates.revert')}</button>
@@ -566,7 +566,7 @@ export function Updates() {
                     const m = String(name).match(/-(\d+)$/)
                     if (m) camId = Number(m[1])
                     return (
-                      <tr key={name} className="hover:bg-[var(--bg-hover)] transition-colors">
+                      <tr key={name} className="hover:bg-[var(--panel-2)] transition-colors">
                         <td className="py-3 pl-4 pr-2 font-mono text-xs text-blue-400">{name}</td>
                         <td className="py-3 px-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">

@@ -203,7 +203,7 @@ export function Events() {
               <div className="col-span-2"><span className="text-[var(--text-dim)]">Entity: </span>{selected.entity_type || '-'}{selected.entity_id ? `:${selected.entity_id}` : ''}</div>
             </div>
             <div className="border border-neutral-700 rounded overflow-hidden">
-              <div className="flex items-center justify-between bg-[var(--panel-1)] px-3 py-2 text-[var(--text-dim)]">
+              <div className="flex items-center justify-between bg-[var(--panel-2)] px-3 py-2 text-[var(--text-dim)]">
                 <span>Raw JSON</span>
                 <button
                   className="px-2 py-0.5 border border-neutral-700 rounded hover:bg-neutral-800 text-xs"

@@ -338,10 +338,10 @@ export function Integrations() {
                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {canAdmin && (
                        <>
-                         <button className="p-1.5 hover:bg-[var(--bg-hover)] rounded" onClick={() => handleTest(item.id)} title="Test Connection" disabled={testingId === item.id}>
+                         <button className="p-1.5 hover:bg-[var(--panel-2)] rounded" onClick={() => handleTest(item.id)} title="Test Connection" disabled={testingId === item.id}>
                            {testingId === item.id ? <Activity size={16} className="animate-pulse" /> : <Play size={16} />}
                          </button>
-                         <button className="p-1.5 hover:bg-[var(--bg-hover)] rounded" onClick={() => openEdit(item)} title="Configure">
+                         <button className="p-1.5 hover:bg-[var(--panel-2)] rounded" onClick={() => openEdit(item)} title="Configure">
                            <Settings size={16} />
                          </button>
                          <button className="p-1.5 hover:bg-red-900/30 text-red-400 rounded" onClick={() => handleDelete(item.id)} title="Delete">
@@ -446,7 +446,7 @@ function EventsMatrix({ value, onChange }: { value: any, onChange: (v: any) => v
   return (
     <div className="grid grid-cols-2 gap-2 text-xs">
       {events.map(evt => (
-        <label key={evt} className="flex items-center gap-2 cursor-pointer hover:bg-[var(--bg-hover)] p-1 rounded select-none">
+        <label key={evt} className="flex items-center gap-2 cursor-pointer hover:bg-[var(--panel-2)] p-1 rounded select-none">
           <input type="checkbox" className="accent-[var(--accent)]" checked={!!value[evt]} onChange={e => onChange({...value, [evt]: e.target.checked})} />
           {evt}
         </label>
