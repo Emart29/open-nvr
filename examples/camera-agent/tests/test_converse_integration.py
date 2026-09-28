@@ -430,4 +430,4 @@ def test_converse_routed_turn_makes_one_compose_call_and_no_tool_loop(harness):
     assert data["reply"] == "One person is at the front door."
     assert len(calls) == 1, "one compose call; the tool-calling iteration was skipped"
     assert calls[0]["tools"] is None and "tool" in calls[0]["roles"]
-    assert [t["step"] for t in data["trace"]][:3] == ["route", "detect_objects", "llm"]
+    assert [t["step"] for t in data["trace"]][:3] == ["route", "detect_objects", "compose"]

@@ -70,7 +70,7 @@ def test_trace_records_a_routed_turn_as_route_tool_compose():
     steps = [(t["step"], t["detail"]) for t in rt.last_turn_trace]
     assert steps[0] == ("route", "tier0 describe_camera")
     assert steps[1][0] == "describe_camera"
-    assert steps[2] == ("llm", "compose")
+    assert steps[2] == ("compose", "tier0"), "its own step: not in the llm median"
     assert rt.ollama.calls == 1, "the whole tool-calling iteration was skipped"
 
 

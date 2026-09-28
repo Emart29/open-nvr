@@ -5319,7 +5319,8 @@ class CameraAgentRuntime:
         the tool has already run; the model only says the answer."""
         from router import compose_prompt
 
-        return compose_prompt(self.IDENTITY_LINE, self._roster_lines(), self._clock_line())
+        return compose_prompt(self.IDENTITY_LINE, self.cfg.system_prompt,
+                              self._roster_lines(), self._clock_line())
 
     def build_system_prompt(self, *, clock: bool = True) -> str:
         """Compose the system prompt the LLM sees: the agent's identity + the
@@ -7799,6 +7800,7 @@ async def _run_conversation_turn(
     decision = _router.decide(
         user_text, cameras=cameras, advertised=_advertised,
         preferred=preferred_camera,
+        roles={c.camera_id: c.role for c in runtime.visible_cameras()},
         tier0=bool(getattr(runtime.cfg, "router_tier0", True)),
         hints=bool(getattr(runtime.cfg, "router_hints", True)),
     )
@@ -7829,7 +7831,10 @@ async def _run_conversation_turn(
             temperature=runtime.cfg.llm_temperature,
             max_tokens=runtime.cfg.llm_max_tokens,
         )
-        trace.append({"step": "llm", "detail": "compose",
+        # Its own step name: fillers.py takes the median of "llm" to size
+        # the thinking-aloud wait, and a 1 s compose must not make a 17 s
+        # tool-calling iteration look short.
+        trace.append({"step": "compose", "detail": "tier0",
                       "ms": int((time.perf_counter() - _llm_t0) * 1000)})
         final = ((response.get("message") or {}).get("content") or "").strip()
     elif decision.hint:
@@ -7933,11 +7938,11 @@ async def _run_conversation_turn(
         else:
             logger.warning("converse: tool loop exhausted")
 
-        # Prefer the model's composed reply (stripped of <think> reasoning + ids).
-        # If it's empty after stripping (a thinking model burned its budget on
-        # reasoning) but a tool ran, surface that result. For camera-roster/config
-        # questions, answer deterministically — small models often just deflect
-        # ("I'll check…") and there's no tool to ground them.
+    # Prefer the model's composed reply (stripped of <think> reasoning + ids).
+    # If it's empty after stripping (a thinking model burned its budget on
+    # reasoning) but a tool ran, surface that result. For camera-roster/config
+    # questions, answer deterministically — small models often just deflect
+    # ("I'll check…") and there's no tool to ground them.
     cleaned = _clean_for_speech(final, runtime.visible_cameras())
     if _is_config_question(user_text):
         # Roster/config questions ("how many cameras are configured?") are

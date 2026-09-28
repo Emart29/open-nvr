@@ -18,9 +18,12 @@ ALL = {"describe_camera", "detect_objects", "search_history", "recent_events",
 CAMS = ["cam1", "cam2"]
 
 
-def _t0(text, *, cameras=CAMS, advertised=ALL, preferred=None):
+ROLES = {"cam1": "front door", "cam2": "back yard"}
+
+
+def _t0(text, *, cameras=CAMS, advertised=ALL, preferred=None, roles=ROLES):
     return router.decide_tier0(text, cameras=cameras, advertised=advertised,
-                               preferred=preferred, now=NOW)
+                               preferred=preferred, roles=roles, now=NOW)
 
 
 # ── Tier 0: every slot resolves ───────────────────────────────────────
@@ -30,12 +33,28 @@ def _t0(text, *, cameras=CAMS, advertised=ALL, preferred=None):
     ("is anyone at camera 2", "detect_objects"),
     ("how many cars on cam1", "detect_objects"),
     ("what is the person on cam2 wearing", "describe_camera"),
+    ("Is anyone on Camera 2", "detect_objects"),          # STT capitalisation is not a name
+    ("is the front door clear", "describe_camera"),        # the roster's role names the camera
 ])
 def test_a_live_question_naming_a_camera_routes_to_the_live_tool(q, tool):
     d = _t0(q)
     assert d is not None and d.routed, (q, d)
     assert d.tool == tool
     assert d.args["camera_id"] in ("cam1", "cam2")
+
+
+def test_a_describe_question_keeps_its_question():
+    d = _t0("what is the person on cam2 wearing")
+    assert d.routed and d.args.get("question") == "what is the person on cam2 wearing"
+    d = _t0("what do you see on cam1")
+    assert d.routed and "question" not in d.args, "a generic look gets the default caption"
+
+
+def test_a_number_that_is_not_a_camera_is_not_a_camera():
+    d = _t0("is anyone there in the last 2 hours", preferred="cam1")
+    assert d.routed and d.args["camera_id"] == "cam1", "'2 hours' is not cam2"
+    d = _t0("did a car come by between 2 and 4pm")
+    assert not d.routed and "ambiguous" in d.reason, "no camera named at all"
 
 
 def test_a_past_question_with_a_window_routes_to_history_with_iso_bounds():
@@ -88,6 +107,21 @@ def test_side_effects_and_standing_requests_go_to_the_model(q):
     assert "side effect" in d.reason
 
 
+def test_stop_by_is_history_not_a_side_effect():
+    d = _t0("did anyone stop by camera 1 today")
+    assert d.routed and d.tool == "search_history"
+
+
+@pytest.mark.parametrize("q", [
+    "any plates on camera 1 today",
+    "take a snapshot of cam1",
+    "show me a picture of cam2",
+])
+def test_questions_for_tools_the_picker_does_not_know_go_to_the_model(q):
+    d = _t0(q)
+    assert d is not None and not d.routed and "another tool" in d.reason, q
+
+
 @pytest.mark.parametrize("q", [
     "who came to cam1 today",
     "was Priya at camera 1 this morning",
@@ -124,6 +158,13 @@ def test_a_rephrasing_gets_a_hint_for_the_tool_it_resembles():
     assert h is not None and h.hint == "detect_objects"
 
 
+def test_short_exemplars_still_count():
+    h = router.hint_tier1("is anyone there", advertised=ALL)
+    assert h is not None and h.hint == "detect_objects"
+    assert all(" " not in v for v in router._SYNONYMS.values()), "a synonym must be one token"
+    assert all(k != v for k, v in router._SYNONYMS.items()), "no identity mappings"
+
+
 def test_no_resemblance_or_a_tie_means_no_hint():
     assert router.hint_tier1("tell me a joke about penguins", advertised=ALL) is None
     assert router.hint_tier1("", advertised=ALL) is None
@@ -145,8 +186,10 @@ def test_decide_prefers_tier0_then_hint_then_nothing():
 
 
 def test_the_compose_prompt_is_short_and_ends_with_the_clock():
-    p = router.compose_prompt("I am the agent.", "- cam1: front door", "The current date and time is X.")
+    p = router.compose_prompt("I am the agent.", "Always answer in Hindi.", "- cam1: front door",
+                              "The current date and time is X.")
     assert p.startswith("I am the agent.")
+    assert "Always answer in Hindi." in p, "the operator's prompt applies to routed turns too"
     assert p.rstrip().endswith("The current date and time is X.")
     assert "tool" not in p.lower(), "no schemas, no routing guidance: the decision is made"
     assert len(p.split()) < 140, "a compose prompt re-prefills every turn; it must stay small"
