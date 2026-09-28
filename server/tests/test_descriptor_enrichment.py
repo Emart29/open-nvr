@@ -502,7 +502,7 @@ def test_a_vqa_timeout_is_logged_as_a_timeout(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="descriptor_enrichment"):
         assert _run_ask_with(monkeypatch, httpx.ReadTimeout("")) is None
     line = "\n".join(r.getMessage() for r in caplog.records)
-    assert "timed out after" in line and "limit 20s" in line, line
+    assert "timed out after" in line and "limit 90s" in line, line
     assert "unreachable" not in line
 
 

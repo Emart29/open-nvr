@@ -590,3 +590,27 @@ def test_the_sweep_is_actually_started_at_boot():
     assert 'name="enrichment-backfill"' in src, (
         "a bare create_task is only weakly referenced and the GC really "
         "does kill those mid-flight")
+
+
+def test_the_sweep_holds_while_live_enrichment_is_busy(session_local, calls, monkeypatch):
+    """Live always wins (#583): with a live visit holding an adapter
+    slot, a backfill pass does not send history to that adapter; it
+    waits, and proceeds the moment the slot is free."""
+    from services import enrichment_gate as eg
+
+    db = session_local
+    _camera(db, 1, ["image_captioning"])
+    _visit(db, event_id=1, camera_id=1, label="car")
+    gate = eg.gate_for("moondream-vlm")
+
+    async def scenario():
+        assert await gate.admit() is True
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=0.2)
+        assert calls["caption"] == [], "nothing went out while live held the slot"
+        gate.release("ok")
+        state = await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=2)
+        assert calls["caption"] == [1]
+        return state
+
+    _run(scenario())

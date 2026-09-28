@@ -58,17 +58,12 @@ dropped. A claim that cannot be filtered on is not worth the row.
 
 from __future__ import annotations
 
-import asyncio as _asyncio
 import logging
 import time
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger("descriptor_enrichment")
-
-#: Per-question ceiling, named for the same reason as
-#: ``caption_enrichment.CAPTION_TIMEOUT_S``: the timeout log says the limit.
-VQA_TIMEOUT_S = 20.0
 
 #: The canonical task name (server/config/tasks.yml). The plan reports
 #: canonical names since the alias fix, so this matches whether the
@@ -111,8 +106,9 @@ LABEL_KINDS: dict[str, tuple[str, ...]] = {
     **{label: ("clothing_top", "carrying") for label in PERSON_LABELS},
 }
 
-#: Burst guard, same reasoning as the OCR and caption ones.
-_VQA_CONCURRENCY = _asyncio.Semaphore(2)
+#: Burst control lives in ``services.enrichment_gate``, shared with the
+#: captioner (same model on most boxes) — see there for why the
+#: semaphore that used to sit here made #583 worse, not better.
 
 
 @dataclass
@@ -303,30 +299,40 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     import base64
 
     body["frame_b64"] = base64.b64encode(jpeg).decode("ascii")
-    started = 0.0
+    # Same gate the captioner uses — on most boxes it is the same model
+    # answering both, and one slow model gets one budget (#583).
+    from services.enrichment_gate import gate_for, timeout_s
+
+    gate = gate_for(adapter)
+    if not await gate.admit():
+        return None
+    limit = timeout_s()
+    started = time.monotonic()
+    outcome = "error"
     try:
-        async with _VQA_CONCURRENCY:
-            started = time.monotonic()            # after the slot, see caption_enrichment
-            async with httpx.AsyncClient(timeout=VQA_TIMEOUT_S,
-                                         trust_env=False) as client:
-                resp = await client.post(
-                    f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                    json=body,
-                    headers={"X-Internal-Api-Key": settings.internal_api_key},
-                )
+        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
+            resp = await client.post(
+                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
+                json=body,
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
+            )
+        outcome = "ok"
     except (httpx.ReadTimeout, httpx.WriteTimeout):
         # Same distinction as caption_enrichment: the adapter is up and
         # busy, not gone. Two questions per vehicle visit make this the
         # heavier of the two callers when the model is slow (#583).
+        outcome = "timeout"
         logger.warning(
             "descriptor enrichment: %s timed out after %.1fs (limit %.0fs) — "
             "the VQA adapter is slower than the visit rate; see #583",
-            adapter, time.monotonic() - started, VQA_TIMEOUT_S)
+            adapter, time.monotonic() - started, limit)
         return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("descriptor enrichment: %s unreachable (%s: %s)",
                        adapter, type(exc).__name__, exc)
         return None
+    finally:
+        gate.release(outcome)
     if resp.status_code != 200:
         logger.warning("descriptor enrichment: %s returned %s",
                        adapter, resp.status_code)

@@ -218,7 +218,7 @@ def test_a_timeout_is_logged_as_a_timeout_with_the_limit(monkeypatch, caplog):
         assert _run_caption_with(monkeypatch, httpx.ReadTimeout("")) is None
     line = "\n".join(r.getMessage() for r in caplog.records)
     assert "timed out after" in line, line
-    assert "limit 15s" in line, line
+    assert "limit 90s" in line, line
     assert "unreachable" not in line, "a timeout must not read as a network fault"
 
 

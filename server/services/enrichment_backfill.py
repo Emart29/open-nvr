@@ -273,8 +273,15 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
     captioned = 0
     described = 0
     embedded = 0
+    from services.enrichment_gate import wait_all_idle
+
     for item in items:
         event_id = item["event_id"]
+        # Live always wins, and "wins" now means more than yielding
+        # between items: nothing from the back catalogue goes to an
+        # adapter while a live visit is in flight or waiting for it, or
+        # while its breaker is open. History has waited this long (#583).
+        await wait_all_idle()
         if caption_on and item["caption"]:
             try:
                 await enrich_event_caption(event_id)

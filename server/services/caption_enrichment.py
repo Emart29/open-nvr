@@ -37,17 +37,11 @@ and refine ranking; it can never remove a result that returns today.
 
 from __future__ import annotations
 
-import asyncio as _asyncio
 import logging
 import time
 from typing import Any
 
 logger = logging.getLogger("caption_enrichment")
-
-#: How long one caption call may take before core gives up on it. Named
-#: so the timeout log line can say what the limit was — "timed out" with
-#: no number is only half a diagnosis.
-CAPTION_TIMEOUT_S = 15.0
 
 #: The taxonomy task a captioner advertises (server/config/tasks.yml).
 #: Both BLIP Scene Caption and Moondream VLM advertise it, which is why
@@ -70,10 +64,11 @@ CAPTION_TASK_NAMES = {CAPTION_TASK, CAPTION_TASK_CANONICAL}
 #: takes exactly that gate: no assignment, no caption, no cost.
 CAPTION_SKILL = CAPTION_TASK_CANONICAL
 
-#: Burst guard, same reasoning as the OCR one: a crowd finishing tracks
-#: together must not fan out into unbounded concurrent caption calls.
-#: Enrichment is background work with no latency SLA, so waiting is free.
-_CAPTION_CONCURRENCY = _asyncio.Semaphore(2)
+#: Burst control lives in ``services.enrichment_gate``, one gate per
+#: adapter shared with the VQA and embedding callers. A module-local
+#: semaphore used to sit here; it was released on TIMEOUT, so a slow
+#: captioner got a fresh request every 15 s while still computing the
+#: last one (#583). The gate holds a slot until the adapter answers.
 
 #: Labels worth a caption. Mirrors the detect-pipeline's own default
 #: caption routing (``dispatch.py`` ``_DEFAULT_ROUTES``) rather than
@@ -148,39 +143,52 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         params["event_id"] = int(event_id)
     payload = build_infer_payload(task=CAPTION_TASK, jpeg_bytes=jpeg,
                                   params=params)
-    started = 0.0
+    # Admission first, and a refusal is a plain None: the visit keeps no
+    # caption today and the backfill finds it later. Nothing here ever
+    # waits past the gate's short line, and nothing ever queues without
+    # bound — that was the #583 failure.
+    from services.enrichment_gate import gate_for, timeout_s
+
+    gate = gate_for(adapter)
+    if not await gate.admit():
+        return None
+    limit = timeout_s()
+    started = time.monotonic()
+    outcome = "error"
     try:
-        async with _CAPTION_CONCURRENCY:
-            # The clock starts once a slot is held: "timed out after 31s
-            # (limit 15s)" — half of it spent waiting for the semaphore —
-            # reads as a contradiction and hides which half was slow.
-            started = time.monotonic()
-            async with httpx.AsyncClient(timeout=CAPTION_TIMEOUT_S,
-                                         trust_env=False) as client:
-                resp = await client.post(
-                    f"{settings.kai_c_url}/api/v1/infer/{adapter}",
-                    json=payload,
-                    headers={"X-Internal-Api-Key": settings.internal_api_key},
-                )
+        async with httpx.AsyncClient(timeout=limit, trust_env=False) as client:
+            resp = await client.post(
+                f"{settings.kai_c_url}/api/v1/infer/{adapter}",
+                json=payload,
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
+            )
+        outcome = "ok"
     except (httpx.ReadTimeout, httpx.WriteTimeout):
         # Read/write timeouts ONLY: the connection was made and the
         # adapter went quiet computing. A ConnectTimeout is a host that
         # never answered the SYN — genuinely unreachable — and a
-        # PoolTimeout is our own client; both stay on the branch below.
+        # PoolTimeout is our own client; both stay on the branch below
+        # and count as "error", not "timeout", for the breaker.
         # A timeout here is NOT "unreachable". The adapter answered /health,
         # took the request, and is still computing the answer nobody will
         # read — the box lost the CPU and gained nothing (#583). Logging
         # it as a connectivity problem sent an operator to check the
         # network while moondream sat at 290% of a core.
+        outcome = "timeout"
         logger.warning(
             "caption enrichment: %s timed out after %.1fs (limit %.0fs) — "
             "the captioner is slower than the visit rate; see #583",
-            adapter, time.monotonic() - started, CAPTION_TIMEOUT_S)
+            adapter, time.monotonic() - started, limit)
         return None
     except Exception as exc:                      # noqa: BLE001
         logger.warning("caption enrichment: %s unreachable (%s: %s)",
                        adapter, type(exc).__name__, exc)
         return None
+    finally:
+        # The slot is held until the adapter ANSWERED or core gave up —
+        # never released early to let the next request pile onto a model
+        # still busy with this one.
+        gate.release(outcome)
     if resp.status_code != 200:
         logger.warning("caption enrichment: %s returned %s",
                        adapter, resp.status_code)
@@ -256,7 +264,7 @@ async def enrich_event_caption(event_id: int, evidence_jpeg: bytes | None = None
     Three phases, and the split is not stylistic — ``plate_enrichment``
     learned it the hard way. READ what is needed with a short session,
     CLOSE it, call the adapter with NO session held, then REOPEN to
-    write. The middle phase waits on a semaphore and then on a 15s HTTP
+    write. The middle phase waits at the adapter gate and then on an HTTP
     timeout; holding a connection across it is what exhausted core's
     pool when visits arrived at roughly one a second, and reads stopped
     while events kept flowing.

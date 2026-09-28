@@ -671,6 +671,11 @@ services:
       # with nothing anywhere saying why.
       - EVENTS_EMBED_ENRICHMENT=${EVENTS_EMBED_ENRICHMENT:-}
       - EVENTS_ENRICHMENT_BACKFILL=${EVENTS_ENRICHMENT_BACKFILL:-}
+      # Admission control for the enrichers (#583): wait-line depth,
+      # per-call timeout, and the breaker's consecutive-timeout trip.
+      - EVENTS_ENRICHMENT_QUEUE_DEPTH=${EVENTS_ENRICHMENT_QUEUE_DEPTH:-}
+      - EVENTS_ENRICHMENT_TIMEOUT_S=${EVENTS_ENRICHMENT_TIMEOUT_S:-}
+      - EVENTS_ENRICHMENT_BREAKER_TIMEOUTS=${EVENTS_ENRICHMENT_BREAKER_TIMEOUTS:-}
       # Retention of the store's rows (0 = follow the recordings window)
       # and of the operator inbox; the vector arm's similarity floor.
       - EVENTS_RETENTION_DAYS=${EVENTS_RETENTION_DAYS:-}
