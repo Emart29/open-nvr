@@ -86,6 +86,31 @@ class PlaybackPage(BasePage):
         # perfectly.
         self.page.mouse.move(box["x"], box["y"] - 120)
 
+    def scrub_into_footage(self, fraction: float) -> None:
+        """Drag the playhead to a point INSIDE the last block of footage.
+
+        Scrubbing to a fraction of the whole window is not a reliable probe:
+        a drag that lands in a gap deliberately snaps to the nearest footage
+        edge (``snap`` in PlaybackTimeline.tsx). On a test stack with a minute
+        of footage in a wide window, 60% of the window is a gap that snaps
+        back to where playback already is -- the readout does not change and
+        the scrub looks broken when it is working exactly as designed.
+        """
+        block = self.find(S.TIMELINE_FOOTAGE).last
+        block.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
+        box = block.bounding_box()
+        track = self.find(S.TIMELINE_TRACK).first.bounding_box()
+        if not box or not track:
+            raise AssertionError("no footage block to scrub into")
+        x = box["x"] + max(1, box["width"] * fraction)
+        y = box["y"] + box["height"] / 2
+        self.page.mouse.move(x, y)
+        self.page.mouse.down()
+        self.page.mouse.move(x, y, steps=4)
+        self.page.mouse.up()
+        # Off the track, so the playhead readout (hidden while hovering) shows.
+        self.page.mouse.move(track["x"], track["y"] - 120)
+
     def playhead_text(self) -> str:
         """The playhead readout above the track, e.g. ``09/09, 14:23:59``.
 

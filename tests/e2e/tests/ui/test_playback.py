@@ -58,7 +58,9 @@ def test_a_recording_opens_and_the_timeline_can_be_scrubbed(
     playback_page.open_first_recording(camera["name"])
 
     before = playback_page.playhead_text()
-    playback_page.scrub_to(0.6)
+    # Into the footage, not 60% of the window: a gap snaps to the nearest
+    # footage edge by design (see PlaybackPage.scrub_into_footage).
+    playback_page.scrub_into_footage(0.6)
     after = playback_page.playhead_text()
 
     # The readout is locale-formatted as "MM/DD, HH:MM:SS" (fmtFull in

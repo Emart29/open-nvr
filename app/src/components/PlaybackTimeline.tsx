@@ -314,6 +314,7 @@ export function PlaybackTimeline({
       <div className="h-5 relative text-[11px] font-mono">
         {currentVisible && hoverMs == null && (
           <span
+            data-testid="playback-timeline-playhead"
             className="absolute -translate-x-1/2 px-1 rounded bg-[var(--accent)] text-white whitespace-nowrap"
             style={{ left: `clamp(3.5rem, ${currentPct}%, calc(100% - 3.5rem))` }}
           >
@@ -325,6 +326,7 @@ export function PlaybackTimeline({
       {/* Track */}
       <div
         ref={trackRef}
+        data-testid="playback-timeline-track"
         className={`relative h-9 bg-neutral-800 overflow-hidden rounded-sm touch-none ${
           mode === 'clip' ? 'cursor-crosshair' : 'cursor-pointer'
         }`}
@@ -338,6 +340,7 @@ export function PlaybackTimeline({
         {blocks.map((b, i) => (
           <div
             key={i}
+            data-testid="playback-footage-block"
             className="absolute top-0 bottom-0"
             style={{ left: `${b.left}%`, width: `${b.width}%`, background: '#dc2626' }}
           />

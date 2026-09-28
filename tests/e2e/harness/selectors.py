@@ -349,13 +349,16 @@ PLAYBACK_CLOSE = Selector(name="close playback console", role=("button", "Close"
 TIMELINE_TRACK = Selector(
     name="timeline scrub track",
     testid="playback-timeline-track",
-    css="div.h-9.bg-neutral-800",
-    note="bare divs with no role; the class chain is a stopgap until the testid lands",
+    note="bare divs with no role; found by its testid (the old class-chain fallback broke on any restyle)",
+)
+TIMELINE_FOOTAGE = Selector(
+    name="footage block on the timeline",
+    testid="playback-footage-block",
+    note="one per contiguous run of recorded footage (red)",
 )
 TIMELINE_PLAYHEAD = Selector(
     name="playhead readout",
     testid="playback-timeline-playhead",
-    css="div.h-5 span",
 )
 CLIP_MODE = Selector(name="clip/export toggle", title="Clip / export")
 EXPORT_CLIP = Selector(name="Export clip button", role=("button", "Export clip"))
