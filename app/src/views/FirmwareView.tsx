@@ -99,7 +99,7 @@ export function FirmwareView() {
             />
             <label htmlFor="auto-update">Enable auto updates (Linux & Windows)</label>
           </div>
-          <div className="text-xs text-[var(--text-dim)]">Auto updates are enabled by default as requested.</div>
+          <div className="text-xs text-[var(--text-dim)]">Auto updates are enabled by default.</div>
           <div className="flex gap-2">
             <button 
               className="px-3 py-1 bg-[var(--panel)] border border-neutral-700 rounded disabled:opacity-50" 

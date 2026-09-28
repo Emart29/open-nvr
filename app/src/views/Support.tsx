@@ -248,7 +248,7 @@ export function Support() {
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-medium">{t('support.quickDiagnostics')}</h2>
           <div className="flex items-center gap-2">
-            <button className="btn" onClick={() => setHealth(null)}>Reset</button>
+            <button className="btn" onClick={() => { setHealth(null); resetDiag() }}>Reset</button>
             <button className="btn btn-primary" onClick={runDiagnostics}>{t('support.run')}</button>
           </div>
         </div>

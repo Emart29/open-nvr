@@ -348,6 +348,7 @@ export const translations: TranslationCatalog = {
   'admin.role': 'Rôle',
   'admin.description': 'Description',
   'admin.cancel': 'Annuler',
+  'admin.permissionsSaved': 'Autorisations enregistrées',
   'admin.save': 'Enregistrer',
   'admin.edit': 'Modifier',
   'admin.delete': 'Supprimer',

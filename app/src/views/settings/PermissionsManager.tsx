@@ -21,12 +21,14 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { useAuth } from '../../auth/AuthContext'
 import { useTranslation } from '../../i18n'
+import { useSnackbar } from '../../components/Snackbar'
 
 type Role = { id: number; name: string; description?: string }
 type Permission = { id: number; name: string; description?: string }
 
 export function PermissionsManager() {
   const { t } = useTranslation()
+  const { showSuccess } = useSnackbar()
   const { user: me } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -91,6 +93,8 @@ export function PermissionsManager() {
       setLoading(true)
       setError(null)
       await apiService.setRolePermissions(selectedRoleId, assignedIds)
+      // Saving used to give no feedback at all on success.
+      showSuccess(t('admin.permissionsSaved'))
     } catch (e: any) {
       setError(extractApiError(e, t('admin.failedSavePermissions')))
     } finally {
