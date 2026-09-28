@@ -331,10 +331,38 @@ def test_an_empty_answer_is_recorded_so_nobody_asks_forever(monkeypatch):
     """The call was made and the captioner had nothing to say. Without a
     mark the requested lane and the catch-up would offer this visit
     again on every pass — 'looked and found nothing' must be a row."""
-    calls, payload, results = _caption_harness(monkeypatch, caption_result=None)
+    calls, payload, results = _caption_harness(monkeypatch, caption_result="")
     assert calls == ["live"], "the second run short-circuited on the mark"
     assert "image_captioning" in payload.get("enriched_by", [])
     assert results == [None, None]
+
+
+def test_a_failed_call_is_not_an_attempt(monkeypatch):
+    """A timeout, a refused connection, a 503: the adapter never answered.
+    Marking that would hide the visit from every later pass over a
+    transient failure — it is asked again."""
+    calls, payload, results = _caption_harness(monkeypatch, caption_result=None)
+    assert calls == ["live", "live"]
+    assert "image_captioning" not in payload.get("enriched_by", [])
+
+
+def test_the_adapter_answering_with_nothing_usable_is_an_empty_answer(monkeypatch):
+    """_caption_jpeg: a 200 with no caption in it is "", a failure is None."""
+    import asyncio
+
+    from services import caption_enrichment as cap
+    from services import enrichment_gate as eg
+
+    async def answered(*a, **k):
+        return {"result": {"caption": "   "}}
+
+    async def failed(*a, **k):
+        return None
+
+    monkeypatch.setattr(eg, "infer_through_gate", answered)
+    assert asyncio.run(cap._caption_jpeg(b"j", "m", "cam1")) == ""
+    monkeypatch.setattr(eg, "infer_through_gate", failed)
+    assert asyncio.run(cap._caption_jpeg(b"j", "m", "cam1")) is None
 
 
 def test_a_dropped_call_is_not_recorded_as_attempted(monkeypatch):

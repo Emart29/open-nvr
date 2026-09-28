@@ -45,7 +45,11 @@ def db():
     s.add(Role(id=1, name="admin", description="t")); s.commit()
     s.add(User(id=1, username="o", email="o@x.test", hashed_password="x",
                is_active=True, role_id=1)); s.commit()
-    s.add(Camera(id=1, name="gate", ip_address="10.0.0.1", rtsp_url="rtsp://x/1", owner_id=1))
+    # Assigned both skills: the lane honours the same per-camera gate the
+    # ingest path does, so an unassigned camera is never "missing" anything.
+    s.add(Camera(id=1, name="gate", ip_address="10.0.0.1", rtsp_url="rtsp://x/1", owner_id=1,
+                 assignments=[{"skill": "image_captioning"}, {"skill": "vqa"}]))
+    s.add(Camera(id=2, name="yard", ip_address="10.0.0.2", rtsp_url="rtsp://x/2", owner_id=1))
     s.commit()
     yield s
     s.close(); engine.dispose()
@@ -58,10 +62,12 @@ def _fresh():
     er._reset_for_tests()
 
 
-def _visit(db, *, label="car", minutes_ago=5, caption=None, claims=(), evidence="e.jpg"):
+def _visit(db, *, label="car", minutes_ago=5, caption=None, claims=(), evidence="e.jpg",
+           camera_id=1, looked=()):
     t = WALL - timedelta(minutes=minutes_ago)
-    row = TimelineEvent(camera_id=1, source="tier0", event_type="track", label=label,
-                        started_at=t, ended_at=t + timedelta(seconds=20), evidence_path=evidence)
+    row = TimelineEvent(camera_id=camera_id, source="tier0", event_type="track", label=label,
+                        started_at=t, ended_at=t + timedelta(seconds=20), evidence_path=evidence,
+                        payload={"enriched_by": list(looked)} if looked else None)
     db.add(row); db.commit(); db.refresh(row)
     if caption:
         db.add(EventText(event_id=row.id, caption=caption, source="test")); db.commit()
@@ -87,7 +93,10 @@ def test_missing_counts_what_the_question_needs_and_nothing_else(db):
     assert out["caption"] == 2 and set(out["ids"]) >= {b.id, c.id}
     assert out["kinds"] == {"colour": 2}                       # a and b lack colour
     assert a.id in out["ids"], "a has a caption but no colour claim"
-    assert out["total"] == 2
+    assert out["total"] == 3, "three visits need SOMETHING"
+    assert out["needs"][a.id] == {"caption": False, "descriptors": True}
+    assert out["needs"][b.id] == {"caption": True, "descriptors": True}
+    assert out["needs"][c.id] == {"caption": True, "descriptors": False}
     assert out["ids"] == sorted(out["ids"], reverse=True), "newest first"
 
 
@@ -103,7 +112,7 @@ def test_missing_is_nothing_when_nothing_is_needed(db):
     _visit(db)
     out = er.missing_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
                          want_caption=False, want_kinds=set())
-    assert out == {"ids": [], "caption": 0, "kinds": {}, "total": 0}
+    assert out["ids"] == [] and out["total"] == 0 and out["needs"] == {}
 
 
 # ── the ticket ────────────────────────────────────────────────────────
@@ -257,3 +266,104 @@ def test_pending_for_is_none_when_the_box_offers_nothing(db, monkeypatch):
     _visit(db)
     assert _run(er.pending_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
                                want_caption=True, want_kinds={"colour"})) is None
+
+
+# ── missing_for decides exactly as the enrichers will ─────────────────
+
+def test_a_visit_the_enricher_already_looked_at_is_not_missing_that(db):
+    cap_looked = _visit(db, looked=["image_captioning"])       # captioner had nothing to say
+    vqa_looked = _visit(db, looked=["vqa"])                    # VQA ran, found nothing countable
+    fresh = _visit(db)
+    out = er.missing_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
+                         want_caption=True, want_kinds={"colour"})
+    # 'looked and found nothing' is not 'never looked': each looked visit
+    # is missing only the OTHER thing.
+    assert out["needs"][cap_looked.id] == {"caption": False, "descriptors": True}
+    assert out["needs"][vqa_looked.id] == {"caption": True, "descriptors": False}
+    assert out["needs"][fresh.id] == {"caption": True, "descriptors": True}
+    assert out["caption"] == 2 and out["kinds"] == {"colour": 2}
+    both = _visit(db, looked=["image_captioning", "vqa"])
+    out = er.missing_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
+                         want_caption=True, want_kinds={"colour"})
+    assert both.id not in out["needs"], "looked at for both: nothing to ask"
+
+
+def test_an_unassigned_camera_is_never_missing_anything(db):
+    _visit(db, camera_id=2)
+    out = er.missing_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
+                         want_caption=True, want_kinds={"colour"})
+    assert out["ids"] == [] and out["total"] == 0, (
+        "no assignment, no caption, no cost — the lane keeps the ingest gate")
+
+
+def test_only_the_kinds_asked_of_that_class_count(db):
+    _visit(db, label="car")
+    out = er.missing_for(db, filters=FILTERS, labels=["car"], camera_ids=None,
+                         want_caption=False, want_kinds={"clothing_top"})
+    assert out["ids"] == [], "a lorry is not asked what colour its top is"
+
+
+def test_people_are_missing_descriptors_only_with_the_opt_in(db, monkeypatch):
+    from core.config import settings
+    _visit(db, label="person")
+    monkeypatch.setattr(settings, "events_descriptor_people", False, raising=False)
+    off = er.missing_for(db, filters=FILTERS, labels=["person"], camera_ids=None,
+                         want_caption=False, want_kinds={"clothing_top"})
+    assert off["ids"] == [], "the enricher would refuse; the lane must not promise"
+    monkeypatch.setattr(settings, "events_descriptor_people", True, raising=False)
+    on = er.missing_for(db, filters=FILTERS, labels=["person"], camera_ids=None,
+                        want_caption=False, want_kinds={"clothing_top"})
+    assert len(on["ids"]) == 1
+
+
+# ── the ticket knows WHAT was asked, not only which visit ─────────────
+
+def test_a_later_question_needing_another_step_is_not_swallowed():
+    async def go():
+        t1 = er.request([7], needs={7: {"caption": True, "descriptors": False}})
+        assert t1["requested"] == 1
+        t2 = er.request([7], needs={7: {"caption": True, "descriptors": True}})
+        assert t2["requested"] == 1 and t2["already_queued"] == 0, (
+            "the colour claim was not queued yet — a caption-only request must not hide it")
+        t3 = er.request([7], needs={7: {"caption": True, "descriptors": True}})
+        assert t3["requested"] == 0 and t3["already_queued"] == 1
+        assert er._inflight[7] == {"caption", "descriptors"}
+    _run(go())
+
+
+def test_described_counts_visits_that_ran_not_ones_given_up_on(enrichers, bus, monkeypatch):
+    async def _always_drop(event_id, *a, **k):
+        return "dropped"
+    import services.descriptor_enrichment as desc_mod
+    monkeypatch.setattr(desc_mod, "enrich_event_descriptors", _always_drop)
+
+    async def go():
+        er.request([1, 2], needs={1: {"caption": True, "descriptors": False},
+                                  2: {"caption": False, "descriptors": True}})
+        await er.process_one_request(er._q().get_nowait())
+    _run(go())
+    p = bus[-1]["payload"]
+    assert p["visits"] == 2 and p["described"] == 1 and p["dropped"] == 1
+
+
+def test_a_cancelled_request_releases_its_calls_and_visits(enrichers, bus):
+    async def go():
+        er.request([1, 2, 3], caption=True, descriptors=True)
+        assert er._pending_calls == 9
+        req = er._q().get_nowait()
+
+        async def slow(*a, **k):
+            await asyncio.sleep(10)
+        import services.caption_enrichment as cap_mod
+        import pytest as _pt
+        mp = _pt.MonkeyPatch(); mp.setattr(cap_mod, "enrich_event_caption", slow)
+        task = asyncio.ensure_future(er.process_one_request(req))
+        await asyncio.sleep(0.02)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        mp.undo()
+    _run(go())
+    assert er._pending_calls == 8, "the cancelled call is no longer ahead of anyone"
+    assert er.queue_depth() == 0, "nothing stays 'in flight' for a request that is gone"
+    assert bus and bus[-1]["payload"]["request_id"]

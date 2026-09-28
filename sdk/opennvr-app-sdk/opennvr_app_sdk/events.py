@@ -61,6 +61,14 @@ class StoredEvent:
     has_evidence: bool
 
 
+class SearchResult(list):
+    """The rows ``EventsClient.search`` returns — a plain list, plus
+    ``pending``: core's account of what it is describing now because the
+    query asked for a claim the matching visits did not have yet."""
+
+    pending: dict | None = None
+
+
 class EventsClient:
     """Query visits and fetch their evidence photos from core."""
 
@@ -118,6 +126,7 @@ class EventsClient:
         # otherwise send one param whose value is the string "['blue']".
         url = (f"{self._base}/api/v1/internal/camera-agent/events?"
                f"{urlencode({**params, 'attr': attr_list}, doseq=True)}")
+        self.last_pending = None          # never a previous question's answer
         try:
             status, body = await self._get(url, self._headers)
             if status != 200:
@@ -126,14 +135,17 @@ class EventsClient:
             payload = json.loads(body.decode("utf-8"))
             rows = payload.get("events", [])
             # What core is describing NOW because this query asked for a
-            # claim the visits did not have yet (core's `pending`). Kept
-            # on the client rather than changing the return type: an app
-            # built against the list-of-events contract keeps working,
-            # and one that wants to say "not yet" reads it here.
-            self.last_pending = payload.get("pending") if isinstance(payload, dict) else None
+            # claim the visits did not have yet (core's `pending`). It
+            # rides on the returned list (`.pending`), which is still a
+            # list — an app built against the list-of-events contract
+            # keeps working — and is mirrored on `last_pending` for
+            # callers that hold the client rather than the rows.
+            pending = payload.get("pending") if isinstance(payload, dict) else None
+            self.last_pending = pending
         except Exception:
             return None
-        out = []
+        out = SearchResult()
+        out.pending = pending
         for r in rows:
             try:
                 out.append(StoredEvent(

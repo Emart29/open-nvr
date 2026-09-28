@@ -103,9 +103,17 @@ def test_search_keeps_cores_pending_block_beside_the_rows():
     c, _ = _client([(200, body)])
     assert c.last_pending is None
     rows = asyncio.run(c.search(label="car", attrs=["blue"]))
-    assert rows == []
+    assert rows == [] and isinstance(rows, list)
+    assert rows.pending["missing"] == 3, "it rides on the rows — a list, still"
     assert c.last_pending["missing"] == 3 and c.last_pending["eta_s"] == 45.0
     # ...and a later answer without one clears it
     c2, _ = _client([(200, json.dumps({"events": []}).encode())])
-    asyncio.run(c2.search(label="car"))
-    assert c2.last_pending is None
+    rows2 = asyncio.run(c2.search(label="car"))
+    assert c2.last_pending is None and rows2.pending is None
+    # ...and a failed search never leaves a previous question's block behind
+    c.last_pending = {"missing": 99}
+
+    async def boom(url, headers):
+        raise OSError("down")
+    c._get = boom
+    assert asyncio.run(c.search(label="car")) is None and c.last_pending is None

@@ -40,8 +40,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import exists, or_
-
 from models import EventText, TimelineEvent, VisitDescriptor
 
 logger = logging.getLogger("enrichment_requests")
@@ -67,58 +65,115 @@ def request_cap() -> int:
 
 # ── what is missing ───────────────────────────────────────────────
 
+#: How many of the newest matching visits are examined for a question.
+#: The count reported is over this window — "at least N", never a
+#: table scan — and the cap decides how many of them one request takes.
+WINDOW = 200
+
+
 def missing_for(db, *, filters: dict[str, Any], labels: list[str] | None,
                 camera_ids: list[int] | None, want_caption: bool,
                 want_kinds: set[str], cap: int | None = None) -> dict[str, Any]:
     """Visits the structural filters match that lack what the question
-    needs. ``filters`` are ``timeline_service._events_query`` keywords —
-    the same predicate search pages with, so "missing" and "matched"
-    are counted over the same rows.
+    needs — decided per row EXACTLY as the enrichers will decide, so the
+    lane never promises "describing them now" about a visit the enricher
+    is going to refuse:
 
-    Returns ``{"ids": [...newest first, capped], "caption": n,
-    "kinds": {kind: n}, "total": n}`` where the counts are UNCAPPED —
-    the honest size of what is not described — and ``ids`` is what one
-    request may take on.
+    * the per-camera skill assignment (``wants_caption`` /
+      ``wants_descriptors``: "no assignment, no caption, no cost");
+    * the people opt-in for descriptors (``events_descriptor_people``);
+    * only the kinds asked of THIS class (``LABEL_KINDS``: a lorry is not
+      asked what colour its top is);
+    * "looked and found nothing" markers (``enriched_by``) — a visit the
+      captioner or VQA already looked at is not missing anything.
+
+    ``filters`` are ``timeline_service._events_query`` keywords — the
+    same predicate search pages with. Returns ``{"ids": [...newest
+    first, capped], "needs": {id: {"caption": bool, "descriptors":
+    bool}}, "caption": n, "kinds": {kind: n}, "total": n, "window": w}``
+    with the counts over the newest ``WINDOW`` matching rows.
     """
-    from services.caption_enrichment import CAPTIONABLE_LABELS
-    from services.descriptor_enrichment import DESCRIBABLE_LABELS
+    from core.config import settings
+    from models import Camera
+    from services.caption_enrichment import (
+        CAPTION_SKILL,
+        CAPTIONABLE_LABELS,
+        wants_caption,
+    )
+    from services.descriptor_enrichment import (
+        DESCRIBABLE_LABELS,
+        LABEL_KINDS,
+        PEOPLE_SETTING,
+        VQA_TASK,
+        wants_descriptors,
+    )
+    from services.skill_assignments import camera_skills
     from services.timeline_service import _events_query
 
     cap = cap or request_cap()
-    out: dict[str, Any] = {"ids": [], "caption": 0, "kinds": {}, "total": 0}
+    out: dict[str, Any] = {"ids": [], "needs": {}, "caption": 0, "kinds": {},
+                           "total": 0, "window": WINDOW}
     if not (want_caption or want_kinds):
         return out
-
-    base = _events_query(db, **filters).filter(TimelineEvent.evidence_path.isnot(None))
-    if labels:
-        base = base.filter(TimelineEvent.label.in_([str(x).lower() for x in labels]))
-    if camera_ids:
-        base = base.filter(TimelineEvent.camera_id.in_([int(c) for c in camera_ids]))
-
-    ids: list[int] = []
-    seen: set[int] = set()
-
-    def take(q) -> int:
-        n = q.count()
-        for (eid,) in q.with_entities(TimelineEvent.id).order_by(
-                TimelineEvent.id.desc()).limit(cap).all():
-            if eid not in seen and len(ids) < cap:
-                seen.add(eid); ids.append(int(eid))
-        return int(n)
-
+    people = bool(getattr(settings, PEOPLE_SETTING, False))
+    interesting = set()
     if want_caption:
-        q = (base.filter(TimelineEvent.label.in_(sorted(CAPTIONABLE_LABELS)))
-             .outerjoin(EventText, EventText.event_id == TimelineEvent.id)
-             .filter(or_(EventText.event_id.is_(None),
-                         EventText.caption.is_(None), EventText.caption == "")))
-        out["caption"] = take(q)
-    for kind in sorted(want_kinds):
-        has = exists().where(VisitDescriptor.event_id == TimelineEvent.id,
-                             VisitDescriptor.kind == kind)
-        q = base.filter(TimelineEvent.label.in_(sorted(DESCRIBABLE_LABELS))).filter(~has)
-        out["kinds"][kind] = take(q)
-    out["ids"] = ids
-    out["total"] = max([out["caption"], *out["kinds"].values()] or [0])
+        interesting |= CAPTIONABLE_LABELS
+    if want_kinds:
+        interesting |= DESCRIBABLE_LABELS
+    if labels:
+        interesting &= {str(x).lower() for x in labels}
+    if not interesting:
+        return out
+
+    q = (_events_query(db, **filters)
+         .join(Camera, Camera.id == TimelineEvent.camera_id)
+         .filter(TimelineEvent.evidence_path.isnot(None))
+         .filter(TimelineEvent.label.in_(sorted(interesting))))
+    if camera_ids:
+        q = q.filter(TimelineEvent.camera_id.in_([int(c) for c in camera_ids]))
+    rows = (q.with_entities(TimelineEvent, Camera)
+             .order_by(TimelineEvent.id.desc()).limit(WINDOW).all())
+    if not rows:
+        return out
+
+    ids = [int(r.id) for r, _ in rows]
+    captioned = {
+        e for (e,) in db.query(EventText.event_id)
+        .filter(EventText.event_id.in_(ids), EventText.caption.isnot(None),
+                EventText.caption != "").all()
+    }
+    claimed: dict[int, set[str]] = {}
+    for e, k in db.query(VisitDescriptor.event_id, VisitDescriptor.kind).filter(
+            VisitDescriptor.event_id.in_(ids)).all():
+        claimed.setdefault(int(e), set()).add(str(k))
+
+    kinds_missing: dict[str, int] = {k: 0 for k in sorted(want_kinds)}
+    for row, camera in rows:
+        rid = int(row.id)
+        label = (row.label or "").lower()
+        skills = camera_skills(camera)
+        looked = set((row.payload or {}).get("enriched_by") or [])
+        need_caption = bool(
+            want_caption and rid not in captioned and CAPTION_SKILL not in looked
+            and wants_caption(row.label, row.evidence_path, True, skills))
+        askable = [k for k in want_kinds if k in LABEL_KINDS.get(label, ())]
+        need_kinds = [
+            k for k in askable
+            if k not in claimed.get(rid, set()) and VQA_TASK not in looked
+            and wants_descriptors(row.label, row.evidence_path, True, skills, people)
+        ]
+        if not (need_caption or need_kinds):
+            continue
+        out["total"] += 1
+        if need_caption:
+            out["caption"] += 1
+        for k in need_kinds:
+            kinds_missing[k] = kinds_missing.get(k, 0) + 1
+        if len(out["ids"]) < cap:
+            out["ids"].append(rid)
+            out["needs"][rid] = {"caption": need_caption, "descriptors": bool(need_kinds)}
+    out["kinds"] = {k: n for k, n in kinds_missing.items() if n}
     return out
 
 
@@ -164,41 +219,52 @@ def kinds_for_attrs(attrs) -> set[str]:
 
 
 async def pending_for(db, *, filters: dict[str, Any], labels, camera_ids,
-                      want_caption: bool, want_kinds: set[str]) -> dict[str, Any] | None:
+                      want_caption: bool, want_kinds: set[str],
+                      offers: tuple[bool, set[str]] | None = None) -> dict[str, Any] | None:
     """The block a search answer carries: what is not described yet, and
     what this call queued. None when the question needs nothing the box
-    could produce — a plain label-and-time search says nothing here."""
-    captions_ok, offered = await box_offers()
+    could produce — a plain label-and-time search says nothing here.
+    ``offers`` is (captioner healthy, kinds offered) when the caller has
+    already read the plan (search resolves its needs from it); otherwise
+    it is read here."""
+    captions_ok, offered = offers if offers is not None else await box_offers()
     want_caption = bool(want_caption and captions_ok)
     want_kinds = {k for k in want_kinds if k in offered}
     if not (want_caption or want_kinds):
         return None
     missing = missing_for(db, filters=filters, labels=labels, camera_ids=camera_ids,
                           want_caption=want_caption, want_kinds=want_kinds)
+    needs_block = {"caption": want_caption, "kinds": sorted(want_kinds)}
     if not missing["ids"]:
         return {"missing": 0, "requested": 0, "already_queued": 0, "eta_s": 0.0,
-                "request_id": None, "needs": {"caption": want_caption,
-                                              "kinds": sorted(want_kinds)}}
-    ticket = request(missing["ids"], caption=want_caption, descriptors=bool(want_kinds))
-    return {"missing": int(missing["total"]), "capped_at": request_cap(),
-            **ticket, "needs": {"caption": want_caption, "kinds": sorted(want_kinds)}}
+                "request_id": None, "needs": needs_block}
+    ticket = request(missing["ids"], needs=missing["needs"])
+    return {"missing": int(missing["total"]), "window": missing["window"],
+            "capped_at": request_cap(), **ticket, "needs": needs_block}
 
 
 # ── the queue ─────────────────────────────────────────────────────
 
+STEPS = ("caption", "descriptors")
+
+
 @dataclass
 class Request:
     request_id: str
-    event_ids: list[int]
-    caption: bool
-    descriptors: bool
+    #: visit id → the steps THIS request will run for it
+    steps: dict[int, set[str]]
     created_at: float = field(default_factory=time.monotonic)
     described: int = 0
     dropped: int = 0
 
+    @property
+    def event_ids(self) -> list[int]:
+        return list(self.steps)
+
 
 _queue: asyncio.Queue[Request] | None = None
-_inflight: set[int] = set()          # queued or being worked on
+#: visit id → steps queued or in flight for it, across all requests
+_inflight: dict[int, set[str]] = {}
 _pending_calls = 0                   # calls still ahead in the queue
 
 
@@ -207,6 +273,10 @@ def _q() -> asyncio.Queue[Request]:
     if _queue is None:
         _queue = asyncio.Queue()
     return _queue
+
+
+def _calls(steps: set[str]) -> int:
+    return (1 if "caption" in steps else 0) + (2 if "descriptors" in steps else 0)
 
 
 def per_call_estimate() -> float:
@@ -224,32 +294,48 @@ def per_call_estimate() -> float:
     return float(best) if best is not None else DEFAULT_CALL_S
 
 
-def request(event_ids: list[int], *, caption: bool, descriptors: bool) -> dict[str, Any]:
+def request(event_ids: list[int], *, needs: dict[int, dict[str, bool]] | None = None,
+            caption: bool = False, descriptors: bool = False) -> dict[str, Any]:
     """Queue visits for enrichment; return the ticket for the answer.
 
-    ``{"request_id", "requested": n, "already_queued": m, "eta_s": s}``.
-    ``requested`` is what THIS call added; visits already queued or in
-    flight from an earlier question are not queued twice (a UI that
-    searches on every keystroke must not multiply the work).
+    ``needs`` says per visit which steps it lacks (``missing_for`` builds
+    it); without it every visit gets ``caption``/``descriptors``. A step
+    already queued or in flight for a visit — from this question or an
+    earlier one — is not queued twice; a step that is NOT yet queued is,
+    even for a visit another question already holds (a caption-only
+    request must not swallow a later question's colour claim).
+
+    ``{"request_id", "requested": n, "already_queued": m, "eta_s": s}`` —
+    ``requested`` counts visits this call added work for.
     """
     global _pending_calls
-    calls_per_visit = (1 if caption else 0) + (2 if descriptors else 0)
-    fresh = [int(e) for e in event_ids if int(e) not in _inflight]
-    already = len(event_ids) - len(fresh)
-    if not fresh or not calls_per_visit:
+    steps: dict[int, set[str]] = {}
+    already = 0
+    for raw in event_ids:
+        eid = int(raw)
+        want = ({k for k in STEPS if (needs.get(eid) or {}).get(k)} if needs is not None
+                else {k for k, on in (("caption", caption), ("descriptors", descriptors)) if on})
+        fresh = want - _inflight.get(eid, set())
+        if not want:
+            continue
+        if not fresh:
+            already += 1
+            continue
+        steps[eid] = fresh
+    if not steps:
         eta = _pending_calls * per_call_estimate()
         return {"request_id": None, "requested": 0, "already_queued": already,
                 "eta_s": round(eta, 1)}
-    req = Request(request_id=uuid.uuid4().hex[:12], event_ids=fresh,
-                  caption=caption, descriptors=descriptors)
-    _inflight.update(fresh)
-    _pending_calls += len(fresh) * calls_per_visit
+    req = Request(request_id=uuid.uuid4().hex[:12], steps=steps)
+    for eid, st in steps.items():
+        _inflight.setdefault(eid, set()).update(st)
+        _pending_calls += _calls(st)
     _q().put_nowait(req)
     eta = _pending_calls * per_call_estimate()
-    logger.info("enrichment requests: %s queued %d visit(s) (caption=%s, "
-                "descriptors=%s), ~%.0fs", req.request_id, len(fresh),
-                caption, descriptors, eta)
-    return {"request_id": req.request_id, "requested": len(fresh),
+    logger.info("enrichment requests: %s queued %d visit(s) (%s), ~%.0fs",
+                req.request_id, len(steps),
+                ", ".join(sorted({k for st in steps.values() for k in st})), eta)
+    return {"request_id": req.request_id, "requested": len(steps),
             "already_queued": already, "eta_s": round(eta, 1)}
 
 
@@ -275,32 +361,42 @@ async def _one(event_id: int, req: Request) -> None:
     from services.caption_enrichment import enrich_event_caption
     from services.descriptor_enrichment import enrich_event_descriptors
 
-    steps = []
-    if req.caption:
-        steps.append(("caption", enrich_event_caption))
-    if req.descriptors:
-        steps.append(("descriptors", enrich_event_descriptors))
-    for name, fn in steps:
-        for attempt in range(_DROP_RETRIES + 1):
-            await _wait_while_paused()
-            try:
-                res = await fn(event_id, priority="requested")
-            except Exception:                      # noqa: BLE001
-                logger.warning("enrichment requests: %s failed for %s", name,
-                               event_id, exc_info=True)
-                res = None
-            if res != "dropped":
-                break
-            if attempt < _DROP_RETRIES:
-                await asyncio.sleep(_DROP_RETRY_S)
-        else:
-            req.dropped += 1
-        _pending_calls = max(0, _pending_calls - (1 if name == "caption" else 2))
-    req.described += 1
+    fns = {"caption": enrich_event_caption, "descriptors": enrich_event_descriptors}
+    ran_any = False
+    for name in STEPS:
+        if name not in req.steps.get(event_id, set()):
+            continue
+        try:
+            res = None
+            for attempt in range(_DROP_RETRIES + 1):
+                await _wait_while_paused()
+                try:
+                    res = await fns[name](event_id, priority="requested")
+                except Exception:                  # noqa: BLE001
+                    logger.warning("enrichment requests: %s failed for %s", name,
+                                   event_id, exc_info=True)
+                    res = None
+                if res != "dropped":
+                    break
+                if attempt < _DROP_RETRIES:
+                    await asyncio.sleep(_DROP_RETRY_S)
+            if res == "dropped":
+                req.dropped += 1
+            else:
+                ran_any = True
+        finally:
+            # Whatever happened — done, given up, cancelled — this call is
+            # no longer ahead of anyone: the ETA must not carry it forever.
+            _pending_calls = max(0, _pending_calls - _calls({name}))
+            _inflight.get(event_id, set()).discard(name)
+            if not _inflight.get(event_id):
+                _inflight.pop(event_id, None)
+    if ran_any:
+        req.described += 1
 
 
 async def _announce(req: Request) -> None:
-    payload = {"request_id": req.request_id, "visits": len(req.event_ids),
+    payload = {"request_id": req.request_id, "visits": len(req.steps),
                "described": req.described, "dropped": req.dropped,
                "took_s": round(time.monotonic() - req.created_at, 1)}
     logger.info("enrichment requests: %s done — %s", req.request_id, payload)
@@ -316,11 +412,15 @@ async def _announce(req: Request) -> None:
 async def process_one_request(req: Request) -> None:
     try:
         for event_id in req.event_ids:
-            try:
-                await _one(event_id, req)
-            finally:
-                _inflight.discard(event_id)
+            await _one(event_id, req)
     finally:
+        for event_id, st in req.steps.items():
+            # Cancelled mid-way: release what this request still held.
+            left = _inflight.get(event_id)
+            if left:
+                left -= st
+                if not left:
+                    _inflight.pop(event_id, None)
         await _announce(req)
 
 

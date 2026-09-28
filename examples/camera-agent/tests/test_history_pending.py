@@ -69,3 +69,17 @@ def test_nothing_pending_means_no_note():
     del ev2.last_pending
     out2 = asyncio.run(_tools(ev2).search_history({"label": "car"}))
     assert "not been described" not in out2
+
+
+def test_pending_on_the_rows_wins_over_the_clients_last_block():
+    """A newer SDK returns the block on the rows; an older one only sets
+    last_pending. The rows are per-call; the client attribute is shared."""
+    class _Rows(list):
+        pending = None
+
+    rows = _Rows([_visit()])
+    rows.pending = {"missing": 2, "requested": 2, "already_queued": 0, "eta_s": 10.0}
+    ev = _Events(rows, pending={"missing": 99, "requested": 99, "already_queued": 0,
+                                "eta_s": 999.0})
+    out = asyncio.run(_tools(ev).search_history({"label": "car", "attr": ["blue"]}))
+    assert "2 visits in that window" in out and "99" not in out

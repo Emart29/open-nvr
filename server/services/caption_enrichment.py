@@ -154,10 +154,13 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
     if body is DROPPED:
         return DROPPED
     if body is None:
-        return None
+        return None                   # the call failed: nobody has looked yet
+    # From here the adapter ANSWERED. "" means it had nothing usable to
+    # say — that is "looked and found nothing", recorded on the row, and
+    # distinct from None above, which must be retried.
     result = (body or {}).get("result")
     if not isinstance(result, dict):
-        return None
+        return ""
     # Adapters differ in where they put the sentence; accept the shapes
     # the two registered captioners actually use rather than insisting on
     # one and silently storing nothing for the other.
@@ -165,7 +168,7 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         value = result.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return None
+    return ""
 
 
 def wants_caption(label: str | None, evidence_path: str | None,
@@ -326,6 +329,11 @@ async def enrich_event_caption(event_id: int,
                                   priority=priority)
     if caption is DROPPED:
         return "dropped"
+    if caption is None:
+        # Timed out, unreachable, a non-200: the adapter never answered.
+        # NOT recorded — a transient failure must not read as "looked and
+        # found nothing" and hide the visit from every later pass.
+        return
     if not caption:
         _mark_attempted(event_id)
         return

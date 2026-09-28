@@ -321,7 +321,8 @@ def _known_people(db: Session, scope: set[int] | None) -> list[str]:
 
 async def _needs_for(db: Session, scope: set[int] | None, *, parsed: ParsedQuery,
                      labels, words: str, attrs, wants_plate: bool, plate: str):
-    """Resolve the question's needs against this box — see
+    """Resolve the question's needs against this box, and return the
+    box's abilities alongside (the requested lane reads them) — see
     ``services.search_intent``. Best-effort: an unreachable registry
     means every need reads as not-on-this-box, which is the honest
     answer at that moment, and never an error."""
@@ -360,7 +361,7 @@ async def _needs_for(db: Session, scope: set[int] | None, *, parsed: ParsedQuery
     return resolve_needs(
         words=(words or "").split(), labels=labels, attrs=attrs,
         wants_plate=wants_plate, plate=plate, box=box,
-    )
+    ), box
 
 
 @router.get("/search")
@@ -448,8 +449,8 @@ async def search(
         from_=start, to=end, plate=plate_q or None, source=source, scope=scope,
         zone_id=zone_id, has_plate=wants_plate,
     )
-    needs = await _needs_for(db, scope, parsed=parsed, labels=labels, words=words,
-                             attrs=attrs, wants_plate=wants_plate, plate=plate_q or "")
+    needs, box = await _needs_for(db, scope, parsed=parsed, labels=labels, words=words,
+                                  attrs=attrs, wants_plate=wants_plate, plate=plate_q or "")
     # What the question needs that the matching visits may not have, and
     # the request to produce it (services/enrichment_requests). Words
     # need a caption; a chip needs a claim of its kind; a need the box
@@ -467,7 +468,9 @@ async def search(
         try:
             pending = await pending_for(
                 db, filters=filters, labels=labels, camera_ids=cams,
-                want_caption=bool(words), want_kinds=want_kinds)
+                want_caption=bool(words), want_kinds=want_kinds,
+                # The plan was already read for `needs`; do not read it twice.
+                offers=(bool(box.captions), set(box.offered_kinds) - {"face_id"}))
         except Exception:  # noqa: BLE001 — a hint must never 500 a search
             logger.debug("search: pending-enrichment lookup failed", exc_info=True)
             pending = None

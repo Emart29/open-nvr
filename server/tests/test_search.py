@@ -1614,41 +1614,53 @@ def test_a_question_that_needs_a_description_queues_it_and_says_so(client, db, m
     """"red car today" on a box with a captioner: the two undescribed cars
     are queued for description now, and the answer carries how many and
     roughly how long — so an empty page can say 'not yet'."""
+    from services import enrichment_plan as plan_mod
     from services import enrichment_requests as er
 
-    async def _offers():
-        return True, {"colour", "vehicle_type"}
-    monkeypatch.setattr(er, "box_offers", _offers)
+    async def _plan(_label=None):
+        # A healthy captioner and a VQA offering colour: what the route
+        # resolves `needs` from, and now the lane's offers too.
+        return {"skills": [{"task": "image_captioning", "healthy": True, "adapters": ["m"]},
+                           {"task": "vqa", "healthy": True, "adapters": ["m"],
+                            "descriptor_kinds": ["colour", "vehicle_type"]}]}
+    monkeypatch.setattr(plan_mod, "compute_enrichment_plan", _plan)
     er._reset_for_tests()
-    _camera(db, 1, "Gate")
+    gate = _camera(db, 1, "Gate")
+    gate.assignments = [{"skill": "image_captioning"}, {"skill": "vqa"}]; db.commit()
     _visit(db, camera_id=1, label="car", minutes_ago=3, caption="a red car")
     _visit(db, camera_id=1, label="car", minutes_ago=4)
     _visit(db, camera_id=1, label="car", minutes_ago=5)
 
-    body = client.get("/api/v1/search", params={"q": "red car today"}).json()
+    # No "today": a window parsed at local midnight would race the clock
+    # around midnight against WALL-stamped visits. The question is the point.
+    body = client.get("/api/v1/search", params={"q": "red car"}).json()
     pending = body["pending"]
     # "red" needs a caption AND a colour claim: two cars lack the caption,
-    # all three lack the claim — the honest count is the larger.
+    # all three lack the claim — three visits need something.
     assert pending["missing"] == 3 and pending["requested"] == 3
     assert pending["needs"]["caption"] is True and "colour" in pending["needs"]["kinds"]
     assert pending["eta_s"] > 0 and pending["request_id"]
 
-    again = client.get("/api/v1/search", params={"q": "red car today"}).json()["pending"]
+    again = client.get("/api/v1/search", params={"q": "red car"}).json()["pending"]
     assert again["requested"] == 0 and again["already_queued"] == 3
 
-    off = client.get("/api/v1/search", params={"q": "red car today", "describe": "false"}).json()
+    off = client.get("/api/v1/search", params={"q": "red car", "describe": "false"}).json()
     assert off["pending"] is None, "describe=false answers from what exists and queues nothing"
     er._reset_for_tests()
 
 
 def test_a_plain_label_and_time_search_queues_nothing(client, db, monkeypatch):
+    from services import enrichment_plan as plan_mod
     from services import enrichment_requests as er
 
-    async def _offers():
-        return True, {"colour"}
-    monkeypatch.setattr(er, "box_offers", _offers)
-    _camera(db, 1, "Gate")
+    async def _plan(_label=None):
+        return {"skills": [{"task": "image_captioning", "healthy": True, "adapters": ["m"]},
+                           {"task": "vqa", "healthy": True, "adapters": ["m"],
+                            "descriptor_kinds": ["colour"]}]}
+    monkeypatch.setattr(plan_mod, "compute_enrichment_plan", _plan)
+    gate = _camera(db, 1, "Gate")
+    gate.assignments = [{"skill": "image_captioning"}, {"skill": "vqa"}]; db.commit()
     _visit(db, camera_id=1, label="car", minutes_ago=4)
-    body = client.get("/api/v1/search", params={"q": "car today"}).json()
+    body = client.get("/api/v1/search", params={"q": "car"}).json()
     assert body["pending"] is None
     assert er.queue_depth() == 0

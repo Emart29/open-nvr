@@ -1291,7 +1291,7 @@ class CameraTools:
                 # empty list, and only one of them is an answer.
                 # ...unless core is describing them right now because
                 # this very question asked: then "not yet" is the answer.
-                pending_note = self._pending_note()
+                pending_note = self._pending_note(events)
                 return (f"No {label} visits described as "
                         f"{' and '.join(attrs)}{window}."
                         + (pending_note or
@@ -1325,7 +1325,7 @@ class CameraTools:
         # extra read and turns "I saw someone at 16:25" into something the
         # operator can actually check.
         await self._attach_evidence_frames(events)
-        summary += live_note + self._pending_note()
+        summary += live_note + self._pending_note(events)
 
         # Face-match the evidence for person questions (best-effort, capped).
         if label == "person" and bool(args.get("identify_faces", True)):
@@ -1334,13 +1334,16 @@ class CameraTools:
                 summary += " Recognised: " + ", ".join(sorted(names)) + "."
         return summary
 
-    def _pending_note(self) -> str:
-        """"Not yet" as a sentence. Core's `pending` (read off the events
-        client after a search) says how many matching visits nobody has
-        described yet and that they are being described now; the agent
-        says it in the answer so "no blue car" is never said about
-        visits nobody has looked at. Empty when nothing is pending."""
-        pending = getattr(self._events, "last_pending", None)
+    def _pending_note(self, events=None) -> str:
+        """"Not yet" as a sentence. Core's `pending` (on the rows the SDK
+        returned, or on the client for an older SDK) says how many
+        matching visits nobody has described yet and that they are being
+        described now; the agent says it in the answer so "no blue car"
+        is never said about visits nobody has looked at. Empty when
+        nothing is pending."""
+        pending = getattr(events, "pending", None)
+        if pending is None:
+            pending = getattr(self._events, "last_pending", None)
         if not isinstance(pending, dict):
             return ""
         missing = int(pending.get("missing") or 0)
