@@ -44,6 +44,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const LEFT_ITEMS_CAPABILITY = 'left_items'
@@ -229,6 +230,15 @@ export function LeftItems() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('leftItems.title')} description={t('leftItems.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -307,7 +317,9 @@ export function LeftItems() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
             <Skeleton className="h-20" />
           ) : live.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-3 text-center">
@@ -414,7 +426,7 @@ export function LeftItems() {
       )}
 
       {/* ── Per camera ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? null : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Skeleton className="h-36" /><Skeleton className="h-36" /><Skeleton className="h-36" />
         </div>

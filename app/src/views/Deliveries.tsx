@@ -46,6 +46,7 @@ import { useAlarmsList } from '../components/alarms/useAlarmsList'
 import { alarmSeenIso, alertsInboxService, type InboxAlert } from '../services/alertsInboxService'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const DELIVERIES_CAPABILITY = 'deliveries'
@@ -315,6 +316,15 @@ export function Deliveries() {
     }
   }, [alarms.rows])
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('deliveries.title')} description={t('deliveries.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -380,7 +390,9 @@ export function Deliveries() {
       )}
 
       {/* ── Doors ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           <Skeleton className="h-64" /><Skeleton className="h-64" /><Skeleton className="h-64" />
         </div>
@@ -409,7 +421,7 @@ export function Deliveries() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? null : statusQuery.isPending ? (
             <Skeleton className="h-24" />
           ) : events.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-4 text-center">

@@ -45,6 +45,7 @@ import {
 } from '../components/ui'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const GATES_CAPABILITY = 'gates'
@@ -232,6 +233,15 @@ export function Gates() {
   const today = state.today ?? { opened: 0, denied: 0, faults: 0, manual: 0 }
   const faulted = gates.filter((g) => g.state === 'faulted').length
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('gates.title')} description={t('gates.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -305,7 +315,9 @@ export function Gates() {
       )}
 
       {/* ── The gates ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           <Skeleton className="h-72" /><Skeleton className="h-72" /><Skeleton className="h-72" />
         </div>
@@ -359,7 +371,7 @@ export function Gates() {
           )}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? null : statusQuery.isPending ? (
             <Skeleton className="h-24" />
           ) : events.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-4 text-center">{t('gates.timeline.empty')}</div>

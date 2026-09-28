@@ -53,6 +53,7 @@ import {
 } from '../components/ui'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const NOTIFICATIONS_CAPABILITY = 'notifications'
@@ -287,6 +288,15 @@ export function Notifications() {
   )
   const recent = state.recent ?? []
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('notifications.title')} description={t('notifications.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -352,7 +362,9 @@ export function Notifications() {
           </span>
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <Skeleton className="h-40" /><Skeleton className="h-40" />
             </div>
@@ -401,7 +413,7 @@ export function Notifications() {
           </span>
         </CardHeader>
         <CardContent className="space-y-3">
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? null : statusQuery.isPending ? (
             <Skeleton className="h-28" />
           ) : rules.length === 0 ? (
             <EmptyState
@@ -439,7 +451,7 @@ export function Notifications() {
           <span className="text-xs text-[var(--text-dim)]">{t('notifications.recent.sub')}</span>
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? null : statusQuery.isPending ? (
             <Skeleton className="h-24" />
           ) : recent.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-4 text-center">{t('notifications.recent.empty')}</div>

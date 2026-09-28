@@ -41,6 +41,7 @@ import { AlarmsTable } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import type { RegisteredApp } from './AppCatalog'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { AppQueryError } from './apps/AppQueryError'
 import { AppPageHeader, AppConfigureButton } from './apps/AppSetup'
 
 export const LOITERING_CAPABILITY = 'loitering'
@@ -259,6 +260,15 @@ export function Loitering() {
   const ack = useAckAlarms()
   const alarmRows = alarms.rows.filter((a) => a.source_name === SOURCE)
 
+  if (appsQuery.isError) {
+    return (
+      <section className="space-y-4">
+        <PageHeader title={t('loitering.title')} description={t('loitering.description')} />
+        <AppQueryError kind="apps" error={appsQuery.error} onRetry={() => appsQuery.refetch()} />
+      </section>
+    )
+  }
+
   if (!appsQuery.isPending && !app) {
     return (
       <section className="space-y-4">
@@ -348,7 +358,9 @@ export function Loitering() {
           {statusQuery.isFetching && <span className="ml-auto text-xs text-[var(--text-dim)]">updating…</span>}
         </CardHeader>
         <CardContent>
-          {statusQuery.isPending ? (
+          {statusQuery.isError ? (
+        <AppQueryError kind="status" error={statusQuery.error} onRetry={() => statusQuery.refetch()} />
+      ) : statusQuery.isPending ? (
             <Skeleton className="h-16" />
           ) : dwelling.length === 0 ? (
             <div className="text-sm text-[var(--text-dim)] py-3 text-center">Nobody is inside a zone right now.</div>
@@ -384,7 +396,7 @@ export function Loitering() {
       </Card>
 
       {/* ── Per camera ── */}
-      {statusQuery.isPending ? (
+      {statusQuery.isError ? null : statusQuery.isPending ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3"><Skeleton className="h-44" /><Skeleton className="h-44" /></div>
       ) : rows.length === 0 ? (
         <EmptyState
