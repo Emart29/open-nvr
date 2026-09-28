@@ -180,22 +180,32 @@ export function StatusDot({ status }: { status: Status }) {
  *  one state that makes the rest of the page moot (an app with no cameras).
  *  It carries its own top margin, so a notice that renders nothing leaves
  *  the header exactly as it was. */
-export function PageHeader({ title, description, actions, notice }: {
+/** The page's one title, so it is the page's one `h1`. `breadcrumb` sits
+ *  above the title for nested screens (Settings > Camera-Config > Zones);
+ *  `tabs` sits under the header, full width, for pages whose sections are
+ *  routes or local tabs. */
+export function PageHeader({ title, description, actions, notice, breadcrumb, tabs }: {
   title: ReactNode
   description?: ReactNode
   actions?: ReactNode
   notice?: ReactNode
+  breadcrumb?: ReactNode
+  tabs?: ReactNode
 }) {
   return (
     <div className="mb-4">
+      {breadcrumb && (
+        <nav aria-label="Breadcrumb" className="mb-1 text-xs text-[var(--text-dim)]">{breadcrumb}</nav>
+      )}
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-[var(--text)]">{title}</h2>
+          <h1 className="text-lg font-semibold text-[var(--text)]">{title}</h1>
           {description && <p className="text-sm text-[var(--text-dim)] mt-0.5 max-w-3xl">{description}</p>}
         </div>
         {actions && <div className="ml-auto shrink-0 flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {notice}
+      {tabs && <div className="mt-3">{tabs}</div>}
     </div>
   )
 }
