@@ -158,7 +158,7 @@ export function CameraSetupDialog({
                      : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text)]'}`}
               >
                 {shortParamName(p.name)}
-                <span className={`ml-1.5 ${drawn ? 'text-emerald-400' : 'text-[var(--text-dim)]'}`}>
+                <span className={`ml-1.5 ${drawn ? 'text-[var(--ok)]' : 'text-[var(--text-dim)]'}`}>
                   {drawn ? '✓' : '·'}
                 </span>
               </button>

@@ -34,10 +34,10 @@ const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
 const RING_MODES: RingMode[] = ['none', 'ping', 'continuous']
 
 const SEVERITY_STYLE: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-600 text-white',
-  medium: 'bg-yellow-600 text-black',
-  low: 'bg-neutral-600 text-white',
+  critical: 'bg-[var(--critical)] text-white',
+  high: 'bg-[var(--danger)] text-white',
+  medium: 'bg-[var(--warn)] text-black',
+  low: 'bg-[var(--badge-neutral-bg)] text-[var(--badge-neutral-text)]',
 }
 
 // ── Web Audio ring engine ──────────────────────────────────────────
@@ -286,7 +286,7 @@ export function AlertBell() {
         aria-label={t('alerts.alarms')}
         className={`relative grid h-8 w-8 place-items-center rounded-md transition-colors ${
           sirenActive
-            ? 'bg-red-600 text-white animate-pulse'
+            ? 'bg-[var(--critical)] text-white animate-pulse'
             : 'text-[var(--text-dim)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]'
         }`}
         onClick={() => setOpen((s) => !s)}
@@ -294,17 +294,17 @@ export function AlertBell() {
       >
         {audioBlocked ? <BellOff size={17} /> : <Bell size={17} />}
         {unackedCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-semibold leading-4 text-center ring-2 ring-[var(--bg-2)]">
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-[var(--critical)] text-white text-[10px] font-semibold leading-4 text-center ring-2 ring-[var(--bg-2)]">
             {unackedCount > 99 ? '99+' : unackedCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-96 max-w-[90vw] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)] text-sm z-50 shadow-2xl">
+        <div className="absolute right-0 mt-2 w-96 max-w-[90vw] overflow-hidden border border-[var(--border)] bg-[var(--panel)] text-sm z-50 shadow-2xl">
           {audioBlocked && (
             <button
-              className="w-full text-left px-3 py-2 bg-yellow-600 text-black text-[12px] font-medium"
+              className="w-full text-left px-3 py-2 bg-[var(--warn)] text-black text-[12px] font-medium"
               onClick={enableSound}
             >
               🔇 Alarm sound is blocked by the browser — click here to
@@ -318,7 +318,7 @@ export function AlertBell() {
             <div className="flex items-center gap-2">
               {unackedCount > 0 && (
                 <button
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-[var(--panel-2)]"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 hover:bg-[var(--panel-2)]"
                   // One click in a small dropdown silenced every alarm in
                   // scope; the count makes the consequence explicit first.
                   onClick={async () => {
@@ -367,7 +367,7 @@ export function AlertBell() {
                     </div>
                   </div>
                   <button
-                    className="p-1 rounded hover:bg-[var(--panel-2)]"
+                    className="p-1 hover:bg-[var(--panel-2)]"
                     title="Acknowledge"
                     onClick={() => ack.mutate([a.id])}
                   >
@@ -381,7 +381,7 @@ export function AlertBell() {
           <div className="p-2 border-t border-[var(--border)]">
             <Link
               to="/alerts-incidents"
-              className="block w-full text-center px-3 py-1.5 rounded bg-[var(--panel-2)] hover:bg-[var(--border)] font-medium"
+              className="block w-full text-center px-3 py-1.5 bg-[var(--panel-2)] hover:bg-[var(--border)] font-medium"
               onClick={() => setOpen(false)}
             >
               {t('alerts.openHistory')}

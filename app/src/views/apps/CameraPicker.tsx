@@ -229,7 +229,7 @@ export function CameraPicker({
         {/* One row, not a centred empty-state block: it sits at the top of
             a long form, and a big box here pushed every setting below it
             off the screen. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded border border-dashed border-[var(--border)] px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border border-dashed border-[var(--border)] px-3 py-2">
           <CameraOff size={16} className="shrink-0 text-[var(--text-dim)]" />
           <div className="min-w-0 flex-1 text-sm">
             <span className="font-medium">No cameras selected</span>
@@ -291,7 +291,7 @@ export function CameraPicker({
                     {items.map((it) => (
                       <span
                         key={it.label}
-                        className={it.done ? 'text-emerald-400' : 'text-[var(--text-dim)]'}
+                        className={it.done ? 'text-[var(--ok)]' : 'text-[var(--text-dim)]'}
                       >
                         {it.done ? `✓ ${it.label}` : `${it.label}: not set`}
                       </span>
@@ -316,8 +316,7 @@ export function CameraPicker({
                 disabled={!cam.can_manage}
                 title={cam.can_manage ? `Stop using ${names.get(cam.id)}` : "You can't manage this camera"}
                 aria-label={`Remove ${names.get(cam.id)}`}
-                className="self-center rounded p-1.5 text-[var(--text-dim)] hover:bg-[var(--panel)]
-                           hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="self-center rounded p-1.5 text-[var(--text-dim)] hover:bg-[var(--panel)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X size={14} />
               </button>
@@ -350,10 +349,10 @@ function LiveBadge({ cam }: { cam: PickerCamera }) {
     return <span className="shrink-0 text-[10px] text-[var(--text-dim)]">Paused</span>
   }
   if (cam.live_online === true) {
-    return <span className="shrink-0 text-[10px] text-emerald-400">● Online</span>
+    return <span className="shrink-0 text-[10px] text-[var(--ok)]">● Online</span>
   }
   if (cam.live_online === false) {
-    return <span className="shrink-0 text-[10px] text-amber-400">● Offline</span>
+    return <span className="shrink-0 text-[10px] text-[var(--warn)]">● Offline</span>
   }
   return null
 }
@@ -488,8 +487,7 @@ function SelectCamerasDialog({
     >
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-4 py-2">
-          <label className="flex min-w-[220px] flex-1 items-center gap-2 border border-[var(--border)]
-                            bg-[var(--bg-2)] px-2 py-1">
+          <label className="flex min-w-[220px] flex-1 items-center gap-2 border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1">
             <Search size={13} className="text-[var(--text-dim)]" />
             <input
               autoFocus

@@ -423,7 +423,7 @@ export default function GuardCompliance() {
               }}
               aria-label="Camera"
               title="Show one camera's screenings, figures and live view"
-              className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
+              className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
             >
               <option value="">All cameras</option>
               {cameraOptions.map((c) => (
@@ -476,9 +476,7 @@ export default function GuardCompliance() {
             title={summaryOpen
               ? 'Hide the figures and give the height to the list'
               : 'Show the figures and the trend'}
-            className="flex w-full items-center gap-2 text-left text-xs
-                       font-semibold leading-none text-[var(--text-dim)]
-                       hover:text-[var(--text)]"
+            className="flex w-full items-center gap-2 text-left text-xs font-semibold leading-none text-[var(--text-dim)] hover:text-[var(--text)]"
           >
             Summary
             {/* Say whose figures these are: a filtered 100% must never be
@@ -589,8 +587,7 @@ export default function GuardCompliance() {
             onPointerDown={startHeightDrag}
             className="group -mb-1 mt-1 flex h-2 cursor-row-resize items-center justify-center"
           >
-            <div className="h-[3px] w-10 rounded bg-[var(--border)]
-                            group-hover:bg-[var(--accent)]" />
+            <div className="h-[3px] w-10 rounded bg-[var(--border)] group-hover:bg-[var(--accent)]" />
           </div>
           </>
           )}
@@ -667,8 +664,7 @@ export default function GuardCompliance() {
           onPointerDown={startDrag}
           className="group flex w-3 shrink-0 cursor-col-resize items-center justify-center"
         >
-          <div className="h-10 w-[3px] rounded bg-[var(--border)]
-                          group-hover:bg-[var(--accent)]" />
+          <div className="h-10 w-[3px] rounded bg-[var(--border)] group-hover:bg-[var(--accent)]" />
         </div>
       )}
 
@@ -755,8 +751,7 @@ function Tile({ label, value, hint, tone }: {
   // The figure and its name share a baseline — a 20px number and an
   // 11px label aligned any other way read as a mistake.
   return (
-    <div className="flex h-full flex-col justify-center rounded
-                    bg-[var(--panel)] px-3 py-2">
+    <div className="flex h-full flex-col justify-center rounded bg-[var(--panel)] px-3 py-2">
       <div className="flex items-baseline gap-2">
         <div className="text-xl font-semibold leading-none tabular-nums"
              style={{ color: colour }}>
@@ -821,7 +816,7 @@ function BucketChart({ buckets }: { buckets: Tally[] }) {
             {bucket.screenings === 0 ? (
               // A period nobody walked through is not a gap in the
               // chart: it is a fact, and it reads as one.
-              <div className="h-[2px] rounded-sm bg-[var(--border)]" />
+              <div className="h-[2px] bg-[var(--border)]" />
             ) : stack.map((verdict) => {
               const n = (bucket as unknown as Record<string, number>)[verdict] ?? 0
               if (!n) return null
@@ -892,7 +887,7 @@ function BucketTip({ bucket, align }: { bucket: Tally; align: 'left' | 'right' }
       </div>
       {rows.map(([verdict, n]) => (
         <div key={verdict} className="mt-0.5 flex items-center gap-1.5 text-[10px]">
-          <span className="inline-block h-2 w-2 rounded-sm"
+          <span className="inline-block h-2 w-2"
                 style={{ background: VERDICT_COLOUR[verdict] }} />
           <span className="text-[var(--text-dim)]">{VERDICT_LABEL[verdict]}</span>
           <span className="ml-auto pl-2 tabular-nums text-[var(--text)]">{n}</span>
@@ -906,9 +901,8 @@ function Legend() {
   return (
     <div className="flex shrink-0 flex-wrap gap-x-3 gap-y-1">
       {VERDICT_ORDER.map((verdict) => (
-        <span key={verdict} className="flex items-center gap-1 text-[10px]
-                                       text-[var(--text-dim)]">
-          <span className="inline-block h-2 w-2 rounded-sm"
+        <span key={verdict} className="flex items-center gap-1 text-[10px] text-[var(--text-dim)]">
+          <span className="inline-block h-2 w-2"
                 style={{ background: VERDICT_COLOUR[verdict] }} />
           {VERDICT_LABEL[verdict]}
         </span>
@@ -982,7 +976,7 @@ function ScreeningTable({ rows, query, show, cameraName, onOpen, toolbar }: {
             queryKey={['screening-image', s.id, name]}
             fetchBlob={(signal) => guardScanService.screeningImage(s.id, name, signal)}
             alt={`Person screened at ${s.ended_at ?? ''}`}
-            className="h-8 w-8 cursor-zoom-in rounded border border-[var(--border)] object-cover"
+            className="h-8 w-8 cursor-zoom-in border border-[var(--border)] object-cover"
           />
         )
       },

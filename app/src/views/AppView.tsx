@@ -240,7 +240,7 @@ export function AppView() {
             </Button>
           )}
           <label
-            className="inline-flex items-center gap-2 rounded border border-[var(--border)] px-2.5 py-1 text-sm"
+            className="inline-flex items-center gap-2 border border-[var(--border)] px-2.5 py-1 text-sm"
             title={app.enabled ? 'Turn the app off. Its settings and cameras are kept.' : 'Turn the app on'}
           >
             <Switch
@@ -341,7 +341,7 @@ export function AppView() {
                     // is app-authored HTML — render it inert.
                     sandbox=""
                     srcDoc={appUi.data ?? ''}
-                    className="w-full rounded-md border border-[var(--border)] bg-white"
+                    className="w-full border border-[var(--border)] bg-white"
                     style={{ height: 360 }}
                   />
                 )}
@@ -383,7 +383,7 @@ export function AppView() {
                 {actions.map((a) => (
                   <button
                     key={a.name}
-                    className="w-full text-left rounded border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 hover:border-[var(--accent,var(--border))] disabled:opacity-50"
+                    className="w-full text-left border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2 hover:border-[var(--accent,var(--border))] disabled:opacity-50"
                     onClick={() => setActiveAction(a)}
                     disabled={!app.enabled}
                     title={!app.enabled ? 'Enable the app first' : a.description || a.name}

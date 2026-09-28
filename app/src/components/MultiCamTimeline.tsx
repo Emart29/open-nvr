@@ -140,7 +140,7 @@ const TrackRow = memo(function TrackRow({
       >
         {row.name}
       </button>
-      <div className={`flex-1 relative ${rowH} bg-neutral-800 overflow-hidden`}>
+      <div className={`flex-1 relative ${rowH} bg-[var(--panel-2)] overflow-hidden`}>
         {blocks.map((b, i) => (
           <div
             key={i}
@@ -334,7 +334,7 @@ export function MultiCamTimeline({
               style={{ left: `clamp(3.5rem, ${toPct(hoverMs)}%, calc(100% - 3.5rem))` }}
             >
               {fmtFull(hoverMs, fmt)}
-              {hoverInGap && <span className="text-amber-400 ml-1">· {t('shared.noRecordingLower')}</span>}
+              {hoverInGap && <span className="text-[var(--warn)] ml-1">· {t('shared.noRecordingLower')}</span>}
             </span>
           )}
         </div>

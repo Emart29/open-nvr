@@ -299,7 +299,7 @@ export function Loitering() {
         description={t('loitering.description')}
         actions={
           <>
-            <div className="flex rounded border border-[var(--border)] overflow-hidden text-xs">
+            <div className="flex border border-[var(--border)] overflow-hidden text-xs">
               {([1, 7] as const).map((d) => (
                 <button
                   key={d}
@@ -339,7 +339,7 @@ export function Loitering() {
       </div>
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsZone.length === 1 ? 'One camera has no zone drawn:' : `${needsZone.length} cameras have no zone drawn:`}{' '}
@@ -375,8 +375,8 @@ export function Loitering() {
                     <span className="font-medium min-w-[9rem] truncate">{cameraName(d.camera)}</span>
                     <span className="text-[var(--text-dim)] w-16">{d.label}</span>
                     <div className="flex-1 min-w-[10rem]">
-                      <div className="h-2 rounded bg-[var(--bg-2)] overflow-hidden" title={`${Math.round(d.progress * 100)}% of the threshold`}>
-                        <div className="h-full rounded transition-[width]" style={{ width: `${Math.round(Math.min(1, d.progress) * 100)}%`, background: barColor }} />
+                      <div className="h-2 bg-[var(--bg-2)] overflow-hidden" title={`${Math.round(d.progress * 100)}% of the threshold`}>
+                        <div className="h-full transition-[width]" style={{ width: `${Math.round(Math.min(1, d.progress) * 100)}%`, background: barColor }} />
                       </div>
                     </div>
                     <span className="tabular-nums w-14 text-right font-semibold">{mmss(d.dwell_s)}</span>

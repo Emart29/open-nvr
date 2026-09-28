@@ -414,22 +414,22 @@ export function SyncPlaybackTile({
 
       {(status === 'gap' || status === 'idle') && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 pointer-events-none">
-          <CameraOff size={22} className="text-[var(--text-dim)]" />
-          <span className="text-[11px] text-[var(--text-dim)]">{t('shared.noRecordingNow')}</span>
+          <CameraOff size={22} className="text-[var(--on-video-dim)]" />
+          <span className="text-[11px] text-[var(--on-video-dim)]">{t('shared.noRecordingNow')}</span>
         </div>
       )}
 
       {status === 'live' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 pointer-events-none">
-          <Radio size={22} className="text-[var(--ok)] animate-pulse" />
-          <span className="text-[11px] text-[var(--text)]">{t('shared.stillRecording')}</span>
+          <Radio size={22} className="text-[var(--on-video-ok)] animate-pulse" />
+          <span className="text-[11px] text-[var(--on-video)]">{t('shared.stillRecording')}</span>
         </div>
       )}
 
       {status === 'error' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 pointer-events-none">
-          <AlertCircle size={22} className="text-[var(--warn)]" />
-          <span className="text-[11px] text-[var(--text)]">{t('shared.playbackFailed')}</span>
+          <AlertCircle size={22} className="text-[var(--on-video-warn)]" />
+          <span className="text-[11px] text-[var(--on-video)]">{t('shared.playbackFailed')}</span>
         </div>
       )}
     </div>

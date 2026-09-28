@@ -215,9 +215,9 @@ function formatWindow(seconds: number | undefined): string {
 // ok is green; model errors are the model's fault (amber, tune/rollback);
 // provider/transport/refused mean the serving path is broken (red).
 function outcomeBarClass(outcome: string): string {
-  if (outcome === 'ok') return 'bg-emerald-500'
-  if (outcome === 'model_error') return 'bg-amber-500'
-  return 'bg-red-500'
+  if (outcome === 'ok') return 'bg-[var(--ok)]'
+  if (outcome === 'model_error') return 'bg-[var(--warn)]'
+  return 'bg-[var(--critical)]'
 }
 
 function LatencyBars({ latency, requests }: { latency: AdapterMetricsResp['latency_ms']; requests?: number }) {
@@ -243,9 +243,9 @@ function LatencyBars({ latency, requests }: { latency: AdapterMetricsResp['laten
         return (
           <div key={r.label} className="grid grid-cols-[32px_1fr_56px] items-center gap-2">
             <span className="font-mono text-xs text-[var(--text-dim)]">{r.label}</span>
-            <div className="h-2 rounded bg-[var(--panel-2)] overflow-hidden">
+            <div className="h-2 bg-[var(--panel-2)] overflow-hidden">
               <div
-                className={`h-full rounded ${r.label === 'p99' ? 'bg-amber-500' : 'bg-[var(--accent)]'}`}
+                className={`h-full  ${r.label === 'p99' ? 'bg-[var(--warn)]' : 'bg-[var(--accent)]'}`}
                 style={{ width: `${width}%` }}
               />
             </div>
@@ -265,7 +265,7 @@ function OutcomesSplit({ outcomes }: { outcomes: Record<string, number> }) {
   entries.sort(([a], [b]) => (a === 'ok' ? -1 : b === 'ok' ? 1 : a.localeCompare(b)))
   return (
     <div>
-      <div className="flex h-2.5 rounded overflow-hidden mb-2">
+      <div className="flex h-2.5 overflow-hidden mb-2">
         {entries.map(([outcome, n]) => (
           <div key={outcome} className={outcomeBarClass(outcome)} style={{ width: `${(n / total) * 100}%` }} title={`${outcome}: ${n}`} />
         ))}
@@ -273,7 +273,7 @@ function OutcomesSplit({ outcomes }: { outcomes: Record<string, number> }) {
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {entries.map(([outcome, n]) => (
           <span key={outcome} className="inline-flex items-center gap-1.5 font-mono text-xs text-[var(--text-dim)]">
-            <i className={`w-2 h-2 rounded-sm ${outcomeBarClass(outcome)}`} />
+            <i className={`w-2 h-2  ${outcomeBarClass(outcome)}`} />
             {outcome} {((n / total) * 100).toFixed(total < 200 ? 0 : 1)}%
           </span>
         ))}
@@ -288,15 +288,15 @@ function SaturationGauge({ inflight, maxInflight }: { inflight: number; maxInfli
   return (
     <div>
       <div className="flex items-baseline gap-2">
-        <span className={`font-mono text-lg font-bold tabular-nums ${warn ? 'text-amber-400' : 'text-[var(--text)]'}`}>
+        <span className={`font-mono text-lg font-bold tabular-nums ${warn ? 'text-[var(--warn)]' : 'text-[var(--text)]'}`}>
           {inflight} / {maxInflight > 0 ? maxInflight : '—'}
         </span>
         <span className="font-mono text-xs text-[var(--text-dim)]">
           {pct != null ? `${pct}%${warn ? ' — near ceiling' : ''}` : 'no declared ceiling'}
         </span>
       </div>
-      <div className="h-2 rounded bg-[var(--panel-2)] overflow-hidden mt-2">
-        <div className={`h-full ${warn ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
+      <div className="h-2 bg-[var(--panel-2)] overflow-hidden mt-2">
+        <div className={`h-full ${warn ? 'bg-[var(--warn)]' : 'bg-[var(--ok)]'}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
       </div>
     </div>
   )
@@ -456,20 +456,20 @@ function AdapterPermissionsSection({ name }: { name: string }) {
               ))}
             </div>
           ) : query.isError ? (
-            <div className="text-sm text-red-300/90 border border-red-700/40 rounded p-3">
+            <div className="text-sm text-[var(--danger)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] p-3">
               {extractApiError(query.error, 'Could not load adapter permissions.')}
             </div>
           ) : p ? (
             <div className="space-y-2">
               {p.approval_status === 'pending' && (
-                <div className="flex items-start gap-2 text-xs text-amber-300 border border-amber-700/40 bg-amber-900/20 rounded p-3">
+                <div className="flex items-start gap-2 text-xs text-[var(--warn)] border border-[color-mix(in_oklab,var(--warn)_45%,var(--border))] bg-[color-mix(in_oklab,var(--warn)_14%,transparent)] p-3">
                   <ShieldAlert size={14} className="flex-shrink-0 mt-0.5" />
                   <span>This adapter cannot serve inference until its permissions are approved.</span>
                 </div>
               )}
 
               {p.declared.length === 0 ? (
-                <div className="text-xs text-[var(--text-dim)] border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+                <div className="text-xs text-[var(--text-dim)] border border-[var(--border)] bg-[var(--bg-2)] p-3">
                   This adapter declares no host permissions — nothing to approve.
                 </div>
               ) : (
@@ -480,13 +480,13 @@ function AdapterPermissionsSection({ name }: { name: string }) {
                     return (
                       <div
                         key={perm.key}
-                        className="flex items-center gap-2 border border-[var(--border)] rounded bg-[var(--bg-2)] px-3 py-2"
+                        className="flex items-center gap-2 border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2"
                       >
                         <span className="text-[var(--text-dim)]">{permissionKindIcon(perm.kind)}</span>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm truncate" title={perm.label}>{perm.label}</div>
                           {perm.sovereignty_conflict && (
-                            <div className="flex items-center gap-1 text-[11px] text-red-400 mt-0.5">
+                            <div className="flex items-center gap-1 text-[11px] text-[var(--danger)] mt-0.5">
                               <ShieldAlert size={11} /> conflicts with local_only
                             </div>
                           )}
@@ -579,11 +579,11 @@ function AdapterMetricsSection({ name }: { name: string }) {
               ))}
             </div>
           ) : query.isError ? (
-            <div className="text-sm text-red-300/90 border border-red-700/40 rounded p-3">
+            <div className="text-sm text-[var(--danger)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] p-3">
               {extractApiError(query.error, 'Could not load adapter metrics.')}
             </div>
           ) : noSamples ? (
-            <div className="text-xs text-[var(--text-dim)] border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+            <div className="text-xs text-[var(--text-dim)] border border-[var(--border)] bg-[var(--bg-2)] p-3">
               No samples yet — this adapter hasn't served governed inference in the {formatWindow(m?.window_s) || 'current'} window.
             </div>
           ) : m ? (
@@ -629,7 +629,7 @@ function AdapterMetricsSection({ name }: { name: string }) {
                 </MetricPanel>
                 <MetricPanel title="Queue depth" decision="throttle fan-in / drop to keyframes">
                   <div className="flex items-baseline gap-2">
-                    <span className={`font-mono text-lg font-bold tabular-nums ${(m.queue_depth ?? 0) > 0 ? 'text-amber-400' : 'text-[var(--text)]'}`}>
+                    <span className={`font-mono text-lg font-bold tabular-nums ${(m.queue_depth ?? 0) > 0 ? 'text-[var(--warn)]' : 'text-[var(--text)]'}`}>
                       {m.queue_depth ?? 0}
                     </span>
                     <span className="font-mono text-xs text-[var(--text-dim)]">frames waiting on the model</span>
@@ -738,17 +738,17 @@ function FleetStrip({ fleet }: { fleet: FleetMetricsResp | undefined }) {
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 py-3 font-mono text-xs">
-        <span><span className="text-emerald-400 font-bold tabular-nums">{ok}</span>
+        <span><span className="text-[var(--ok)] font-bold tabular-nums">{ok}</span>
           <span className="text-[var(--text-dim)]">/{entries.length} adapters ok</span></span>
         <span><span className="text-[var(--text-dim)]">worst p95 </span>
           <span className="font-bold tabular-nums">{worst ? `${formatMs(worst.p95)}` : '—'}</span>
           {worst && <span className="text-[var(--text-dim)]"> ({worst.name})</span>}</span>
         <span><span className="font-bold tabular-nums">{Math.round(rpm)}</span>
           <span className="text-[var(--text-dim)]"> req/min fleet-wide</span></span>
-        <span className={nearCeiling ? 'text-amber-400' : ''}>
+        <span className={nearCeiling ? 'text-[var(--warn)]' : ''}>
           <span className="font-bold tabular-nums">{nearCeiling}</span>
           <span className={nearCeiling ? '' : 'text-[var(--text-dim)]'}> near capacity</span></span>
-        <span className={drifted ? 'text-amber-400' : ''}>
+        <span className={drifted ? 'text-[var(--warn)]' : ''}>
           <span className="font-bold tabular-nums">{drifted}</span>
           <span className={drifted ? '' : 'text-[var(--text-dim)]'}> with model drift (1h)</span></span>
       </CardContent>
@@ -894,10 +894,10 @@ function PromotionCard({ d }: { d: Tier0MetricsResp }) {
   if (d.mode === 'enforce') {
     const g = d.gate
     return (
-      <div className="border border-emerald-700/50 bg-emerald-600/10 rounded p-3 text-sm">
+      <div className="border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] p-3 text-sm">
         <div className="flex items-center justify-between gap-3">
           <span>
-            <ShieldCheck size={14} className="inline mr-1.5 text-emerald-400" />
+            <ShieldCheck size={14} className="inline mr-1.5 text-[var(--ok)]" />
             Enforcement is on — {fmt.number(g?.suppressions ?? 0)} expensive
             looks skipped so far.
           </span>
@@ -916,7 +916,7 @@ function PromotionCard({ d }: { d: Tier0MetricsResp }) {
   // ready — the recommendation with evidence
   if (promo.ready) {
     return (
-      <div className="border border-[var(--accent,#5eb3f6)]/60 bg-[var(--accent,#5eb3f6)]/10 rounded p-3 text-sm space-y-2">
+      <div className="border border-[var(--accent,#5eb3f6)]/60 bg-[var(--accent,#5eb3f6)]/10 p-3 text-sm space-y-2">
         <div>
           <Info size={14} className="inline mr-1.5" />
           Shadow data ({promo.shadow_days?.toFixed(0)} days): enforcement would
@@ -934,7 +934,7 @@ function PromotionCard({ d }: { d: Tier0MetricsResp }) {
   // collecting — progress doubles as the in-product Tier-0 explainer
   const days = promo.shadow_days ?? 0
   return (
-    <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3 text-xs text-[var(--text-dim)]">
+    <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3 text-xs text-[var(--text-dim)]">
       Measuring in shadow — day {Math.max(1, Math.ceil(days))} of 7. The gate is
       auditing every escalate/suppress decision without acting; once a week of
       data shows meaningful savings, you can enable enforcement here with one
@@ -1034,7 +1034,7 @@ function ComputeGatedPanel() {
             protecting the stream by detecting less; "main stream" flags the
             5x-decode-cost misconfiguration the operator can actually fix. */}
         {(d.cameras?.length ?? 0) > 0 && (
-          <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3 overflow-x-auto">
+          <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3 overflow-x-auto">
             <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)] mb-2 font-mono">
               Cameras
             </div>
@@ -1056,21 +1056,21 @@ function ComputeGatedPanel() {
                   return (
                     <tr key={c.camera} className="border-t border-[var(--border)]">
                       <td className="pr-4 py-1">
-                        <span className={c.up ? '' : 'text-red-400'}>{c.camera}{c.up ? '' : ' (down)'}</span>
+                        <span className={c.up ? '' : 'text-[var(--danger)]'}>{c.camera}{c.up ? '' : ' (down)'}</span>
                       </td>
-                      <td className={`pr-4 py-1 tabular-nums ${fpsLow ? 'text-amber-400' : ''}`}>
+                      <td className={`pr-4 py-1 tabular-nums ${fpsLow ? 'text-[var(--warn)]' : ''}`}>
                         {c.fps ?? '—'}{c.target_fps != null ? ` / ${c.target_fps}` : ''}
                       </td>
                       <td className="pr-4 py-1 tabular-nums">
                         {c.frame_age_s != null ? `${c.frame_age_s}s` : '—'}
                       </td>
-                      <td className={`pr-4 py-1 tabular-nums ${c.shedding ? 'text-amber-400' : ''}`}>
+                      <td className={`pr-4 py-1 tabular-nums ${c.shedding ? 'text-[var(--warn)]' : ''}`}>
                         {c.regions_budget ?? '—'}{c.regions_configured != null ? ` / ${c.regions_configured}` : ''}
                         {c.shedding ? ' · shedding' : ''}
                         {c.motion_latched_open ? ' · gate open (no static background)' : ''}
                       </td>
                       <td className="pr-4 py-1 tabular-nums">{c.tracks_active}</td>
-                      <td className={`pr-4 py-1 tabular-nums ${c.visits_dropped > 0 ? 'text-amber-400' : ''}`}>
+                      <td className={`pr-4 py-1 tabular-nums ${c.visits_dropped > 0 ? 'text-[var(--warn)]' : ''}`}>
                         {fmt.number(c.visits_posted)}
                         {c.visits_dropped > 0 ? ` (+${c.visits_dropped} dropped)` : ''}
                       </td>
@@ -1103,7 +1103,7 @@ function ComputeGatedPanel() {
 
         {/* Detector model — speed + output volume, the aspects you A/B two models on */}
         {d.detector && (
-          <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+          <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3">
             <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)] mb-2 font-mono">
               Detector model{d.model ? ` — ${d.model}` : ''}
             </div>
@@ -1123,7 +1123,7 @@ function ComputeGatedPanel() {
                 .sort((a, b) => b[1] - a[1]).slice(0, 6)
                 .map(([label, n]) => (
                   <span key={label} className="inline-flex items-center gap-1.5 text-[var(--text-dim)]">
-                    <i className="w-1.5 h-1.5 rounded-sm bg-[var(--accent,#5eb3f6)]" />
+                    <i className="w-1.5 h-1.5 bg-[var(--accent,#5eb3f6)]" />
                     {label} <span className="tabular-nums text-[var(--text)]">{fmt.number(n)}</span>
                   </span>
                 ))}
@@ -1142,7 +1142,7 @@ function ComputeGatedPanel() {
         )}
 
         {/* Gate decisions: what got suppressed (the saving) vs escalated (the cost) */}
-        <div className="border border-[var(--border)] rounded bg-[var(--bg-2)] p-3">
+        <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3">
           <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)] mb-2 font-mono">
             Gate decisions{shadow ? ' — shadow preview' : ''}
           </div>
@@ -1150,19 +1150,19 @@ function ComputeGatedPanel() {
             <div className="text-xs text-[var(--text-dim)]">No gate decisions recorded yet.</div>
           ) : (
             <>
-              <div className="flex h-2.5 rounded overflow-hidden mb-2">
-                <div className="bg-emerald-500" style={{ width: `${(suppressN / decisionTotal) * 100}%` }}
+              <div className="flex h-2.5 overflow-hidden mb-2">
+                <div className="bg-[var(--ok)]" style={{ width: `${(suppressN / decisionTotal) * 100}%` }}
                   title={`${shadow ? 'would suppress' : 'suppressed'}: ${suppressN}`} />
-                <div className="bg-amber-500" style={{ width: `${(escN / decisionTotal) * 100}%` }}
+                <div className="bg-[var(--warn)]" style={{ width: `${(escN / decisionTotal) * 100}%` }}
                   title={`escalated: ${escN}`} />
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-[var(--text-dim)]">
                 <span className="inline-flex items-center gap-1.5">
-                  <i className="w-2 h-2 rounded-sm bg-emerald-500" />
+                  <i className="w-2 h-2 bg-[var(--ok)]" />
                   {shadow ? 'would suppress' : 'suppressed'} {fmt.number(suppressN)} ({formatPct(suppressN / decisionTotal)})
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <i className="w-2 h-2 rounded-sm bg-amber-500" />
+                  <i className="w-2 h-2 bg-[var(--warn)]" />
                   escalated {fmt.number(escN)} ({formatPct(escN / decisionTotal)})
                 </span>
               </div>
@@ -1339,7 +1339,7 @@ export function AIAdapters() {
                     {expanded === a.name ? 'Hide raw capabilities' : 'Show raw capabilities'}
                   </Button>
                   {expanded === a.name && (
-                    <pre className="mt-2 p-3 text-xs leading-snug overflow-auto max-h-64 border border-[var(--border)] rounded bg-[var(--bg-2)]">
+                    <pre className="mt-2 p-3 text-xs leading-snug overflow-auto max-h-64 border border-[var(--border)] bg-[var(--bg-2)]">
                       {JSON.stringify(a.raw, null, 2)}
                     </pre>
                   )}

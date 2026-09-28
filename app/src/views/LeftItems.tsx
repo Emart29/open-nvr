@@ -298,7 +298,7 @@ export function LeftItems() {
       </div>
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsZone.length === 1 ? 'One camera has no zone drawn:' : `${needsZone.length} cameras have no zone drawn:`}{' '}
@@ -351,9 +351,9 @@ export function LeftItems() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="flex-1 min-w-[10rem]">
-                        <div className="h-2 rounded bg-[var(--bg-2)] overflow-hidden"
+                        <div className="h-2 bg-[var(--bg-2)] overflow-hidden"
                              title={`${Math.round(Math.min(1, i.progress) * 100)}% of the threshold`}>
-                          <div className="h-full rounded transition-[width]"
+                          <div className="h-full transition-[width]"
                                style={{ width: `${Math.round(Math.min(1, i.progress) * 100)}%`, background: bar }} />
                         </div>
                       </div>

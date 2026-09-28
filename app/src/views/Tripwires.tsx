@@ -262,7 +262,7 @@ export function Tripwires() {
         description={t('tripwires.description')}
         actions={
           <>
-            <div className="flex rounded border border-[var(--border)] overflow-hidden text-xs">
+            <div className="flex border border-[var(--border)] overflow-hidden text-xs">
               {([1, 7] as const).map((d) => (
                 <button
                   key={d}
@@ -301,7 +301,7 @@ export function Tripwires() {
       </div>
 
       {needsLine.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
           <PenLine size={14} className="text-[var(--warn)]" />
           <span>
             {needsLine.length === 1 ? 'One camera is selected but has no line yet:' : `${needsLine.length} cameras are selected but have no line yet:`}{' '}

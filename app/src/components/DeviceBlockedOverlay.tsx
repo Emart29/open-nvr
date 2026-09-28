@@ -37,7 +37,7 @@ export function DeviceBlockedOverlay() {
           <span className="font-mono text-[var(--text)]">{ip}</span>
         </p>
         <button
-          className="px-4 py-2 bg-[var(--accent)] text-white rounded"
+          className="px-4 py-2 bg-[var(--accent)] text-white"
           onClick={() => window.location.reload()}
         >
           {t('shared.reload')}

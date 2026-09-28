@@ -378,7 +378,7 @@ export function Deliveries() {
       )}
 
       {needsZone.length > 0 && app && (
-        <div className="rounded border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex items-start gap-2">
+        <div className="border border-[var(--warn)]/40 bg-[var(--warn)]/5 px-3 py-2 text-sm flex items-start gap-2">
           <PenLine size={14} className="text-[var(--warn)] shrink-0 mt-1" />
           <span className="flex-1">
             {needsZone.length === 1 ? 'One door has no porch zone drawn:' : `${needsZone.length} doors have no porch zone drawn:`}{' '}
@@ -469,7 +469,7 @@ function CountedBy({ counted, hours, checks }: {
 
   if (quality === 'none') {
     return (
-      <div className="rounded border border-[var(--danger)]/40 bg-[var(--danger)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+      <div className="border border-[var(--danger)]/40 bg-[var(--danger)]/5 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
         <AlertTriangle size={14} className="text-[var(--danger)]" />
         <span>
           <b>No skill can count packages on this box.</b> Install a VQA or package-detection adapter
@@ -655,7 +655,7 @@ function EventRow({ ev, name, alert, onView }: {
           onClick={() => onView(alert)}
           aria-label={`Open the ${pair.length === 2 ? 'before and after photos' : 'photo'} for this event`}
           title="Open the photographs"
-          className="flex items-center gap-1 shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="flex items-center gap-1 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
           {pair.map((n, i) => (
             <span key={n} className="flex items-center gap-1">
@@ -664,7 +664,7 @@ function EventRow({ ev, name, alert, onView }: {
                 queryKey={['alert-image', alert.id, n]}
                 fetchBlob={(signal) => alertsInboxService.getAlertImage(alert.id, n, signal)}
                 alt={`${n} photo`}
-                className="h-10 w-16 rounded object-cover border border-[var(--border)]"
+                className="h-10 w-16 object-cover border border-[var(--border)]"
               />
             </span>
           ))}

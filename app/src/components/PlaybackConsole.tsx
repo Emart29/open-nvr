@@ -732,8 +732,8 @@ export function PlaybackConsole({
         >
           {error ? (
             <div className="text-center p-8">
-              <AlertCircle size={48} className="mx-auto mb-3 text-[var(--warn)] opacity-70" />
-              <p className="text-[var(--text)] text-sm">{error}</p>
+              <AlertCircle size={48} className="mx-auto mb-3 text-[var(--on-video-warn)] opacity-70" />
+              <p className="text-[var(--on-video)] text-sm">{error}</p>
             </div>
           ) : (
             <>
@@ -754,11 +754,11 @@ export function PlaybackConsole({
               {livePrompt && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
                   <div className="text-center p-6 max-w-sm">
-                    <Radio size={36} className="mx-auto mb-3 text-[var(--ok)] animate-pulse" />
-                    <p className="text-sm text-[var(--text)] mb-1 font-medium">
+                    <Radio size={36} className="mx-auto mb-3 text-[var(--on-video-ok)] animate-pulse" />
+                    <p className="text-sm text-[var(--on-video)] mb-1 font-medium">
                       You've reached the live edge
                     </p>
-                    <p className="text-xs text-[var(--text-dim)] mb-4">
+                    <p className="text-xs text-[var(--on-video-dim)] mb-4">
                       This part is still being recorded and will appear here once
                       it's finished. Watch what's happening now in Live View.
                     </p>
@@ -774,7 +774,7 @@ export function PlaybackConsole({
                       </button>
                       <button
                         onClick={() => setLivePrompt(false)}
-                        className="px-3 py-1.5 border border-[var(--border)] text-xs text-[var(--text)] hover:bg-white/5 transition-colors"
+                        className="px-3 py-1.5 border border-white/25 text-xs text-[var(--on-video)] hover:bg-white/5 transition-colors"
                       >
                         Stay in playback
                       </button>

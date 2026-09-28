@@ -594,7 +594,7 @@ export function AIModelsBYOM() {
         <h1 className="text-lg font-semibold">{t('models.title')}</h1>
         <button
           onClick={openCloudDialog}
-          className="flex items-center gap-2 px-3 py-2 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 text-sm"
+          className="flex items-center gap-2 px-3 py-2 bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] hover:bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-sm"
         >
           <Cloud size={16} />
           Cloud AI
@@ -602,18 +602,18 @@ export function AIModelsBYOM() {
       </div>
 
       {notice && (
-        <div className="p-2 rounded bg-green-500/10 border border-green-500/30 text-green-300 text-sm">
+        <div className="p-2 bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] text-[var(--ok)] text-sm">
           {notice}
         </div>
       )}
       {error && (
-        <div className="p-2 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+        <div className="p-2 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] text-sm">
           {error}
         </div>
       )}
 
       {/* Add/Edit Model Form */}
-      <div className="border border-neutral-700 bg-[var(--panel-2)] p-4 rounded">
+      <div className="border border-[var(--border)] bg-[var(--panel-2)] p-4">
         <h2 className="text-md font-medium mb-3">
           {editingId ? t('models.edit') : t('models.add')}
         </h2>
@@ -621,7 +621,7 @@ export function AIModelsBYOM() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-[var(--text-dim)] mb-1">
-                {t('models.name')} <span className="text-red-400">*</span>
+                {t('models.name')} <span className="text-[var(--danger)]">*</span>
               </label>
               <input
                 type="text"
@@ -636,7 +636,7 @@ export function AIModelsBYOM() {
 
             <div>
               <label className="block text-sm text-[var(--text-dim)] mb-1">
-                {t('models.model')} <span className="text-red-400">*</span>
+                {t('models.model')} <span className="text-[var(--danger)]">*</span>
               </label>
               <select
                 className="select w-full"
@@ -667,7 +667,7 @@ export function AIModelsBYOM() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-[var(--text-dim)] mb-1">
-                {t('models.task')} <span className="text-red-400">*</span>
+                {t('models.task')} <span className="text-[var(--danger)]">*</span>
               </label>
               <select
                 className="select w-full"
@@ -700,7 +700,7 @@ export function AIModelsBYOM() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-[var(--text-dim)] mb-1">
-                {t('models.sourceType')} <span className="text-red-400">*</span>
+                {t('models.sourceType')} <span className="text-[var(--danger)]">*</span>
               </label>
               <select
                 className="select w-full"
@@ -724,7 +724,7 @@ export function AIModelsBYOM() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm text-[var(--text-dim)] mb-1">
-                  {t('models.assignedCamera')} <span className="text-red-400">*</span>
+                  {t('models.assignedCamera')} <span className="text-[var(--danger)]">*</span>
                 </label>
                 <select
                   className="select w-full"
@@ -775,7 +775,7 @@ export function AIModelsBYOM() {
           {formData.source_type === 'recording' && (
             <div>
               <label className="block text-sm text-[var(--text-dim)] mb-1">
-                {t('models.recordingFile')} <span className="text-red-400">*</span>
+                {t('models.recordingFile')} <span className="text-[var(--danger)]">*</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -798,7 +798,7 @@ export function AIModelsBYOM() {
                 </button>
               </div>
               {formData.recording_path && (
-                <div className="text-xs text-green-400 mt-1">
+                <div className="text-xs text-[var(--ok)] mt-1">
                   ✓ Recording selected: {formData.recording_path}
                 </div>
               )}
@@ -824,7 +824,7 @@ export function AIModelsBYOM() {
           <div className="flex gap-2">
             <button
               type="submit"
-              className="px-4 py-2 bg-[var(--accent)] text-white rounded disabled:opacity-50"
+              className="px-4 py-2 bg-[var(--accent)] text-white disabled:opacity-50"
               disabled={!canAdmin || loading || !formData.name}
             >
               {editingId ? t('models.update') : t('models.add')}
@@ -833,7 +833,7 @@ export function AIModelsBYOM() {
               <button
                 type="button"
                 onClick={handleCancelEdit}
-                className="px-4 py-2 bg-[var(--panel)] border border-neutral-700 rounded"
+                className="px-4 py-2 bg-[var(--panel)] border border-[var(--border)]"
               >
                 Cancel
               </button>
@@ -843,8 +843,8 @@ export function AIModelsBYOM() {
       </div>
 
       {/* Models Table */}
-      <div className="border border-neutral-700 bg-[var(--panel-2)] rounded overflow-hidden">
-        <div className="p-3 border-b border-neutral-700">
+      <div className="border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden">
+        <div className="p-3 border-b border-[var(--border)]">
           <h2 className="text-md font-medium">{t('models.configured')} ({models.length})</h2>
         </div>
 
@@ -873,11 +873,11 @@ export function AIModelsBYOM() {
                 {models.map((model) => (
                   <tr
                     key={model.id}
-                    className="border-t border-neutral-700 hover:bg-[var(--panel)]/50"
+                    className="border-t border-[var(--border)] hover:bg-[var(--panel)]/50"
                   >
                     <td className="p-3 font-medium">{model.name}</td>
                     <td className="p-3">
-                      <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded">
+                      <span className="text-xs bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)] px-2 py-1">
                         {model.model_name}
                       </span>
                     </td>
@@ -893,7 +893,7 @@ export function AIModelsBYOM() {
                             </div>
                           </div>
                         ) : (
-                          <span className="text-xs text-neutral-500">No camera</span>
+                          <span className="text-xs text-[var(--text-dim)]">No camera</span>
                         )
                       ) : (
                         <div className="text-xs">
@@ -913,8 +913,8 @@ export function AIModelsBYOM() {
                         disabled={!canAdmin}
                         className={`px-2 py-1 rounded text-xs font-medium ${
                           model.enabled
-                            ? 'bg-green-500/20 text-green-300'
-                            : 'bg-red-500/20 text-red-300'
+                            ? 'bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]'
+                            : 'bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)]'
                         } disabled:opacity-50`}
                       >
                         {model.enabled ? t('models.enabled') : t('models.disabled')}
@@ -927,7 +927,7 @@ export function AIModelsBYOM() {
                         // the event bus. Point the capability at cameras via
                         // Cameras → edit → Assignments instead of a per-model
                         // Start button (docs/CAMERA_ASSIGNMENTS.md).
-                        <span className="text-xs text-neutral-500" title="Live detection runs continuously through the built-in Tier-0 detector. Give the camera a job under Cameras → edit → Assignments.">
+                        <span className="text-xs text-[var(--text-dim)]" title="Live detection runs continuously through the built-in Tier-0 detector. Give the camera a job under Cameras → edit → Assignments.">
                           via Tier-0 + assignments
                         </span>
                       ) : (
@@ -939,7 +939,7 @@ export function AIModelsBYOM() {
                               disabled={!canAdmin || inferenceLoading.has(model.id)}
                               className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-50 ${
                                 runningModels.has(model.id)
-                                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                                  ? 'bg-[var(--critical)] hover:bg-[var(--critical)] text-white'
                                   : 'bg-purple-600 hover:bg-purple-700 text-white'
                               }`}
                             >
@@ -956,7 +956,7 @@ export function AIModelsBYOM() {
                             )}
                           </>
                         ) : (
-                          <span className="text-xs text-neutral-500">
+                          <span className="text-xs text-[var(--text-dim)]">
                             {!model.enabled ? t('models.disabled') : t('models.noRecording')}
                           </span>
                         )
@@ -967,14 +967,14 @@ export function AIModelsBYOM() {
                         <button
                           onClick={() => handleEdit(model)}
                           disabled={!canAdmin}
-                          className="px-2 py-1 bg-blue-600/20 border border-blue-600/50 rounded text-blue-300 hover:bg-blue-600/30 disabled:opacity-50 text-xs"
+                          className="px-2 py-1 bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] text-[var(--accent)] hover:bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] disabled:opacity-50 text-xs"
                         >
                           {t('common.edit')}
                         </button>
                         <button
                           onClick={() => handleDelete(model.id, model.name)}
                           disabled={!canAdmin}
-                          className="px-2 py-1 bg-red-600/20 border border-red-600/50 rounded text-red-300 hover:bg-red-600/30 disabled:opacity-50 text-xs"
+                          className="px-2 py-1 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] disabled:opacity-50 text-xs"
                         >
                           {t('models.delete')}
                         </button>
@@ -1024,8 +1024,8 @@ export function AIModelsBYOM() {
       {/* Cloud AI Dialog */}
       {showCloudDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--panel)] border border-neutral-700 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-neutral-700 flex justify-between items-center">
+          <div className="bg-[var(--panel)] border border-[var(--border)] max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-[var(--border)] flex justify-between items-center">
               <h3 className="text-lg font-medium">{t('models.cloudProviders')}</h3>
               <button
                 onClick={() => setShowCloudDialog(false)}
@@ -1036,7 +1036,7 @@ export function AIModelsBYOM() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 px-4 pt-4 border-b border-neutral-700">
+            <div className="flex gap-2 px-4 pt-4 border-b border-[var(--border)]">
               <button
                 onClick={() => setCloudTab('credentials')}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -1069,14 +1069,14 @@ export function AIModelsBYOM() {
                     </p>
                     <button
                       onClick={() => setShowAddCredential(true)}
-                      className="px-3 py-1.5 bg-[var(--accent)] text-white rounded text-sm hover:opacity-90"
+                      className="px-3 py-1.5 bg-[var(--accent)] text-white text-sm hover:opacity-90"
                     >
                       {t('models.addCredential')}
                     </button>
                   </div>
 
                   {showAddCredential && (
-                    <div className="border border-neutral-700 bg-[var(--panel-2)] p-4 rounded space-y-3">
+                    <div className="border border-[var(--border)] bg-[var(--panel-2)] p-4 space-y-3">
                       <h4 className="font-medium text-sm">{t('models.newCredential')}</h4>
                       <div className="space-y-3">
                         <div>
@@ -1114,13 +1114,13 @@ export function AIModelsBYOM() {
                           <button
                             onClick={addCloudCredential}
                             disabled={cloudLoading}
-                            className="px-3 py-1.5 bg-[var(--accent)] text-white rounded text-sm hover:opacity-90 disabled:opacity-50"
+                            className="px-3 py-1.5 bg-[var(--accent)] text-white text-sm hover:opacity-90 disabled:opacity-50"
                           >
                             {cloudLoading ? 'Adding...' : 'Add'}
                           </button>
                           <button
                             onClick={() => setShowAddCredential(false)}
-                            className="px-3 py-1.5 border border-neutral-700 rounded text-sm hover:bg-[var(--panel-2)]"
+                            className="px-3 py-1.5 border border-[var(--border)] text-sm hover:bg-[var(--panel-2)]"
                           >
                             {t('models.cancel')}
                           </button>
@@ -1131,12 +1131,12 @@ export function AIModelsBYOM() {
 
                   <div className="space-y-2">
                     {cloudCredentials.length === 0 && !cloudLoading && (
-                      <div className="text-center py-8 text-sm text-[var(--text-dim)] border border-neutral-700 rounded">
+                      <div className="text-center py-8 text-sm text-[var(--text-dim)] border border-[var(--border)]">
                         {t('models.noCredentials')}
                       </div>
                     )}
                     {cloudCredentials.map((cred) => (
-                      <div key={cred.id} className="border border-neutral-700 bg-[var(--panel-2)] p-3 rounded flex justify-between items-center">
+                      <div key={cred.id} className="border border-[var(--border)] bg-[var(--panel-2)] p-3 flex justify-between items-center">
                         <div>
                           <div className="font-medium text-sm capitalize">{cred.provider}</div>
                           <div className="text-xs text-[var(--text-dim)]">
@@ -1150,7 +1150,7 @@ export function AIModelsBYOM() {
                         </div>
                         <button
                           onClick={() => deleteCloudCredential(cred.id)}
-                          className="px-3 py-1 bg-red-500/10 text-red-400 border border-red-500/30 rounded text-xs hover:bg-red-500/20"
+                          className="px-3 py-1 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-xs hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)]"
                         >
                           {t('models.delete')}
                         </button>
@@ -1169,7 +1169,7 @@ export function AIModelsBYOM() {
                     </p>
                     <button
                       onClick={() => setShowAddCloudModel(true)}
-                      className="px-3 py-1.5 bg-[var(--accent)] text-white rounded text-sm hover:opacity-90"
+                      className="px-3 py-1.5 bg-[var(--accent)] text-white text-sm hover:opacity-90"
                       disabled={cloudCredentials.length === 0}
                     >
                           {t('models.add')}
@@ -1177,7 +1177,7 @@ export function AIModelsBYOM() {
                   </div>
 
                   {showAddCloudModel && (
-                    <div className="border border-neutral-700 bg-[var(--panel-2)] p-4 rounded space-y-3">
+                    <div className="border border-[var(--border)] bg-[var(--panel-2)] p-4 space-y-3">
                       <h4 className="font-medium text-sm">Configure Cloud Model</h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -1252,13 +1252,13 @@ export function AIModelsBYOM() {
                         <button
                           onClick={addCloudModel}
                           disabled={cloudLoading}
-                          className="px-3 py-1.5 bg-[var(--accent)] text-white rounded text-sm hover:opacity-90 disabled:opacity-50"
+                          className="px-3 py-1.5 bg-[var(--accent)] text-white text-sm hover:opacity-90 disabled:opacity-50"
                         >
                           {cloudLoading ? 'Adding...' : 'Add'}
                         </button>
                         <button
                           onClick={() => setShowAddCloudModel(false)}
-                          className="px-3 py-1.5 border border-neutral-700 rounded text-sm hover:bg-[var(--panel-2)]"
+                          className="px-3 py-1.5 border border-[var(--border)] text-sm hover:bg-[var(--panel-2)]"
                         >
                           Cancel
                         </button>
@@ -1268,14 +1268,14 @@ export function AIModelsBYOM() {
 
                   <div className="space-y-2">
                     {cloudModels.length === 0 && !cloudLoading && (
-                      <div className="text-center py-8 text-sm text-[var(--text-dim)] border border-neutral-700 rounded">
+                      <div className="text-center py-8 text-sm text-[var(--text-dim)] border border-[var(--border)]">
                         {cloudCredentials.length === 0
                           ? t('models.addCredentialsFirst')
                           : 'No models configured. Add your first cloud model.'}
                       </div>
                     )}
                     {cloudModels.map((model) => (
-                      <div key={model.id} className="border border-neutral-700 bg-[var(--panel-2)] p-3 rounded">
+                      <div key={model.id} className="border border-[var(--border)] bg-[var(--panel-2)] p-3">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <div className="font-medium text-sm">{model.name}</div>
@@ -1288,7 +1288,7 @@ export function AIModelsBYOM() {
                           </div>
                           <button
                             onClick={() => deleteCloudModel(model.id)}
-                            className="px-3 py-1 bg-red-500/10 text-red-400 border border-red-500/30 rounded text-xs hover:bg-red-500/20"
+                            className="px-3 py-1 bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] text-[var(--danger)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-xs hover:bg-[color-mix(in_oklab,var(--danger)_14%,transparent)]"
                           >
                             Delete
                           </button>

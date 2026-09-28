@@ -899,7 +899,7 @@ export function AppConfigModal({ app, onClose, initialCamera }: {
       )}
       </AppCameraScope.Provider>
 
-      {error && <div className="mt-3 text-sm text-red-400">{error}</div>}
+      {error && <div className="mt-3 text-sm text-[var(--danger)]">{error}</div>}
 
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -943,14 +943,14 @@ function ImageParamInput({ hasValue, onPick }: { hasValue: boolean; onPick: (b64
       <input
         type="file"
         accept="image/*"
-        className="block w-full text-sm text-[var(--text-dim)] file:mr-2 file:px-2 file:py-1 file:rounded file:border file:border-[var(--border)] file:bg-[var(--bg-2)] file:text-[var(--text)]"
+        className="block w-full text-sm text-[var(--text-dim)] file:mr-2 file:px-2 file:py-1 file:border file:border-[var(--border)] file:bg-[var(--bg-2)] file:text-[var(--text)]"
         onChange={(e) => onFile(e.target.files?.[0])}
       />
       {preview && (
-        <img src={preview} alt="selected" className="h-24 rounded border border-[var(--border)] object-cover" />
+        <img src={preview} alt="selected" className="h-24 border border-[var(--border)] object-cover" />
       )}
       {!preview && hasValue && <div className="text-xs text-[var(--text-dim)]">image selected</div>}
-      {err && <div className="text-xs text-red-400">{err}</div>}
+      {err && <div className="text-xs text-[var(--danger)]">{err}</div>}
     </div>
   )
 }
@@ -1078,7 +1078,7 @@ export function AppActionModal({
                 <input
                   type={t === 'int' || t === 'float' ? 'number' : 'text'}
                   step={t === 'float' ? 'any' : undefined}
-                  className="w-full px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                  className="w-full px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                   value={String(value ?? '')}
                   onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
                   onKeyDown={(e) => {
@@ -1090,7 +1090,7 @@ export function AppActionModal({
           )
         })}
 
-        {error && <div className="text-sm text-red-400">{error}</div>}
+        {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Close</Button>
@@ -1111,7 +1111,7 @@ export function AppActionModal({
                 />
               )
             ) : (
-              <pre className="text-xs bg-[var(--bg-2)] border border-[var(--border)] rounded p-2 overflow-x-auto">
+              <pre className="text-xs bg-[var(--bg-2)] border border-[var(--border)] p-2 overflow-x-auto">
                 {JSON.stringify(result, null, 2)}
               </pre>
             )}
@@ -1213,7 +1213,7 @@ function MetricView({ view, value }: { view: StateViewSpec; value: any }) {
   else display = String(value)
   return (
     <div
-      className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
+      className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-xs"
       title={view.description || view.name}
     >
       <span className="text-[var(--text-dim)]">{view.label}</span>{' '}
@@ -1346,7 +1346,7 @@ function LogView({ view, value }: { view: StateViewSpec; value: any }) {
   return (
     <div title={view.description || view.name}>
       <div className="text-xs text-[var(--text-dim)] mb-1">{view.label}</div>
-      <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] divide-y divide-[var(--border)] max-h-64 overflow-y-auto">
+      <div className="border border-[var(--border)] bg-[var(--bg-2)] divide-y divide-[var(--border)] max-h-64 overflow-y-auto">
         {rows.map((row, i) => {
           const isObj = row != null && typeof row === 'object'
           const msg = isObj ? row.message ?? row.text ?? row.msg ?? JSON.stringify(row) : String(row)
@@ -1384,7 +1384,7 @@ function GalleryView({ view, value }: { view: StateViewSpec; value: any }) {
           const caption = isObj ? it.label ?? it.plate ?? it.name ?? it.caption : undefined
           const when = isObj ? fmtWhen(it.time ?? it.ts ?? it.timestamp ?? it.at) : ''
           return (
-            <div key={i} className="rounded border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
+            <div key={i} className="border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
               {src ? (
                 <img src={src} alt={caption || 'snapshot'} className="w-full h-24 object-cover" loading="lazy" />
               ) : (
@@ -1514,7 +1514,7 @@ function LicensePanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
     onError: (e) => showError(extractApiError(e, 'Could not clear the licence key.')),
   })
   return (
-    <div className="rounded border border-[var(--border)] p-2 space-y-2">
+    <div className="border border-[var(--border)] p-2 space-y-2">
       <div className="flex items-center gap-2 flex-wrap text-xs">
         <Badge variant={variant}>{label}</Badge>
         {ent?.message && status !== 'valid' && (
@@ -1529,7 +1529,7 @@ function LicensePanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
       {isAdmin && (
         <div className="flex items-center gap-2">
           <input
-            className="flex-1 px-2 py-1 text-sm font-mono rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+            className="flex-1 px-2 py-1 text-sm font-mono border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
             placeholder={ent?.has_license_key ? 'replace licence key…' : 'licence key'}
             value={key}
             onChange={(e) => setKey(e.target.value)}
@@ -1583,7 +1583,7 @@ function OverlayPanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
     onError: (e) => showError(extractApiError(e, 'Could not change the overlay setting.')),
   })
   return (
-    <div className="rounded border border-[var(--border)] p-2 space-y-1 text-xs">
+    <div className="border border-[var(--border)] p-2 space-y-1 text-xs">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-medium text-[var(--text)]">Overlay</span>
         <Badge variant={on ? 'success' : 'neutral'}>{on ? 'draws on live view' : 'not drawn'}</Badge>
@@ -1633,7 +1633,7 @@ function NetworkPanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
     save.mutate([...allow, h])
   }
   return (
-    <div className="rounded border border-[var(--border)] p-2 space-y-2 text-xs">
+    <div className="border border-[var(--border)] p-2 space-y-2 text-xs">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-medium text-[var(--text)]">Network</span>
         {eg.enforced.length === 0 && denied.length === 0 ? (
@@ -1702,7 +1702,7 @@ function NetworkPanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
       {isAdmin && (
         <div className="flex items-center gap-2">
           <input
-            className="flex-1 px-2 py-1 text-sm font-mono rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+            className="flex-1 px-2 py-1 text-sm font-mono border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
             placeholder="allow a host: ha.local:8123, *.ntfy.sh, 192.168.1.0/24"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -1949,7 +1949,7 @@ function AppCard({ app, caps, tier0, skill }: { app: RegisteredApp; caps: Capabi
         </div>
 
         {enableNote && app.enabled && (
-          <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] p-3 text-sm space-y-2">
+          <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3 text-sm space-y-2">
             {externalUrl ? (
               <>
                 <div className="text-[var(--text-dim)]">
@@ -1986,10 +1986,10 @@ function AppCard({ app, caps, tier0, skill }: { app: RegisteredApp; caps: Capabi
           </div>
         )}
 
-        {uninstallNote && <div className="text-sm text-amber-400">{uninstallNote}</div>}
+        {uninstallNote && <div className="text-sm text-[var(--warn)]">{uninstallNote}</div>}
         {uninstallPollActive && uninstallStatus.data && <InstallStatusNote status={uninstallStatus.data} />}
         {uninstallStatus.timedOut && (
-          <div className="text-xs text-amber-400">
+          <div className="text-xs text-[var(--warn)]">
             Still pending after 5 minutes — the app-installer service may not be
             running (see docs/APPS_INSTALL.md).
           </div>
@@ -2097,7 +2097,7 @@ function InstallModal({
     <Modal open title={`Install ${app.name}`} onClose={onClose} widthClassName="w-[640px]">
       <div className="space-y-4">
         {/* Primary path: one-click install (opt-in + RBAC gated server-side). */}
-        <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] p-3 space-y-2">
+        <div className="border border-[var(--border)] bg-[var(--bg-2)] p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" onClick={() => installMutation.mutate()} disabled={inFlight}>
               <Download size={14} /> {inFlight ? 'Installing…' : 'Install (one-click)'}
@@ -2106,11 +2106,11 @@ function InstallModal({
               The backend enforces opt-in and permissions; if it's disabled, use the command below.
             </span>
           </div>
-          {forbidden && <div className="text-sm text-amber-400">{forbidden}</div>}
-          {error && <div className="text-sm text-red-400">{error}</div>}
+          {forbidden && <div className="text-sm text-[var(--warn)]">{forbidden}</div>}
+          {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
           {pollActive && statusQuery.data && <InstallStatusNote status={statusQuery.data} />}
           {statusQuery.timedOut && (
-            <div className="text-sm text-amber-400">
+            <div className="text-sm text-[var(--warn)]">
               Still pending after 5 minutes — the app-installer service may not be
               running. Start it with the app-installer compose profile (see
               docs/APPS_INSTALL.md), or use the command below.
@@ -2130,7 +2130,7 @@ function InstallModal({
                 {copied === 'command' ? <Check size={12} /> : <Copy size={12} />} Copy
               </Button>
             </div>
-            <pre className="w-full overflow-x-auto rounded border border-[var(--border)] bg-[var(--bg-2)] p-3 text-xs text-[var(--text)] font-mono whitespace-pre-wrap">
+            <pre className="w-full overflow-x-auto border border-[var(--border)] bg-[var(--bg-2)] p-3 text-xs text-[var(--text)] font-mono whitespace-pre-wrap">
               {command}
             </pre>
           </div>
@@ -2144,7 +2144,7 @@ function InstallModal({
                 {copied === 'compose' ? <Check size={12} /> : <Copy size={12} />} Copy
               </Button>
             </div>
-            <pre className="w-full max-h-72 overflow-auto rounded border border-[var(--border)] bg-[var(--bg-2)] p-3 text-xs text-[var(--text)] font-mono">
+            <pre className="w-full max-h-72 overflow-auto border border-[var(--border)] bg-[var(--bg-2)] p-3 text-xs text-[var(--text)] font-mono">
               {compose}
             </pre>
           </div>
@@ -2391,7 +2391,7 @@ export function UninstalledAppPage({ appId }: { appId: string }) {
                 src={`/${src}`}
                 alt={`${app.name} screenshot`}
                 loading="lazy"
-                className="h-56 rounded-lg border border-[var(--border)] bg-[var(--bg-2)] shrink-0"
+                className="h-56 border border-[var(--border)] bg-[var(--bg-2)] shrink-0"
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
               />
             ))}
@@ -2507,7 +2507,7 @@ function CatalogFilters({
           onChange={(e) => onQuery(e.target.value)}
           placeholder={t('catalog.search')}
           aria-label="Search apps"
-          className="w-full pl-7 pr-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+          className="w-full pl-7 pr-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
         />
       </div>
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter by category">
@@ -2542,7 +2542,7 @@ function CatalogFilters({
           value={sort}
           onChange={(e) => onSort(e.target.value as CatalogSort)}
           aria-label="Sort apps"
-          className="px-2 py-1 text-xs rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+          className="px-2 py-1 text-xs border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
         >
           <option value="recommended">{t('catalog.recommended')}</option>
           <option value="name">{t('catalog.nameAZ')}</option>
@@ -2586,7 +2586,7 @@ function ScreenshotStrip({ shots, appName }: { shots?: string[]; appName: string
           src={`/${src}`}
           alt={`${appName} screenshot`}
           loading="lazy"
-          className="h-24 rounded border border-[var(--border)] bg-[var(--bg-2)] shrink-0"
+          className="h-24 border border-[var(--border)] bg-[var(--bg-2)] shrink-0"
           // A listing must survive a missing file rather than showing a
           // broken-image glyph; the CI gate blocks that case, but a
           // partial deploy should not disfigure the card.
@@ -2956,7 +2956,7 @@ function ParamField({
                 {p.description && <div className="text-xs text-[var(--text-dim)] mb-1">{p.description}</div>}
                 {!canEditParam(p) ? (
                   <div
-                    className="w-full px-2 py-1.5 text-sm font-mono rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-dim)] whitespace-pre-wrap break-all"
+                    className="w-full px-2 py-1.5 text-sm font-mono border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-dim)] whitespace-pre-wrap break-all"
                     title="Site-wide setting — only an administrator can change it"
                   >
                     {String(value ?? '') || '—'}
@@ -2967,7 +2967,7 @@ function ParamField({
                     value={String(value ?? '')}
                     onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
                     aria-label={paramLabel(p)}
-                    className="w-full px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                    className="w-full px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                   >
                     {/* No blank option: a closed set with a default is
                         always on one of its own values, and an empty row
@@ -3002,7 +3002,7 @@ function ParamField({
                   />
                 ) : isJsonParam(p) ? (
                   <textarea
-                    className="w-full h-28 px-2 py-1.5 text-sm font-mono rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                    className="w-full h-28 px-2 py-1.5 text-sm font-mono border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                     value={String(value ?? '')}
                     placeholder={p.per_camera ? '{"camera_id": …}' : '[…]'}
                     onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
@@ -3020,7 +3020,7 @@ function ParamField({
                   <input
                     type={t === 'int' || t === 'float' ? 'number' : 'text'}
                     step={t === 'float' ? 'any' : undefined}
-                    className="w-full px-2 py-1.5 text-sm rounded border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
+                    className="w-full px-2 py-1.5 text-sm border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text)]"
                     value={String(value ?? '')}
                     onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
                   />

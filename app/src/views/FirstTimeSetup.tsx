@@ -109,8 +109,8 @@ export function FirstTimeSetup() {
   const step = (n: number, title: string, hint: string) => (
     <div className="space-y-1">
       <div className="text-xs font-medium uppercase tracking-wider text-[#5eb3f6]">Step {n} of 2</div>
-      <h1 className="text-lg font-semibold text-gray-100">{title}</h1>
-      <p className="text-sm text-gray-400">{hint}</p>
+      <h1 className="text-lg font-semibold text-[var(--text)]">{title}</h1>
+      <p className="text-sm text-[var(--text-dim)]">{hint}</p>
     </div>
   )
 
@@ -120,7 +120,7 @@ export function FirstTimeSetup() {
       <AuthLayout wide>
         {step(2, 'Turn on two-step verification', 'Your admin account is created. Link an authenticator app to finish.')}
 
-        <ol className="space-y-2 text-sm text-gray-300">
+        <ol className="space-y-2 text-sm text-[var(--text)]">
           {[
             'Install an authenticator app (Google Authenticator, Microsoft Authenticator, Authy…).',
             'Scan the QR code below with it.',
@@ -137,20 +137,20 @@ export function FirstTimeSetup() {
 
         {/* White behind the code is for the camera, not decoration:
             scanners need the contrast. */}
-        <div className="mx-auto w-fit rounded-lg bg-white p-3">
+        <div className="mx-auto w-fit bg-white p-3">
           <img src={qrDataUrl} alt="QR code for your authenticator app" className="h-48 w-48" />
         </div>
 
         <div className="space-y-1.5">
           <div className={authLabel}>Can’t scan? Enter this code instead</div>
-          <div className="flex items-center gap-2 rounded-lg border border-[#2a3a4f] bg-[#0f1720] py-1.5 pl-3 pr-1.5">
-            <code className="min-w-0 flex-1 break-all font-mono text-sm text-gray-100">{mfaSecret}</code>
+          <div className="flex items-center gap-2 border border-[#2a3a4f] bg-[#0f1720] py-1.5 pl-3 pr-1.5">
+            <code className="min-w-0 flex-1 break-all font-mono text-sm text-[var(--text)]">{mfaSecret}</code>
             <button
               type="button"
               onClick={copySecret}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-gray-100"
+              className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-xs text-[var(--text-dim)] hover:bg-white/5 hover:text-[var(--text)]"
             >
-              {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              {copied ? <Check size={14} className="text-[var(--ok)]" /> : <Copy size={14} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
@@ -197,7 +197,7 @@ export function FirstTimeSetup() {
               required
             />
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[var(--text-dim)]">
             Shown once in the terminal where you ran the start script.
           </p>
         </div>
@@ -220,7 +220,7 @@ export function FirstTimeSetup() {
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-gray-500 hover:bg-white/5 hover:text-gray-200"
+              className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center text-[var(--text-dim)] hover:bg-white/5 hover:text-[var(--text)]"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               title={showPassword ? 'Hide password' : 'Show password'}
             >

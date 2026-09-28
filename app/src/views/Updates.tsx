@@ -433,13 +433,13 @@ export function Updates() {
                 <label className="text-xs font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1 block">{t('updates.editMode')}</label>
                  <div className="flex bg-[var(--bg)] p-1 border border-[var(--border)]">
                     <button 
-                        className={`flex-1 flex items-center justify-center py-1 px-3 text-xs  transition-colors ${viewMode === 'form' ? 'bg-[var(--panel-2)] text-white shadow-sm' : 'text-[var(--text-dim)] hover:text-[var(--text)]'}`}
+                        className={`flex-1 flex items-center justify-center py-1 px-3 text-xs  transition-colors ${viewMode === 'form' ? 'bg-[var(--panel-2)] text-[var(--text)] shadow-sm' : 'text-[var(--text-dim)] hover:text-[var(--text)]'}`}
                         onClick={() => setViewMode('form')}
                     >
                         <Settings size={12} className="mr-1" /> {t('updates.easy')}
                     </button>
                     <button 
-                        className={`flex-1 flex items-center justify-center py-1 px-3 text-xs  transition-colors ${viewMode === 'json' ? 'bg-[var(--panel-2)] text-white shadow-sm' : 'text-[var(--text-dim)] hover:text-[var(--text)]'}`}
+                        className={`flex-1 flex items-center justify-center py-1 px-3 text-xs  transition-colors ${viewMode === 'json' ? 'bg-[var(--panel-2)] text-[var(--text)] shadow-sm' : 'text-[var(--text-dim)] hover:text-[var(--text)]'}`}
                         onClick={() => setViewMode('json')}
                     >
                          <FileText size={12} className="mr-1" /> {t('updates.json')}

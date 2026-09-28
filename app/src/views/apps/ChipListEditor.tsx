@@ -70,17 +70,17 @@ export function ChipListEditor({
   const removeAt = (i: number) => write(chips.filter((_, k) => k !== i))
 
   return (
-    <div className="rounded border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5">
+    <div className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1.5">
       <div className="flex flex-wrap gap-1.5">
         {chips.map((c, i) => (
           <span
             key={`${c}-${i}`}
-            className="inline-flex items-center gap-1 text-xs rounded bg-[var(--bg-3,var(--bg-1))] border border-[var(--border)] px-1.5 py-0.5"
+            className="inline-flex items-center gap-1 text-xs bg-[var(--bg-3,var(--bg-1))] border border-[var(--border)] px-1.5 py-0.5"
           >
             <span className="font-mono">{c}</span>
             <button
               type="button"
-              className="text-[var(--text-dim)] hover:text-red-400 leading-none"
+              className="text-[var(--text-dim)] hover:text-[var(--danger)] leading-none"
               onClick={() => removeAt(i)}
               aria-label={`remove ${c}`}
             >
@@ -112,7 +112,7 @@ export function ChipListEditor({
               key={s}
               type="button"
               onClick={() => addOne(s)}
-              className="font-mono rounded border border-dashed border-[var(--border)] px-1.5 py-0.5 hover:border-[var(--accent)] hover:text-[var(--text)]"
+              className="font-mono border border-dashed border-[var(--border)] px-1.5 py-0.5 hover:border-[var(--accent)] hover:text-[var(--text)]"
               title={`add ${s}`}
             >
               + {s}

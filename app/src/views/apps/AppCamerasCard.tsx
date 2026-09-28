@@ -36,7 +36,7 @@ export function AppCamerasCard({ app }: { app: RegisteredApp | null | undefined 
   const hidden = cameras.length - visible.length
   const dim = 'text-[var(--text-dim)]'
   const canChange = takesPicks && !app.all_cameras
-  const pill = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[var(--accent)] hover:bg-[var(--panel)]'
+  const pill = 'inline-flex items-center gap-1  px-1.5 py-0.5 text-xs text-[var(--accent)] hover:bg-[var(--panel)]'
 
   return (
     <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5 text-sm">

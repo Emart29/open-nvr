@@ -279,7 +279,7 @@ export function Gates() {
       {state.dry_run && (
         <div
           role="status"
-          className="rounded border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-2 text-sm flex items-start gap-2"
+          className="border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-2 text-sm flex items-start gap-2"
         >
           <FlaskConical size={15} className="text-[var(--warn)] shrink-0 mt-0.5" aria-hidden />
           <span>
@@ -304,7 +304,7 @@ export function Gates() {
       {faulted > 0 && (
         <div
           role="alert"
-          className="rounded border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-3 py-2 text-sm flex items-start gap-2"
+          className="border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-3 py-2 text-sm flex items-start gap-2"
         >
           <TriangleAlert size={15} className="text-[var(--danger)] shrink-0 mt-0.5" aria-hidden />
           <span>
@@ -474,7 +474,7 @@ function GateCard({ gate: g, name, dryRun, busy, run }: {
         {/* A fault is a car standing at a barrier. It gets its own block,
             above the controls, in the card's own colour. */}
         {isFaulted && (
-          <div className="rounded border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-2 py-1.5 text-xs flex items-start gap-1.5">
+          <div className="border border-[var(--danger)]/50 bg-[var(--danger)]/10 px-2 py-1.5 text-xs flex items-start gap-1.5">
             <TriangleAlert size={13} className="text-[var(--danger)] shrink-0 mt-0.5" aria-hidden />
             <span>
               <b className="text-[var(--danger)]">{t('gates.fault.title')}</b>{' '}

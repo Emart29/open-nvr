@@ -45,6 +45,14 @@
   --bg-sub: var(--bg-2);
   --bg-1: var(--panel);
   --bg-3: var(--panel-2);
+  /* Colours for things drawn ON VIDEO. A video surface is black in both
+     themes, so these deliberately have no light-theme override: theme text
+     tokens would turn near-black in the light theme, black on black. */
+  --on-video: #ffffff;
+  --on-video-dim: rgb(255 255 255 / 0.62);
+  --on-video-ok: #4ade80;
+  --on-video-warn: #facc15;
+  --on-video-danger: #f87171;
   --radius: 0px;          /* global corner radius for sharp UI */
   --radius-card: 0px;
   --radius-input: 0px;

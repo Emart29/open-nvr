@@ -25,7 +25,7 @@ export function Logs() {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">{t('admin.logs')}</h1>
       <p className="text-[var(--text-dim)]">{t('admin.logsDescription')}</p>
-      <div className="p-4 bg-[var(--bg-2)] border border-[var(--border)] rounded">{t('admin.comingSoon')}</div>
+      <div className="p-4 bg-[var(--bg-2)] border border-[var(--border)]">{t('admin.comingSoon')}</div>
     </div>
   )
 }

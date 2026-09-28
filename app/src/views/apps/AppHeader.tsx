@@ -35,13 +35,13 @@ export function AppHeader({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Link
           to="/app-catalog"
-          className="grid h-8 w-8 shrink-0 place-items-center rounded text-[var(--text-dim)] hover:bg-[var(--panel)] hover:text-[var(--text)]"
+          className="grid h-8 w-8 shrink-0 place-items-center text-[var(--text-dim)] hover:bg-[var(--panel)] hover:text-[var(--text)]"
           title="Back to App Catalog"
           aria-label="Back to App Catalog"
         >
           <ArrowLeft size={16} />
         </Link>
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--bg-2)]">
+        <div className="grid h-10 w-10 shrink-0 place-items-center border border-[var(--border)] bg-[var(--bg-2)]">
           <Boxes size={20} className="text-[var(--accent,var(--text-dim))]" />
         </div>
         <div className="min-w-0 flex-1">
