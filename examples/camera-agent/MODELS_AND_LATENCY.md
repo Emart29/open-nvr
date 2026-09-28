@@ -20,6 +20,38 @@ Anything that adds a synchronous step (an extra tool call, a slow model) is
 felt directly, so the model picks below favour *fast and good-enough* over
 *slow and perfect*.
 
+## Four rules for a fast turn on CPU
+
+A field trace on an 8-core CPU box read
+`stt 14s → llm (iter 1) 17s → search_history 12s → llm (iter 2) 2.6s → tts 25s · 71s`.
+Most of it was contention (the same box was burning ~3 cores on a
+captioner that could not keep up — see the enrichment governor), but
+four things in the agent itself made every stage slower than it needs
+to be, and each is now a rule:
+
+1. **The prompt's static prefix is byte-identical across turns.** Ollama
+   reuses its KV cache only for an unchanged prefix. The clock line
+   (which changes every minute) used to sit near the TOP of the system
+   prompt, so the whole ~4k-token tool prompt was re-prefilled on every
+   turn — the 17 s "iter 1" against 2.6 s for "iter 2" of the same turn.
+   The clock is now the LAST paragraph. Keep it that way: anything that
+   varies per turn belongs at the tail, or in the user message.
+2. **Whisper runs greedy (`beam_size: 1`).** Beam 5 costs 30-50% more CPU
+   and buys nothing on a clean, VAD-trimmed utterance of a few seconds.
+3. **The Piper voice is a MEDIUM tier by default** (`PIPER_VOICE`,
+   `en_US-lessac-medium`). Piper is the CPU hog of the stack (~390% on a
+   4-core box); the tier is the cost, and "high" is 2-3x the compute of
+   "medium" for the same intelligibility. Kokoro sounds better still and
+   runs ~9x slower than Piper on CPU — the wrong direction here.
+4. **`search_history` fetches each kept photo once, in parallel**, and
+   face-matches only when the question asks WHO. It used to fetch every
+   crop twice, one at a time, and run recognition on every person answer.
+
+The streaming voice path (`/ws`, Pipecat) already synthesises per
+sentence, so audio starts after the first sentence; the JSON `/converse`
+path returns one clip for the whole reply and is bounded by the rules
+above.
+
 ## Running on limited hardware (no GPU, little RAM)
 
 A real CPU-only test (Win 11, 11.5 GiB) gave the numbers that drive this advice:

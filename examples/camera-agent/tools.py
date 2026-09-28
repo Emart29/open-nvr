@@ -247,7 +247,11 @@ def build_tool_definitions(
                         "camera_id": _camera_prop,
                         "identify_faces": {
                             "type": "boolean",
-                            "description": "For person searches: face-match the kept photos (default true).",
+                            "description": (
+                                "For person searches: set true ONLY when the question asks WHO "
+                                "came or names someone ('was Priya here', 'who came to the "
+                                "door'). Face-matching costs a recognition call per photo, so "
+                                "'did anyone come' must leave it off (default false)."),
                         },
                         "plate": {
                             "type": "string",
@@ -1320,16 +1324,21 @@ class CameraTools:
                    + "; ".join(clauses) + ".")
 
         # Hand the remembered photos to the UI. The answer names times and
-        # says "(photo kept)" — the photo is right there in the store and was
-        # already being fetched to face-match, so showing it costs one small
-        # extra read and turns "I saw someone at 16:25" into something the
-        # operator can actually check.
-        await self._attach_evidence_frames(events)
+        # says "(photo kept)" — the photo is right there in the store, and
+        # turns "I saw someone at 16:25" into something the operator can
+        # check. Fetched ONCE and in parallel, shared with face-matching:
+        # the two used to fetch every crop twice, one visit at a time —
+        # 12 s of a 71 s field turn on a busy box.
+        identify = label == "person" and bool(args.get("identify_faces", False))
+        crops = await self._fetch_evidence(
+            events, cap=max(self.EVIDENCE_FRAMES_CAP, self.FACE_ID_CAP if identify else 0))
+        self._attach_evidence_frames(events, crops)
         summary += live_note + self._pending_note(events)
 
-        # Face-match the evidence for person questions (best-effort, capped).
-        if label == "person" and bool(args.get("identify_faces", True)):
-            names = await self._identify_visit_faces(events)
+        # Face-match only when the question asked WHO — a recognition call
+        # per photo is the wrong price for "did anyone come".
+        if identify:
+            names = await self._identify_visit_faces(events, crops)
             if names:
                 summary += " Recognised: " + ", ".join(sorted(names)) + "."
         return summary
@@ -1438,7 +1447,39 @@ class CameraTools:
         return (f" Separately, right now a {label} IS on {where} — "
                 f"that visit is still in progress and enters history when it ends.")
 
-    async def _attach_evidence_frames(self, events, cap: int = 3) -> None:
+    #: How many remembered photos an answer shows, and how many it
+    #: face-matches when asked who. Both bound one turn's evidence work.
+    EVIDENCE_FRAMES_CAP = 3
+    FACE_ID_CAP = 4
+
+    async def _fetch_evidence(self, events, cap: int) -> dict[int, bytes]:
+        """The kept crops of the first ``cap`` visits that have one, fetched
+        concurrently. One fetch per visit per turn, shared by the frames
+        shown and the faces matched."""
+        if self._events is None or cap <= 0:
+            return {}
+        wanted = [e for e in events if getattr(e, "has_evidence", False)][:cap]
+        if not wanted:
+            return {}
+
+        async def one(e):
+            try:
+                return e.id, await self._events.evidence(e.id)
+            except Exception:
+                # A photo we cannot fetch costs a frame or a NAME, not the
+                # answer. One bad read once turned "I remember 3 visits at
+                # 15:12, 15:40 and 16:25" into no answer at all.
+                logger.warning("search_history: evidence fetch failed for #%s", e.id)
+                return e.id, None
+
+        out: dict[int, bytes] = {}
+        for eid, crop in await asyncio.gather(*(one(e) for e in wanted)):
+            if crop and len(crop) <= 2_000_000:          # same cap as live frames
+                out[eid] = crop
+        return out
+
+    def _attach_evidence_frames(self, events, crops: dict[int, bytes],
+                                cap: int | None = None) -> None:
         """Publish up to ``cap`` remembered best-frames onto this turn.
 
         Each carries its own timestamp caption. That is not decoration: every
@@ -1447,19 +1488,12 @@ class CameraTools:
         afternoon would read as "here is your camera now" — the wrong thing to
         get wrong in a security product.
         """
-        if self._events is None:
-            return
+        cap = self.EVIDENCE_FRAMES_CAP if cap is None else cap
         for e in events:
             if len(self.last_evidence_frames) >= cap:
                 break
-            if not getattr(e, "has_evidence", False):
-                continue
-            try:
-                crop = await self._events.evidence(e.id)
-            except Exception:
-                logger.warning("search_history: evidence fetch failed for #%s", e.id)
-                continue
-            if not crop or len(crop) > 2_000_000:      # same cap as live frames
+            crop = crops.get(e.id)
+            if not crop:
                 continue
             self.last_evidence_frames.append({
                 "camera_id": str(e.camera_id),
@@ -1467,22 +1501,15 @@ class CameraTools:
                 "jpeg_b64": base64.b64encode(crop).decode("ascii"),
             })
 
-    async def _identify_visit_faces(self, events, cap: int = 4) -> set:
+    async def _identify_visit_faces(self, events, crops: dict[int, bytes],
+                                    cap: int | None = None) -> set:
         names: set = set()
         checked = 0
+        cap = self.FACE_ID_CAP if cap is None else cap
         for e in events:
             if checked >= cap:
                 break
-            if not e.has_evidence:
-                continue
-            try:
-                crop = await self._events.evidence(e.id)
-            except Exception:
-                # A photo we cannot fetch costs a NAME, not the answer. This
-                # was unguarded, so one bad read turned "I remember 3 visits
-                # at 15:12, 15:40 and 16:25" into no answer at all.
-                logger.warning("search_history: evidence fetch failed for #%s", e.id)
-                continue
+            crop = crops.get(e.id)
             if not crop:
                 continue
             checked += 1

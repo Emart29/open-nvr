@@ -474,6 +474,9 @@ def test_search_history_reports_visits_and_names(anyio_backend=None):
     out = asyncio.run(tools.search_history({
         "label": "person",
         "start_time": "2026-08-12T15:00", "end_time": "2026-08-12T16:00",
+        # Face-matching is opt-in now — a recognition call per photo is the
+        # wrong price for "did anyone come"; this test asks WHO.
+        "identify_faces": True,
     }))
     assert "2 person visit(s)" in out
     assert "photo kept" in out          # times are spoken in LOCAL tz (host-dependent)

@@ -166,6 +166,13 @@ class AppConfig:
     llm_api_key: str | None = None
     piper_url: str = "http://127.0.0.1:9001"
     piper_token: str = ""
+    # Which Piper voice to ask for, per request (the adapter honours a
+    # ``voice`` key). Empty = the adapter's own default. The compose
+    # stack passes PIPER_VOICE, whose default is a MEDIUM-tier voice: on
+    # CPU the tier is the cost — libritts-high took ~4 cores and 25 s
+    # for two sentences on the field box; a medium voice is 2-3x cheaper
+    # and as intelligible.
+    piper_voice: str = ""
 
     # LLM tuning.
     llm_model: str = "qwen2.5:1.5b"
@@ -2969,6 +2976,7 @@ def load_config(path: str | Path) -> AppConfig:
         llm_keep_alive=(raw["llm_keep_alive"] if raw.get("llm_keep_alive") is not None else -1),
         piper_url=_str("piper_url", "http://127.0.0.1:9001"),
         piper_token=_str("piper_token", ""),
+        piper_voice=_str("piper_voice", os.environ.get("PIPER_VOICE", "")),
         llm_model=_str("llm_model", "qwen2.5:1.5b"),
         llm_temperature=_float("llm_temperature", 0.4),
         llm_max_tokens=_int("llm_max_tokens", 256),
@@ -3155,7 +3163,8 @@ class CameraAgentRuntime:
                 num_thread=cfg.llm_num_threads, num_ctx=cfg.llm_num_ctx,
                 think=_think, keep_alive=cfg.llm_keep_alive,
             )
-        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token)
+        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token,
+                                 voice=cfg.piper_voice or None)
 
         self.caption_client = KaicAdapterClient(
             kaic_url=cfg.kaic_url,
@@ -5294,12 +5303,17 @@ class CameraAgentRuntime:
         advertised = {
             t["function"]["name"] for t in (self.tool_definitions or ())
         }
+        # The clock goes LAST, not here. Ollama reuses its KV cache only
+        # for an unchanged prefix, and this line changes every minute: at
+        # the top it re-prefilled the whole ~4k-token tool prompt on every
+        # turn (17 s of "iter 1" on a CPU box; the second iteration of the
+        # same turn, prefix intact, took 2.6 s). Everything static comes
+        # first, byte-identical across turns; the clock is the tail.
         prompt = (
             f"You are the OpenNVR Agent, this system's camera agent. Speak in "
             f"the FIRST person — say 'I see…', 'I'm watching…', not in the "
             f"third person. If asked your name, say you're the OpenNVR Agent.\n\n"
             f"{self.cfg.system_prompt.strip()}\n\n"
-            f"{clock_line}\n\n"
             f"Cameras available to you:\n{roster}\n\n"
             f"Always pass one of the camera_id values exactly as listed "
             f"when calling a tool.\n\n"
@@ -5381,6 +5395,11 @@ class CameraAgentRuntime:
                 "'Let me look at the gate camera between two and three.' Never guess "
                 "the answer in that sentence."
             )
+        # Last of the prose, so everything above it stays cacheable (see
+        # the note at the top of this prompt). Only Qwen3's ``/no_think``
+        # switch may follow: it is a control token the model wants at the
+        # very end, and it is constant across turns.
+        prompt += "\n\n" + clock_line
         if self.cfg.llm_think is False:
             prompt += "\n\n/no_think"
         return prompt
