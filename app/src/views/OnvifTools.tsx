@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { duplicateCameraNames, isDuplicateCameraError } from '../services/cameraService'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useSnackbar } from '../components/Snackbar'
 
 type Device = { ip: string | null; service_urls: string[] }
 type Profile = { token: string; name: string }
@@ -38,6 +39,10 @@ export function OnvifTools() {
   const [err, setErr] = useState<string>('')
   const [scanCidr, setScanCidr] = useState<string>('')
   const [cameraTime, setCameraTime] = useState<string>('')
+  const [presets, setPresets] = useState<any[] | null>(null)
+  const [presetName, setPresetName] = useState('')
+  const [presetToken, setPresetToken] = useState('')
+  const { showSuccess, showInfo } = useSnackbar()
 
   const canAuth = selectedIp && username && password
 
@@ -177,7 +182,7 @@ export function OnvifTools() {
         if (!ok) return
         await apiService.createCamera(payload, { force: true })
       }
-      alert('Camera added successfully')
+      showSuccess('Camera added successfully')
     } catch (e: any) {
       setErr((typeof e?.data?.detail === 'string' ? e.data.detail : null) || e.message || 'Failed to add camera')
     } finally {
@@ -191,7 +196,9 @@ export function OnvifTools() {
     setErr('')
     try {
       const res = await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'getPresets', port })
-      alert(JSON.stringify(res.data.result?.presets || [], null, 2))
+      const list: any[] = res.data.result?.presets || []
+      setPresets(list)
+      if (list.length === 0) showInfo('The camera has no presets')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'GetPresets failed')
     } finally {
@@ -200,14 +207,15 @@ export function OnvifTools() {
   }
 
   const setPreset = async () => {
-    const name = prompt('Preset name?') || undefined
+    const name = presetName.trim()
     if (!name) return
     if (!canAuth || !profileToken) return
     setLoading(true)
     setErr('')
     try {
       const res = await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'setPreset', name, port })
-      alert('SetPreset OK. Token: ' + (res.data.result?.preset_token || 'unknown'))
+      showSuccess('SetPreset OK. Token: ' + (res.data.result?.preset_token || 'unknown'))
+      setPresetName('')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'SetPreset failed')
     } finally {
@@ -216,14 +224,14 @@ export function OnvifTools() {
   }
 
   const gotoPreset = async () => {
-    const p = prompt('Preset token?') || undefined
+    const p = presetToken.trim()
     if (!p) return
     if (!canAuth || !profileToken) return
     setLoading(true)
     setErr('')
     try {
       await apiService.onvifPreset(selectedIp, { username, password, profileToken, action: 'gotoPreset', presetToken: p, port })
-      alert('Moving to preset...')
+      showInfo('Moving to preset...')
     } catch (e: any) {
       setErr(e?.data?.detail || e.message || 'GotoPreset failed')
     } finally {
@@ -337,11 +345,37 @@ export function OnvifTools() {
           <button className="px-2 py-2 bg-[var(--panel)]" onMouseDown={()=>ptzMove(0,0,-0.3)} onMouseUp={ptzStop}>➖ Zoom Out</button>
           <button className="px-2 py-2 bg-[var(--panel)]" onClick={ptzStop}>⏹ Stop</button>
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={getPresets}>Get Presets</button>
-          <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={setPreset}>Set Preset</button>
-          <button className="text-sm px-2 py-1 bg-[var(--panel)]" onClick={gotoPreset}>Goto Preset</button>
+          <input
+            className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)] w-36"
+            placeholder="Preset name"
+            aria-label="Preset name"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+          />
+          <button className="text-sm px-2 py-1 bg-[var(--panel)] disabled:opacity-50" onClick={setPreset} disabled={!presetName.trim()}>Set Preset</button>
+          <input
+            className="text-sm px-2 py-1 bg-[var(--panel)] border border-[var(--border)] w-36 font-mono"
+            placeholder="Preset token"
+            aria-label="Preset token"
+            list="onvif-preset-tokens"
+            value={presetToken}
+            onChange={(e) => setPresetToken(e.target.value)}
+          />
+          <datalist id="onvif-preset-tokens">
+            {(presets ?? []).map((p, i) => {
+              const token = String(p?.token ?? p?.Token ?? p?._token ?? '')
+              return token ? <option key={i} value={token}>{p?.name ?? p?.Name ?? ''}</option> : null
+            })}
+          </datalist>
+          <button className="text-sm px-2 py-1 bg-[var(--panel)] disabled:opacity-50" onClick={gotoPreset} disabled={!presetToken.trim()}>Goto Preset</button>
         </div>
+        {presets && presets.length > 0 && (
+          <pre className="mt-2 max-h-48 overflow-auto bg-[var(--panel)] border border-[var(--border)] p-2 text-xs text-[var(--text-dim)]">
+            {JSON.stringify(presets, null, 2)}
+          </pre>
+        )}
       </div>
 
       <div className="bg-[var(--bg-2)] border border-[var(--border)] p-3">
