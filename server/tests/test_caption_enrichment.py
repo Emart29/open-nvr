@@ -177,3 +177,75 @@ def test_the_ingest_path_gates_the_caption_the_same_way_it_gates_ocr():
         "adapter call on the ingest request path")
     # And gated by the same per-camera assignment the OCR sweep uses.
     assert "camera_skills(camera)" in src
+
+
+# ── A timeout is not "unreachable" (#583) ────────────────────────────
+#
+# The field report: 478 warnings an hour reading "ollamavlm unreachable ()"
+# while the adapter answered /health and moondream held 290% of a core.
+# The empty brackets were httpx's ReadTimeout with no message. An operator
+# checked the network; the box had lost two cores to a captioner that
+# could not keep up, and the log said nothing of the kind.
+
+def _run_caption_with(monkeypatch, raising):
+    import asyncio
+
+    import httpx
+
+    from services import caption_enrichment as mod
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            raise raising
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
+    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        mod._caption_jpeg(b"\xff\xd8\xffjpeg", "ollamavlm", "cam1", event_id=1))
+
+
+def test_a_timeout_is_logged_as_a_timeout_with_the_limit(monkeypatch, caplog):
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="caption_enrichment"):
+        assert _run_caption_with(monkeypatch, httpx.ReadTimeout("")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "timed out after" in line, line
+    assert "limit 15s" in line, line
+    assert "unreachable" not in line, "a timeout must not read as a network fault"
+
+
+def test_a_connect_timeout_is_unreachable_not_slow(monkeypatch, caplog):
+    """httpx.ConnectTimeout is a TimeoutException too — a host that never
+    answered the SYN. Filing it under "the captioner is slower than the
+    visit rate" would send the operator to look at model speed while
+    KAI-C is down: the inverse of the misdiagnosis #583 fixed."""
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="caption_enrichment"):
+        assert _run_caption_with(monkeypatch, httpx.ConnectTimeout("")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "unreachable" in line and "ConnectTimeout" in line, line
+    assert "slower than the visit rate" not in line
+
+
+def test_a_refused_connection_is_still_unreachable(monkeypatch, caplog):
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="caption_enrichment"):
+        assert _run_caption_with(monkeypatch, httpx.ConnectError("refused")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "unreachable" in line, line
+    assert "ConnectError" in line, "name the exception — '()' told nobody anything"
+    assert "timed out" not in line

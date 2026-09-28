@@ -347,7 +347,12 @@ function Prepare-Environment {
     if (-not (Test-Path '.env')) {
         if (-not (Test-Path '.env.example')) { Fail '.env.example is missing' }
         Copy-Item '.env.example' '.env'; Ok 'Created .env from .env.example'
-    } else { Ok 'Using existing .env; secrets are preserved, and you can update values below' }
+        # Everything in .env is now the example's default, not an answer.
+        $script:FreshEnv = $true
+    } else {
+        Ok 'Using existing .env; secrets are preserved, and you can update values below'
+        $script:FreshEnv = $false
+    }
 
     # Secrets — generated automatically; prompted only if still a placeholder.
     Ensure-SecretValue POSTGRES_PASSWORD 'PostgreSQL password' (New-Password)
@@ -711,10 +716,12 @@ function Choose-Example {
         # suggest_llm_model in install.sh) - keep the three in sync.
         $ramGb = 0; $cores = [int]($env:NUMBER_OF_PROCESSORS); $accel = 'cpu'
         try { $ramGb = [int]([math]::Floor((Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB)) } catch {}
-        if ($llmWhere -eq 'host') {
-            if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-                try { & nvidia-smi -L *> $null; if ($LASTEXITCODE -eq 0) { $accel = 'cuda' } } catch {}
-            }
+        # NVIDIA counts either way — in-container (nvidia runtime) or on
+        # the host — exactly as install.sh's detect_llm_hardware says.
+        # Gating this on the host-Ollama choice classed every RTX box
+        # that picked the bundled container as CPU-only.
+        if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+            try { & nvidia-smi -L *> $null; if ($LASTEXITCODE -eq 0) { $accel = 'cuda' } } catch {}
         }
         # Both Ollama models are RESIDENT AT ONCE (the shipped compose sets
         # OLLAMA_KEEP_ALIVE=-1), and they share the box with the OpenNVR
@@ -772,8 +779,25 @@ function Choose-Example {
         # ~25 s against ~1-2 s on a GPU.
         $vlmSpeedCap = if ($accel -eq 'cpu') { 1 } else { 9 }
         $pick = Pick-FromCatalog 'vlm' $remaining $vlmSpeedCap
-        if ($pick) { $vlmSuggest = $pick[0]; $captionSuggest = 'ollamavlm' }
-        else { $vlmSuggest = ''; $captionSuggest = 'moondream' }
+        # Vision through Ollama is a GPU path, full stop: Ollama's 1.8B
+        # moondream takes 30 s+ a frame on CPU and core's enrichers give
+        # up at 15-20 s, so every visit burnt two cores and saved nothing
+        # (#583). The in-container 0.5B moondream adapter answers the same
+        # questions ~10x faster on the same cores. Mirrors install.sh.
+        if ($accel -eq 'cuda' -and $pick) {
+            $vlmSuggest = $pick[0]; $captionSuggest = 'ollamavlm'
+            $captionReason = 'an NVIDIA GPU serves vision through Ollama at ~1-2 s a frame'
+        } elseif ($accel -eq 'cuda') {
+            $vlmSuggest = ''; $captionSuggest = 'moondream'
+            $captionReason = 'too little RAM left for an Ollama vision model beside the LLM'
+        } else {
+            $vlmSuggest = ''; $captionSuggest = 'moondream'
+            $captionReason = "no CUDA GPU: the in-container 0.5B moondream answers in seconds where Ollama's 1.8B takes 30 s+ a frame on CPU"
+        }
+        # Background visit descriptions stay on when the RESOLVED captioner
+        # runs on a GPU (ollamavlm on a CUDA Ollama) and are asked about
+        # otherwise, where they cannot keep up with a busy camera. Decided
+        # below, after CAPTION_ADAPTER is known.
 
         # Transcription is on the voice critical path, so weak machines get
         # the fast tier and strong ones the accurate one.
@@ -783,7 +807,7 @@ function Choose-Example {
         if ($vlmSuggest) {
             Ok "Suggesting $llmSuggest + $vlmSuggest (both stay resident)"
         } else {
-            Ok "Suggesting $llmSuggest; too little left for an Ollama vision model, so scene description falls back to the small in-container moondream"
+            Ok "Suggesting $llmSuggest; scene description via the in-container moondream adapter - $captionReason"
         }
 
         Write-Host ''
@@ -824,11 +848,41 @@ function Choose-Example {
         $captionDefault = 'moondream'
         if ($llmWhere -eq 'host' -and $captionSuggest -eq 'ollamavlm') { $captionDefault = 'ollamavlm' }
         Configure-Value CAPTION_ADAPTER 'Scene-description model' $captionDefault `
-            'Describes what a camera sees. ollamavlm proxies to your Ollama (GPU-fast when the LLM runs on this machine - the default in that case; needs an adapter tag newer than 0.1.3); moondream/blip run inside Docker (moondream answers questions, blip writes plain captions).' 'yes' `
+            "Describes what a camera sees. moondream runs inside Docker (0.5B, answers questions, the right pick without a CUDA GPU - on CPU it is ~10x faster than Ollama's 1.8B moondream); blip runs inside Docker (plain captions only, fastest); ollamavlm proxies to your Ollama (only worth it on an NVIDIA GPU; needs an adapter tag newer than 0.1.3)." 'yes' `
             'moondream | blip | ollamavlm - all local.'
         if ((Get-EnvValue CAPTION_ADAPTER) -eq 'ollamavlm') {
             Explain 'Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. gemma3:4b (tested - clearly better answers) is suggested where RAM allows; moondream is the tested low-RAM pick.' 'yes' $vlmSuggest
             Set-EnvValue OLLAMA_VLM_MODEL (Pick-ModelFromCatalog 'vlm' $vlmSuggest 'Vision model (Ollama)' $budgetGb)
+        }
+
+        # Describing every recorded visit: on for a GPU, asked on CPU. Same
+        # rule and wording as install.sh's configure_enrichment_flags; an
+        # existing .env keeps the operator's last answer.
+        $captionAdapter = Get-EnvValue CAPTION_ADAPTER
+        $enrichSuggest = if ($accel -eq 'cuda' -and $captionAdapter -eq 'ollamavlm') { 'true' } else { 'false' }
+        $enrichCurrent = Get-EnvValue EVENTS_CAPTION_ENRICHMENT
+        $enrichCurrentD = Get-EnvValue EVENTS_DESCRIPTOR_ENRICHMENT
+        # A fresh .env holds .env.example's defaults, not an answer.
+        if ($script:FreshEnv) { $enrichCurrent = ''; $enrichCurrentD = '' }
+        if ($enrichCurrent -and $enrichCurrentD -and $enrichCurrent -ne $enrichCurrentD) {
+            Ok "Keeping your split setting: captions=$enrichCurrent, descriptors=$enrichCurrentD (edit .env to change)"
+        } elseif ($enrichSuggest -eq 'true' -and -not $enrichCurrent) {
+            Set-EnvValue EVENTS_CAPTION_ENRICHMENT 'true'
+            Set-EnvValue EVENTS_DESCRIPTOR_ENRICHMENT 'true'
+            Ok "Visit descriptions (captions + colour/type) ON - $captionAdapter on the GPU keeps up with the visit rate"
+        } else {
+            $enrichDefault = if ($enrichCurrent) { $enrichCurrent -eq 'true' } else { $enrichSuggest -eq 'true' }
+            Write-Host ''
+            Explain "Describe every recorded visit in the background (a caption plus colour/type questions per visit) so search matches words like 'white van'. Here the captioner ($captionAdapter) runs on the CPU: it takes seconds per image and a busy camera outruns it, so the work burns CPU the detector and recorder need and saves nothing. Leave it off unless traffic is light. Anything recorded meanwhile can be described later: set both flags to true together with EVENTS_ENRICHMENT_BACKFILL=true." `
+                'no' $(if ($enrichDefault) { 'y' } else { 'n' }) `
+                "Hardware detected: $accel, captioner: $captionAdapter. Turn on later by setting EVENTS_CAPTION_ENRICHMENT=true and EVENTS_DESCRIPTOR_ENRICHMENT=true in .env."
+            if (Ask-YesNo 'Describe every recorded visit in the background?' $enrichDefault) {
+                Set-EnvValue EVENTS_CAPTION_ENRICHMENT 'true'
+                Set-EnvValue EVENTS_DESCRIPTOR_ENRICHMENT 'true'
+            } else {
+                Set-EnvValue EVENTS_CAPTION_ENRICHMENT 'false'
+                Set-EnvValue EVENTS_DESCRIPTOR_ENRICHMENT 'false'
+            }
         }
     }
     if (($names -join ',') -ne 'camera-agent') {

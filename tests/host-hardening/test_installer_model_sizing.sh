@@ -228,6 +228,122 @@ gpu_llm=$(cut -d"|" -f1 <<<"$(size 30 8 cuda)")
 [[ "$cpu_llm" != "$gpu_llm" ]] && pass \
     || fail "pre/post reboot suggest the same model (${cpu_llm}) — the flag buys nothing"
 
+# ── Vision through Ollama is a GPU path (#583) ──
+# The field box: CAPTION_ADAPTER=ollamavlm on an 8-core CPU, Ollama's 1.8B
+# moondream at 30 s+ a frame, core timing out at 15 s, two cores burnt for
+# zero captions saved. A strong CPU used to be handed ollamavlm because a
+# "fast tier" vision model fit its RAM; fitting and keeping up differ.
+start_test "a strong CPU box is never handed ollamavlm"
+got=$(size 32 16 cpu)
+adapter=$(cut -d'|' -f3 <<<"$got"); vlm=$(cut -d'|' -f2 <<<"$got")
+[[ "$adapter" == "moondream" && -z "$vlm" ]] && pass \
+    || fail "32 GB / 16-core CPU got '${adapter}' with VLM '${vlm}' (got: ${got})"
+
+start_test "Apple Silicon (Metal) is on the CPU side of the vision line"
+# The LLM runs on the host GPU, but the adapter container runs in the
+# Docker VM with no GPU either way — Varun's call: native moondream on M2
+# until there is a real GPU.
+adapter=$(cut -d'|' -f3 <<<"$(size 32 12 metal)")
+[[ "$adapter" == "moondream" ]] && pass \
+    || fail "Metal box got '${adapter}' — the caption adapter has no Metal to use"
+
+start_test "a CUDA box with RAM still gets ollamavlm"
+got=$(size 32 12 cuda)
+adapter=$(cut -d'|' -f3 <<<"$got"); vlm=$(cut -d'|' -f2 <<<"$got")
+[[ "$adapter" == "ollamavlm" && -n "$vlm" ]] && pass \
+    || fail "CUDA box lost the Ollama vision path (got: ${got})"
+
+start_test "every suggestion carries a reason the operator is shown"
+missing=""
+for spec in "8 4 cpu" "32 16 cpu" "32 12 metal" "8 8 cuda" "32 12 cuda"; do
+    unset SUGGEST_CAPTION_REASON            # a stale one from the last spec must not count
+    size $spec >/dev/null
+    [[ -n "${SUGGEST_CAPTION_REASON:-}" ]] || missing="${missing} ${spec};"
+done
+[[ -z "$missing" ]] && pass || fail "no SUGGEST_CAPTION_REASON for:${missing}"
+
+# ── Background visit descriptions default by hardware (#583) ──
+start_test "visit descriptions default ON only for a GPU captioner"
+HW_ACCEL=cuda
+[[ "$(suggest_enrichment_default ollamavlm)" == "true" ]] && pass \
+    || fail "ollamavlm on a CUDA Ollama keeps up; enrichment should stay on"
+
+start_test "a CUDA box whose captioner runs on CPU gets the CPU answer"
+# Too little RAM beside the LLM → the in-container moondream (onnxruntime,
+# no GPU); or the operator typed blip. Either way the GPU is not what
+# captions, so "a GPU keeps up" would be false — and it was said.
+HW_ACCEL=cuda
+a=$(suggest_enrichment_default moondream); b=$(suggest_enrichment_default blip)
+[[ "$a" == "false" && "$b" == "false" ]] && pass \
+    || fail "CUDA+moondream='${a}' CUDA+blip='${b}' — those captioners run on CPU"
+
+start_test "visit descriptions default OFF on CPU and Metal"
+HW_ACCEL=cpu;   a=$(suggest_enrichment_default moondream)
+HW_ACCEL=metal; b=$(suggest_enrichment_default moondream)
+[[ "$a" == "false" && "$b" == "false" ]] && pass \
+    || fail "CPU='${a}' Metal='${b}' — the captioner cannot keep up with a busy camera there"
+
+# ── configure_enrichment_flags against a .env ──
+# Stub the installer's I/O so the REAL function runs: env_get/env_set on
+# an in-memory .env, explain silenced, ask_yes_no answering "Enter" (the
+# default). The field bug this defends: on a fresh install .env has just
+# been copied from .env.example, whose EVENTS_CAPTION_ENRICHMENT=true then
+# looked like "the operator's last answer" and the CPU default never ran.
+# (Plain variables through indirection, not an associative array: the
+# macOS bash is 3.2 and this test runs there too.)
+env_get() { local v="FAKE_$1"; printf '%s' "${!v:-}"; }
+env_set() { printf -v "FAKE_$1" '%s' "$2"; }
+explain() { :; }
+ok() { :; }
+ask_yes_no() { [[ "${2:-n}" == "y" ]]; }
+flags_after() {   # <fresh> <accel> <adapter> <caption> <descriptor> → "caption|descriptor"
+    FAKE_CAPTION_ADAPTER="$3"
+    FAKE_EVENTS_CAPTION_ENRICHMENT="$4"
+    FAKE_EVENTS_DESCRIPTOR_ENRICHMENT="$5"
+    FRESH_ENV="$1"; HW_ACCEL="$2"
+    configure_enrichment_flags >/dev/null
+    printf '%s|%s' "$FAKE_EVENTS_CAPTION_ENRICHMENT" "$FAKE_EVENTS_DESCRIPTOR_ENRICHMENT"
+}
+
+start_test "fresh CPU install: the example's 'true' is not the operator's answer"
+got=$(flags_after true cpu moondream true true)
+[[ "$got" == "false|false" ]] && pass \
+    || fail "fresh CPU install pressing Enter left enrichment '${got}' — the #583 configuration"
+
+start_test "fresh CUDA install with ollamavlm: on, unasked"
+got=$(flags_after true cuda ollamavlm true true)
+[[ "$got" == "true|true" ]] && pass || fail "got '${got}'"
+
+start_test "fresh CUDA install that fell back to the CPU moondream: off by default"
+got=$(flags_after true cuda moondream true true)
+[[ "$got" == "false|false" ]] && pass || fail "got '${got}'"
+
+start_test "reconfigure keeps the operator's previous yes"
+got=$(flags_after false cpu moondream true true)
+[[ "$got" == "true|true" ]] && pass || fail "a reconfigure flattened a deliberate 'on' to '${got}'"
+
+start_test "reconfigure never flattens a split pair it cannot ask about"
+got=$(flags_after false cuda ollamavlm true false)
+[[ "$got" == "true|false" ]] && pass || fail "captions-on/descriptors-off became '${got}'"
+unset -f env_get env_set explain ok ask_yes_no
+
+start_test "install.ps1 mirrors the GPU-captioner rule"
+if grep -q "accel -eq 'cuda' -and \$pick" scripts/install.ps1 \
+   && grep -q "enrichSuggest = if (\$accel -eq 'cuda' -and \$captionAdapter -eq 'ollamavlm')" scripts/install.ps1 \
+   && grep -q 'if ($script:FreshEnv) { $enrichCurrent = ' scripts/install.ps1; then
+    pass
+else
+    fail "install.ps1 no longer mirrors: CUDA-only ollamavlm, enrichment on only for a GPU captioner, fresh .env ignored"
+fi
+
+start_test "install.ps1 probes NVIDIA whichever way the LLM runs"
+if grep -q "nvidia-smi -L" scripts/install.ps1 \
+   && ! grep -B3 "nvidia-smi -L" scripts/install.ps1 | grep -q "llmWhere -eq 'host'"; then
+    pass
+else
+    fail "install.ps1 only detects CUDA when the LLM runs on the host — an RTX box on the bundled container is sized as CPU"
+fi
+
 start_test "install.ps1 carries the same budget arithmetic"
 if grep -q 'stackGb = 3; \$osHeadroomGb = 2' scripts/install.ps1 \
    && grep -q 'budgetGb = \[math\]::Max(0, \$ramGb - \$stackGb - \$osHeadroomGb)' scripts/install.ps1; then
