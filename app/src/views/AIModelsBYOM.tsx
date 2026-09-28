@@ -717,19 +717,6 @@ export function AIModelsBYOM() {
                 <option value="recording">{t('models.recording')}</option>
               </select>
             </div>
-
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--accent)]"
-                  checked={formData.enabled}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                  disabled={!canAdmin || loading}
-                />
-                <span>{t('models.statusEnabled')}</span>
-              </label>
-            </div>
           </div>
 
           {/* Live Camera Selection */}
