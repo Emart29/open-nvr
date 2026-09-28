@@ -234,6 +234,7 @@ export const translations: TranslationCatalog = {
   'dashboard.wd.ids': 'Suricata intrusion alerts',
   'live.hideToolbar': 'Hide toolbar',
   'live.showToolbar': 'Show toolbar',
+  'live.layouts': 'Layouts',
   'live.menu': 'Menu', 'live.fill': 'Fill', 'live.fit': 'Fit', 'live.boxes': 'Boxes', 'live.fullscreen': 'Fullscreen', 'live.configureLayouts': 'Configure Layouts…',
   'login.setupRequired': 'First-time setup required. Please complete setup before logging in.',
   'login.tooManyAttempts': 'Too many failed attempts. Try again in',

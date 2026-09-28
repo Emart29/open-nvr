@@ -234,6 +234,7 @@ export const translations: TranslationCatalog = {
   'dashboard.wd.ids': 'Alertes d’intrusion Suricata',
   'live.hideToolbar': 'Masquer la barre d’outils',
   'live.showToolbar': 'Afficher la barre d’outils',
+  'live.layouts': 'Dispositions',
   'live.menu': 'Menu', 'live.fill': 'Remplir', 'live.fit': 'Ajuster', 'live.boxes': 'Cadres', 'live.fullscreen': 'Plein écran', 'live.configureLayouts': 'Configurer les dispositions…',
   'login.setupRequired': 'La configuration initiale est requise. Terminez-la avant de vous connecter.',
   'login.tooManyAttempts': 'Trop de tentatives échouées. Réessayez dans',
