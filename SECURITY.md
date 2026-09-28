@@ -32,7 +32,7 @@ We are grateful to them, and we would like there to be more.
 
 ---
 
-**Kamal Sentassi** · S9S Security Research · 2026
+**Kamal Sentassi** · [S9S – Security Electronic Service](https://s9s.de/research.html) · 2026
 
 Five access-control and SSRF issues in a single coordinated report, each verified against the code before a line was changed:
 
@@ -42,7 +42,7 @@ Five access-control and SSRF issues in a single coordinated report, each verifie
 - **An unauthenticated health endpoint** publishing the internal MediaMTX admin URL.
 - **An unrestricted integration webhook** whose error text distinguished *refused* from *timed out* — an internal port scanner that reported its own findings.
 
-The report named files and line numbers, rated its own findings conservatively, and included a list of what it had checked and found sound. *Fixed in 0.1.5.*
+The report named files and line numbers, rated its own findings conservatively, and included a list of what it had checked and found sound. *Fixed in [PR #450](https://github.com/open-nvr/open-nvr/pull/450), 0.1.5.*
 
 ---
 
