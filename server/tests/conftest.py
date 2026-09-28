@@ -51,9 +51,10 @@ def _fresh_enrichment_gates():
     one test provokes must not trip the breaker for the next."""
     try:
         from services.enrichment_gate import _reset_for_tests
+        from services.enrichment_governor import _reset_for_tests as _reset_gov
     except Exception:  # noqa: BLE001 — a test that never imports services
         yield
         return
-    _reset_for_tests()
+    _reset_for_tests(); _reset_gov()
     yield
-    _reset_for_tests()
+    _reset_for_tests(); _reset_gov()

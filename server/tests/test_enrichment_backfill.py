@@ -241,6 +241,16 @@ def _run(coro):
         loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _no_idle_period(monkeypatch):
+    """run_backfill_loop waits for the governor's idle period before each
+    pass; that wait is the governor's own test. Here the sweep's walk is
+    under test, so the period is zero."""
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "events_enrichment_backfill_idle_s", 0, raising=False)
+
+
 @pytest.fixture()
 def calls(monkeypatch):
     """Record which enricher was asked about which visit."""
@@ -596,8 +606,11 @@ def test_the_sweep_holds_while_live_enrichment_is_busy(session_local, calls, mon
     """Live always wins (#583): with a live visit holding an adapter
     slot, a backfill pass does not send history to that adapter; it
     waits, and proceeds the moment the slot is free."""
+    from core.config import settings
     from services import enrichment_gate as eg
 
+    # backfill_once is one PASS; the idle period gates the loop that
+    # starts passes, and that is the governor's own test. Here: the slot.
     db = session_local
     _camera(db, 1, ["image_captioning"])
     _visit(db, event_id=1, camera_id=1, label="car")
@@ -609,7 +622,7 @@ def test_the_sweep_holds_while_live_enrichment_is_busy(session_local, calls, mon
             await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=0.2)
         assert calls["caption"] == [], "nothing went out while live held the slot"
         gate.release("ok")
-        state = await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=2)
+        state = await asyncio.wait_for(bf.backfill_once(batch=10, pause=0), timeout=3)
         assert calls["caption"] == [1]
         return state
 

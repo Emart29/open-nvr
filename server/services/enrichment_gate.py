@@ -101,6 +101,10 @@ class _Dropped:
 
 DROPPED = _Dropped()
 
+#: Weight of the newest call in the latency average. ~0.2 means the
+#: figure settles in a handful of calls and forgets one outlier quickly.
+LATENCY_ALPHA = 0.2
+
 
 def _now() -> float:
     """The gate's clock. A function, not ``time.monotonic`` bound at
@@ -180,6 +184,8 @@ class AdapterGate:
         self.cooldown_s = COOLDOWN_BASE_S
         self.trips = 0
         self._probe_out = False
+        # Smoothed seconds per call; None until the first answer.
+        self.latency_ewma_s: float | None = None
 
     # ── state ─────────────────────────────────────────────────────
 
@@ -218,13 +224,20 @@ class AdapterGate:
             "breaker_cooling": self.cooling,
             "breaker_trips": self.trips,
             "cooldown_s": self.cooldown_s if self.is_open else 0.0,
+            "latency_ewma_s": self.latency_ewma_s,
         }
 
     # ── admission ─────────────────────────────────────────────────
 
-    async def admit(self) -> bool:
+    async def admit(self, *, max_waiting: int | None = None) -> bool:
         """Take a slot, or say no. ``True`` means the caller HOLDS a slot
-        and must call :meth:`release` exactly once, whatever happens."""
+        and must call :meth:`release` exactly once, whatever happens.
+
+        ``max_waiting`` narrows the wait line for this call only — the
+        governor uses it to keep a slow box's line short for callers
+        that matter less (a caption sentence) than others (the colour
+        the filters match on)."""
+        depth = self.queue_depth if max_waiting is None else min(self.queue_depth, max(0, int(max_waiting)))
         if self.is_open:
             now = _now()
             if now < (self.open_until or 0.0) or self._probe_out:
@@ -238,7 +251,7 @@ class AdapterGate:
             # between the check and the acquire, so nothing can steal it.)
             await self._slots.acquire()
         else:
-            if self.waiting >= self.queue_depth:
+            if self.waiting >= depth:
                 self.dropped_full += 1
                 self._note_drop("wait line full")
                 return False
@@ -257,9 +270,16 @@ class AdapterGate:
         self.admitted += 1
         return True
 
-    def release(self, outcome: Outcome) -> None:
+    def release(self, outcome: Outcome, *, elapsed_s: float | None = None) -> None:
         self.inflight = max(0, self.inflight - 1)
         self._slots.release()
+        if elapsed_s is not None and outcome != "error":
+            # How long this adapter really takes, smoothed — the governor's
+            # second signal beside CPU%. A timeout counts at the full limit,
+            # which is the honest number: that is how long the caller waited.
+            e = max(0.0, float(elapsed_s))
+            self.latency_ewma_s = e if self.latency_ewma_s is None \
+                else LATENCY_ALPHA * e + (1.0 - LATENCY_ALPHA) * self.latency_ewma_s
         if outcome == "ok":
             self.completed += 1
             self.timeouts_in_row = 0
@@ -367,22 +387,25 @@ async def wait_all_idle(*, poll_s: float = _IDLE_POLL_S) -> None:
 
 def _reset_for_tests() -> None:
     _gates.clear()
+    _notify_tasks.clear()
 
 
 # ── the one call the enrichers make ───────────────────────────────
 
 async def infer_through_gate(adapter: str, body: dict[str, Any], *,
-                             log: logging.Logger, caller: str,
+                             kind: str, log: logging.Logger, caller: str,
                              what: str = "") -> dict[str, Any] | None:
-    """POST one infer request to KAI-C through the adapter's gate and
-    return the decoded JSON body, or None.
+    """POST one infer request to KAI-C through the governor and the
+    adapter's gate, and return the decoded JSON body, or None.
 
-    :data:`DROPPED` means the call was never made (refused at the gate).
-    None covers every way a call that WAS made failed, each logged in
-    the caller's voice (``caller`` is the log prefix, ``log`` the
-    caller's logger so the line lands where an operator grepping for
-    that enricher looks): timed out, unreachable, a non-200, or a body
-    that is not JSON. The caller decides what the body means.
+    :data:`DROPPED` means the call was never made — refused by the
+    governor or dropped at the gate. None covers every way a call that
+    WAS made failed, each logged in the caller's voice (``caller`` is the
+    log prefix, ``log`` the caller's logger so the line lands where an
+    operator grepping for that enricher looks): timed out, unreachable,
+    a non-200, or a body that is not JSON. The caller decides what the
+    body means. ``kind`` ("caption" / "vqa" / "embed") is what the
+    governor ranks when there is budget for one call and not three.
 
     Only a 200 is "ok" to the breaker. A 503 from KAI-C or a crashed
     adapter is an answer in the HTTP sense and nothing else: it must not
@@ -403,9 +426,10 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
     import httpx
 
     from core.config import settings
+    from services.enrichment_governor import admit_live
 
     gate = gate_for(adapter)
-    if not await gate.admit():
+    if not await admit_live(gate, kind):
         return DROPPED
     limit = timeout_s()
     suffix = f" for {what}" if what else ""
@@ -434,7 +458,7 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
                     type(exc).__name__, exc)
         return None
     finally:
-        gate.release(outcome)
+        gate.release(outcome, elapsed_s=time.monotonic() - started)
     if resp.status_code != 200:
         log.warning("%s: %s returned %s%s", caller, adapter, resp.status_code, suffix)
         return None
@@ -447,13 +471,7 @@ async def infer_through_gate(adapter: str, body: dict[str, Any], *,
 # ── the operator-visible side ─────────────────────────────────────
 
 def _notify(gate: AdapterGate, *, active: bool) -> None:
-    """Record the breaker edge as a system event and push it on the bus.
-
-    Fire-and-forget from the gate's point of view: the DB write runs in
-    a worker thread (``system_events`` is deliberately sync), the bus
-    publish is scheduled, and neither can fail the enrichment call that
-    tripped it.
-    """
+    """The breaker's edge, as the operator sees it."""
     description = (
         f"{gate.adapter} is too slow for the visit rate — enrichment paused "
         f"for {gate.cooldown_s:.0f}s after {gate.timeouts_in_row} timeouts in a row"
@@ -463,6 +481,22 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
     data = {"adapter": gate.adapter, "trips": gate.trips,
             "cooldown_s": gate.cooldown_s if active else 0,
             "timeouts_in_row": gate.timeouts_in_row}
+    # One edge PER ADAPTER: system events dedupe on the type alone, so a
+    # shared type made clip's trip vanish behind moondream's and
+    # moondream's recovery announce "resumed" while clip stayed paused.
+    notify_edge(f"{ALERT_TYPE}:{gate.adapter}", active=active,
+                description=description, data=data)
+
+
+def notify_edge(event_type: str, *, active: bool, description: str,
+                data: dict[str, Any]) -> None:
+    """Record an edge as a system event and push it on the bus.
+
+    Fire-and-forget from the caller's point of view: the DB write runs
+    in a worker thread (``system_events`` is deliberately sync), the bus
+    publish is scheduled, and neither can fail the enrichment call that
+    raised it. Shared by the breaker and the governor.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -476,12 +510,7 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
 
             await asyncio.to_thread(
                 record_system_event_edge,
-                # One edge PER ADAPTER: system events dedupe on the type
-                # alone, so a shared type made clip's trip vanish behind
-                # moondream's and moondream's recovery announce "resumed"
-                # while clip stayed paused.
-                event_type=f"{ALERT_TYPE}:{gate.adapter}", active=active,
-                severity="warning",
+                event_type=event_type, active=active, severity="warning",
                 description=description, data=data)
         except Exception:                          # noqa: BLE001
             logger.debug("enrichment gate: system event write failed", exc_info=True)
@@ -489,7 +518,7 @@ def _notify(gate: AdapterGate, *, active: bool) -> None:
             from services.event_bus_service import publish_system_alert
 
             await publish_system_alert(
-                alert_type=f"{ALERT_TYPE}:{gate.adapter}",
+                alert_type=event_type,
                 state="active" if active else "inactive",
                 severity="warning" if active else "info",
                 payload={"description": description, **data})

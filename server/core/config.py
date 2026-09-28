@@ -502,6 +502,25 @@ class Settings(BaseSettings):
     # (60 s, doubling to 10 min, one probe per cooldown) and records the
     # `enrichment_adapter_too_slow` system event so the UI says why.
     events_enrichment_breaker_timeouts: int = 5
+    # The governor (services/enrichment_governor.py): whether the box can
+    # afford enrichment at all right now, from the host monitor's CPU
+    # sample and each adapter's smoothed latency. Above this CPU% the
+    # live path goes LIVE-ONLY (captions/embeddings only when a slot is
+    # free, VQA keeps a short line, backfill held); the monitor's own
+    # cpu_high alert or an open breaker PAUSES it entirely. Busy is load,
+    # not clock — "busy hours" happen on their own.
+    events_enrichment_governor_cpu_percent: int = 65
+    # An adapter averaging more than this per call is behind the camera
+    # whatever the CPU figure says (a slow GPU model looks idle to
+    # psutil), and also throttles to LIVE-ONLY.
+    events_enrichment_slow_call_s: float = 20.0
+    # The backfill sweeps history only after the governor has been NORMAL
+    # this long with nothing live in hand — "when it finds resources".
+    events_enrichment_backfill_idle_s: int = 120
+    # Optional clock window for the backfill ONLY, "HH:MM-HH:MM" local
+    # time (may wrap midnight: "22:00-06:00"). Empty = whenever idle.
+    # Malformed = ignored with one warning, never silently off.
+    events_enrichment_backfill_window: str = ""
     # Apps allowed to run on EVERY camera without an operator pick
     # (manifest all_cameras: true). A pick is also what an app may READ,
     # so honouring the flag from any manifest would let a third-party

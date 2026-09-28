@@ -261,7 +261,7 @@ async def _enrich_items(items: list[dict[str, Any]], *, caption_on: bool,
     from services.caption_enrichment import enrich_event_caption
     from services.descriptor_enrichment import enrich_event_descriptors
     from services.embed_enrichment import enrich_event_embedding
-    from services.enrichment_gate import wait_all_idle
+    from services.enrichment_governor import wait_for_backfill_slot
 
     out: dict[str, Any] = {"captioned": 0, "described": 0, "embedded": 0,
                            "handled": [], "dropped_at": None}
@@ -269,9 +269,10 @@ async def _enrich_items(items: list[dict[str, Any]], *, caption_on: bool,
         event_id = int(item["event_id"])
         # Live always wins, and "wins" means more than yielding between
         # items: nothing from the back catalogue goes to an adapter while
-        # a live visit is in flight or waiting, or while a breaker is
-        # cooling. History has waited this long (#583).
-        await wait_all_idle()
+        # a live visit is in flight or waiting, while a breaker is
+        # cooling, while the governor says the box is busy, or outside
+        # the operator's window. History has waited this long (#583).
+        await wait_for_backfill_slot()
         dropped = False
         if caption_on and item.get("caption"):
             try:
@@ -539,8 +540,15 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
     # with captions and descriptors off can still have real work here.
     logger.info("enrichment backfill: starting (batch=%s, pause=%ss)",
                 batch, pause)
+    from services.enrichment_governor import wait_for_backfill_slot
+
     previous: Any = object()
     while True:
+        # A pass begins only once the governor has seen the box NORMAL
+        # for the idle period (and inside the operator's window, if
+        # any): history is swept when the box finds the resources, never
+        # while it is busy with today (#583).
+        await wait_for_backfill_slot(starting=True)
         state = await backfill_once(batch=batch, pause=pause)
         if state.get("done"):
             break
@@ -567,6 +575,9 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
                 catch_up_interval)
     while True:
         await asyncio.sleep(catch_up_interval)
+        # Same bar as a pass of the walk: NORMAL for the idle period,
+        # nothing live in hand, inside the window.
+        await wait_for_backfill_slot(starting=True)
         try:
             await catch_up_once(batch=batch, pause=pause)
         except Exception:  # noqa: BLE001

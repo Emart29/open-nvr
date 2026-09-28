@@ -200,7 +200,7 @@ async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | Non
 
     from services.enrichment_gate import infer_through_gate
 
-    body = await infer_through_gate(adapter, payload, log=logger,
+    body = await infer_through_gate(adapter, payload, kind="embed", log=logger,
                                     caller="embed enrichment", what=what)
     if body is DROPPED:
         return DROPPED

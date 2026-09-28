@@ -302,7 +302,7 @@ async def _ask(jpeg: bytes, adapter: str, question: str,
     # answering both, and one slow model gets one budget (#583).
     from services.enrichment_gate import infer_through_gate
 
-    payload = await infer_through_gate(adapter, body, log=logger,
+    payload = await infer_through_gate(adapter, body, kind="vqa", log=logger,
                                        caller="descriptor enrichment")
     if payload is DROPPED:
         return DROPPED
