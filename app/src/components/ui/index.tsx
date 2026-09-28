@@ -22,7 +22,7 @@
 
 import { clsx } from 'clsx'
 import { CircleAlert, Inbox, RefreshCw } from 'lucide-react'
-import type { ReactNode, ButtonHTMLAttributes, CSSProperties, TableHTMLAttributes, HTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from 'react'
+import type { ReactNode, Ref, ButtonHTMLAttributes, CSSProperties, TableHTMLAttributes, HTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from 'react'
 import { useTranslation } from '../../i18n'
 
 /* ----------------------------- Card ----------------------------- */
@@ -123,6 +123,8 @@ const BUTTON_SIZES: Record<ButtonSize, string> = {
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
   size?: ButtonSize
+  // React 19 passes ref as a plain prop; it reaches the <button> via ...rest.
+  ref?: Ref<HTMLButtonElement>
 }
 
 export function Button({ children, variant = 'default', size = 'md', className = '', type = 'button', ...rest }: ButtonProps) {

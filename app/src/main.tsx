@@ -26,6 +26,7 @@ import { AppShell } from './shell/AppShell'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { PermissionsProvider } from './hooks/usePermissions'
 import { SnackbarProvider } from './components/Snackbar'
+import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './views/Login'
 import { MFASetup } from './views/MFASetup'
@@ -230,7 +231,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <PermissionsProvider>
             <SnackbarProvider>
-              <RouterProvider router={router} />
+              <ConfirmProvider>
+                <RouterProvider router={router} />
+              </ConfirmProvider>
             </SnackbarProvider>
           </PermissionsProvider>
         </AuthProvider>

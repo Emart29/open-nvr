@@ -80,6 +80,8 @@ export const translations: TranslationCatalog = {
   'common.refresh': 'Actualiser',
   'common.open': 'Ouvrir',
   'common.browse': 'Parcourir',
+  'common.confirm': 'Confirmer',
+  'confirm.typeToConfirm': 'Saisissez {{text}} pour confirmer',
   'common.cancel': 'Annuler',
   'common.save': 'Enregistrer',
   'common.delete': 'Supprimer',

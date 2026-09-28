@@ -16,7 +16,7 @@
  * along with OpenNVR.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useId, useRef } from 'react'
 import { useTranslation } from '../i18n'
 
 type ModalProps = {
@@ -47,21 +47,78 @@ type ModalProps = {
    * release.
    */
   placement?: 'center' | 'side'
+  /** Passed to the dialog element, for tests. */
+  'data-testid'?: string
 }
+
+// Open modals, innermost last. Escape and the Tab trap act only for the top
+// one: before this, every open Modal listened on window, so Escape in a
+// dialog opened from another dialog closed both.
+const openStack: symbol[] = []
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function Modal({
   open, title, onClose, children, widthClassName, footer, bodyClassName,
-  placement = 'center',
+  placement = 'center', 'data-testid': testId,
 }: ModalProps) {
   const { t } = useTranslation()
+  const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // Callers pass inline arrow functions; reading through a ref keeps the
+  // effect below from re-running (and re-grabbing focus) on every render.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
+    if (!open) return
+    const id = Symbol('modal')
+    openStack.push(id)
+    const opener = document.activeElement as HTMLElement | null
+
+    // Move focus into the dialog -- unless something inside it already took
+    // it (an autoFocus input mounts before this effect runs).
+    const dialog = dialogRef.current
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus()
+
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (openStack[openStack.length - 1] !== id) return
+      if (e.key === 'Escape') {
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== 'Tab' || !dialog) return
+      // Only trap focus that is ours. Focus sitting elsewhere (a stacked
+      // picker rendered outside this dialog, a video in fullscreen) belongs
+      // to another layer, and pulling it back would break that layer.
+      const active = document.activeElement
+      if (active && active !== document.body && !dialog.contains(active)) return
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null)
+      if (items.length === 0) {
+        e.preventDefault()
+        dialog.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && (active === first || active === dialog)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
-    if (open) window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      const i = openStack.indexOf(id)
+      if (i >= 0) openStack.splice(i, 1)
+      // Give focus back to what opened the dialog, if it is still there.
+      if (opener && opener.isConnected) opener.focus()
+    }
+  }, [open])
 
   if (!open) return null
   const side = placement === 'side'
@@ -74,12 +131,19 @@ export function Modal({
           scrolls in the body instead of being clipped by
           overflow-hidden. A side panel is full-height and bounded by
           the viewport width, so it never runs off a laptop screen. */}
-      <div className={`relative z-10 flex flex-col overflow-hidden border-[var(--border)] bg-[var(--panel-2)] shadow-xl ${
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
+        data-testid={testId}
+        className={`relative z-10 flex flex-col overflow-hidden border-[var(--border)] bg-[var(--panel-2)] shadow-xl outline-none ${
         side
           ? `h-full max-w-[95vw] border-l ${widthClassName || 'w-[760px]'}`
           : `max-h-[85vh] border ${widthClassName || 'w-[720px]'}`}`}>
         <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2">
-          <h2 className="text-sm font-semibold flex items-center gap-2">{title}</h2>
+          <h2 id={titleId} className="text-sm font-semibold flex items-center gap-2">{title}</h2>
           <button className="grid h-8 w-8 place-items-center text-[var(--text-dim)] hover:bg-[var(--bg-2)] hover:text-[var(--text)]" onClick={onClose} aria-label={t('shared.close')} title={t('shared.close')}>✕</button>
         </div>
         <div className={`flex-1 min-h-0 overflow-auto thin-scroll ${bodyClassName || 'p-4'}`}>
