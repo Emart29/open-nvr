@@ -7,7 +7,7 @@ from __future__ import annotations
 from harness import selectors as S
 from harness.budgets import BUDGETS
 
-from .base import BasePage
+from .base import BasePage, confirm_if_asked
 
 
 class AlertsPage(BasePage):
@@ -51,7 +51,16 @@ class AlertsPage(BasePage):
         self.find(S.ACK_ROW, scope=row).first.click()
 
     def acknowledge_all(self) -> None:
-        self.find(S.ACK_ALL).first.click()
+        """Select every row with the header checkbox, then Acknowledge.
+
+        The page's old "Acknowledge all" button gave way to bulk selection:
+        ticking rows (or the header box) shows a selection bar whose
+        "Acknowledge" button acks them. Exact name match, because every
+        unacked row also has an "Acknowledge: <title>" button.
+        """
+        self.page.locator("thead input[type=checkbox]").first.check()
+        self.page.get_by_role("button", name="Acknowledge", exact=True).click()
+        confirm_if_asked(self.page)
 
     def unacked_count(self) -> int:
         return self.find(S.UNACKED_STATUS).count()
