@@ -39,9 +39,15 @@ from __future__ import annotations
 
 import asyncio as _asyncio
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger("caption_enrichment")
+
+#: How long one caption call may take before core gives up on it. Named
+#: so the timeout log line can say what the limit was — "timed out" with
+#: no number is only half a diagnosis.
+CAPTION_TIMEOUT_S = 15.0
 
 #: The taxonomy task a captioner advertises (server/config/tasks.yml).
 #: Both BLIP Scene Caption and Moondream VLM advertise it, which is why
@@ -142,16 +148,30 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         params["event_id"] = int(event_id)
     payload = build_infer_payload(task=CAPTION_TASK, jpeg_bytes=jpeg,
                                   params=params)
+    started = time.monotonic()
     try:
         async with _CAPTION_CONCURRENCY:
-            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=CAPTION_TIMEOUT_S,
+                                         trust_env=False) as client:
                 resp = await client.post(
                     f"{settings.kai_c_url}/api/v1/infer/{adapter}",
                     json=payload,
                     headers={"X-Internal-Api-Key": settings.internal_api_key},
                 )
+    except httpx.TimeoutException:
+        # A timeout is NOT "unreachable". The adapter answered /health,
+        # took the request, and is still computing the answer nobody will
+        # read — the box lost the CPU and gained nothing (#583). Logging
+        # it as a connectivity problem sent an operator to check the
+        # network while moondream sat at 290% of a core.
+        logger.warning(
+            "caption enrichment: %s timed out after %.1fs (limit %.0fs) — "
+            "the captioner is slower than the visit rate; see #583",
+            adapter, time.monotonic() - started, CAPTION_TIMEOUT_S)
+        return None
     except Exception as exc:                      # noqa: BLE001
-        logger.warning("caption enrichment: %s unreachable (%s)", adapter, exc)
+        logger.warning("caption enrichment: %s unreachable (%s: %s)",
+                       adapter, type(exc).__name__, exc)
         return None
     if resp.status_code != 200:
         logger.warning("caption enrichment: %s returned %s",

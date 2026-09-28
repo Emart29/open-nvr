@@ -468,3 +468,50 @@ def test_plan_skills_resolves_without_being_patched(monkeypatch):
     vqa = next(s for s in skills if s["task"] == VQA_TASK)
     assert vqa["healthy"] is True
     assert "colour" in vqa["descriptor_kinds"]
+
+
+# ── A timeout is not "unreachable" (#583) — same rule as the captioner ──
+
+def _run_ask_with(monkeypatch, raising):
+    import asyncio
+
+    import httpx
+
+    from services import descriptor_enrichment as mod
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            raise raising
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client())
+    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        mod._ask(b"\xff\xd8\xffjpeg", "ollamavlm", "What colour?", "cam1", 7))
+
+
+def test_a_vqa_timeout_is_logged_as_a_timeout(monkeypatch, caplog):
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="descriptor_enrichment"):
+        assert _run_ask_with(monkeypatch, httpx.ReadTimeout("")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "timed out after" in line and "limit 20s" in line, line
+    assert "unreachable" not in line
+
+
+def test_a_vqa_connect_error_is_still_unreachable(monkeypatch, caplog):
+    import logging
+
+    import httpx
+
+    with caplog.at_level(logging.WARNING, logger="descriptor_enrichment"):
+        assert _run_ask_with(monkeypatch, httpx.ConnectError("refused")) is None
+    line = "\n".join(r.getMessage() for r in caplog.records)
+    assert "unreachable" in line and "ConnectError" in line, line

@@ -326,9 +326,19 @@ model budget = RAM − 3 GB (the stack: 13 containers hold ~2 GB RSS,
 
 The LLM is chosen first, from the largest *tested* catalog entry that
 fits both the budget and a speed ceiling; the vision model gets what is
-left. When nothing is left, scene description falls back to the
-`moondream` **adapter** — a ~0.5b-int8 build in its own container, far
-smaller than anything in the Ollama catalog and still a real VQA answer.
+left — **and only on a CUDA GPU.** Everywhere else scene description
+goes to the `moondream` **adapter** — a ~0.5b-int8 build on onnxruntime
+in its own container, far smaller than anything in the Ollama catalog
+and still a real VQA answer.
+
+Vision through Ollama is a GPU path, full stop. Ollama's `moondream` is
+the 1.8B checkpoint: on an 8-core CPU it took 30 s+ per image, core's
+background enrichers gave up at 15–20 s, and the model finished every
+abandoned answer anyway — two cores burnt continuously for zero captions
+saved (open-nvr #583). The 0.5B adapter answers the same questions
+roughly ten times faster on the same cores. Apple Silicon is on the CPU
+side of this line on purpose: Metal makes the host LLM fast, but the
+caption adapter runs inside the Docker VM with no GPU either way.
 
 Sizing them independently is what put a 4 GB vision model on 8 GB
 machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
@@ -339,13 +349,19 @@ machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
 | 4 GB / 2 cores, CPU | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
 | 8 GB / 4 cores, CPU | `qwen2.5:1.5b` | — | `moondream` | `base.en` |
 | 8 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
-| 16 GB / 8 threads, CPU | `qwen3:1.7b` | `moondream` | `ollamavlm` | `small.en` |
-| 16 GB / 4 cores, CPU | `qwen2.5:1.5b` | `moondream` | `ollamavlm` | `base.en` |
-| 32 GB / 16 cores, CPU | `qwen3:1.7b` | `moondream` | `ollamavlm` | `small.en` |
+| 16 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
+| 16 GB / 4 cores, CPU | `qwen2.5:1.5b` | — | `moondream` | `base.en` |
+| 32 GB / 16 cores, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
 | 8 GB, GPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
 | 16 GB, GPU | `qwen2.5:3b` | `gemma3:4b` | `ollamavlm` | `small.en` |
-| 32 GB, Apple Silicon | `qwen2.5:3b` | `gemma3:4b` | `ollamavlm` | `small.en` |
+| 32 GB, Apple Silicon | `qwen2.5:3b` | — | `moondream` | `small.en` |
 | detection failed | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
+
+The same hardware line decides whether core describes every recorded
+visit in the background (`EVENTS_CAPTION_ENRICHMENT`,
+`EVENTS_DESCRIPTOR_ENRICHMENT`): on by default with a CUDA GPU, asked
+and defaulting off without one. Visits recorded while it is off can be
+described later with `EVENTS_ENRICHMENT_BACKFILL=true`.
 
 Detection failing sizes DOWN, never up: an unknown machine is treated as
 a small one, because the cost of guessing high is an install that does

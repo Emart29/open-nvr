@@ -526,14 +526,74 @@ suggest_models() {
     [[ "$HW_ACCEL" == "cpu" ]] && vlm_speed_cap=1        # CPU: the fast tier only
     picked=$(catalog_pick vlm "$remaining" "$vlm_speed_cap")
     SUGGEST_VLM="${picked%%|*}"
-    if [[ -n "$SUGGEST_VLM" ]]; then
+    # Vision through Ollama is a GPU path, full stop. Ollama's `moondream`
+    # is the 1.8B checkpoint; served on a CPU it takes 30 s+ per image,
+    # and core's enrichers give up at 15-20 s — so every visit cost the box
+    # two cores of compute and saved nothing (#583). The moondream ADAPTER
+    # is a 0.5B int8 build on onnxruntime in its own container: the same
+    # VQA answers, roughly ten times faster on the same cores. Apple
+    # Silicon is deliberately on the CPU side of this line: Metal makes
+    # the LLM fast, but the adapter container runs in the Docker VM with
+    # no GPU either way, and the 0.5B build is what fits that VM.
+    if [[ "$HW_ACCEL" == "cuda" && -n "$SUGGEST_VLM" ]]; then
         SUGGEST_CAPTION_ADAPTER="ollamavlm"
-    else
-        # No room to serve vision from Ollama: fall back to the moondream
-        # ADAPTER, a ~0.5b-int8 build in its own container — far smaller than
-        # anything in the Ollama catalog, and still a real VQA answer.
+        SUGGEST_CAPTION_REASON="an NVIDIA GPU serves vision through Ollama at ~1-2 s a frame"
+    elif [[ "$HW_ACCEL" == "cuda" ]]; then
         SUGGEST_CAPTION_ADAPTER="moondream"
+        SUGGEST_CAPTION_REASON="too little RAM left for an Ollama vision model beside the LLM"
         SUGGEST_VLM=""
+    else
+        SUGGEST_CAPTION_ADAPTER="moondream"
+        SUGGEST_CAPTION_REASON="no CUDA GPU: the in-container 0.5B moondream answers in seconds where Ollama's 1.8B takes 30 s+ a frame on CPU"
+        SUGGEST_VLM=""
+    fi
+}
+
+# suggest_enrichment_default → "true" | "false": should core describe every
+# recorded visit (captions + colour/type descriptors) on this machine?
+#
+# The enrichers are ON by default in code, which is right for a GPU box
+# and wrong for a CPU one: every finished visit is one caption plus two
+# VQA questions, and a captioner that takes seconds per image on the cores
+# the detector and recorder also need cannot keep up with a busy camera.
+# The result on the field box was ~2 cores burnt continuously for zero
+# captions saved (#583). Frigate ships its equivalent off and per-camera
+# opt-in for the same reason. A GPU changes the arithmetic, so it stays
+# on there. Everything recorded while it is off is still enrichable later
+# (EVENTS_ENRICHMENT_BACKFILL) — nothing is lost, only deferred.
+suggest_enrichment_default() {
+    if [[ "$HW_ACCEL" == "cuda" ]]; then echo "true"; else echo "false"; fi
+}
+
+# configure_enrichment_flags → writes EVENTS_CAPTION_ENRICHMENT and
+# EVENTS_DESCRIPTOR_ENRICHMENT. One question, both flags: they ride the
+# same adapter and fail the same way, and an operator asked twice about
+# "descriptors" and "captions" cannot tell them apart. A value already in
+# .env wins over the hardware default (reconfigure keeps the last answer);
+# a CUDA box is not asked at all — on is right there and a prompt would
+# only invite turning off the thing that makes search work.
+configure_enrichment_flags() {
+    local suggested current default
+    suggested=$(suggest_enrichment_default)
+    current=$(env_get EVENTS_CAPTION_ENRICHMENT)
+    if [[ "$suggested" == "true" && -z "$current" ]]; then
+        env_set EVENTS_CAPTION_ENRICHMENT true
+        env_set EVENTS_DESCRIPTOR_ENRICHMENT true
+        ok "Visit descriptions (captions + colour/type) ON — a GPU keeps up with the visit rate"
+        return 0
+    fi
+    default="n"
+    [[ "${current:-$suggested}" == "true" ]] && default="y"
+    printf '\n'
+    explain "Describe every recorded visit in the background (a caption plus colour/type questions per visit) so search matches words like 'white van'. Without a CUDA GPU the captioner takes seconds per image and a busy camera outruns it: the work then burns CPU the detector and recorder need and saves nothing. Leave it off on this machine unless traffic is light; anything recorded meanwhile can be described later with EVENTS_ENRICHMENT_BACKFILL=true." \
+        "no" "$default" \
+        "Hardware detected: ${HW_ACCEL}. Turn on later by setting EVENTS_CAPTION_ENRICHMENT=true and EVENTS_DESCRIPTOR_ENRICHMENT=true in .env."
+    if ask_yes_no "Describe every recorded visit in the background?" "$default"; then
+        env_set EVENTS_CAPTION_ENRICHMENT true
+        env_set EVENTS_DESCRIPTOR_ENRICHMENT true
+    else
+        env_set EVENTS_CAPTION_ENRICHMENT false
+        env_set EVENTS_DESCRIPTOR_ENRICHMENT false
     fi
 }
 
@@ -1118,7 +1178,7 @@ choose_example() {
         if [[ -n "$vlm_suggest" ]]; then
             ok "Suggesting ${llm_suggest} + ${vlm_suggest} (both stay resident)"
         else
-            ok "Suggesting ${llm_suggest}; too little left for an Ollama vision model, so scene description falls back to the small in-container moondream"
+            ok "Suggesting ${llm_suggest}; scene description via the in-container moondream adapter — ${SUGGEST_CAPTION_REASON}"
         fi
 
         printf '\n  ── Camera Agent models (all local, no API keys) ───────\n'
@@ -1161,22 +1221,22 @@ choose_example() {
                 "Transcribes your spoken questions (voice mode only). Sized for this machine — transcription is on the voice critical path, so weak boxes get the fast tier." "yes" \
                 "tiny.en (fastest) | base.en (balanced) | small.en (most accurate)."
         fi
-        # When the LLM already runs on the host Ollama, the VLM belongs there
-        # too: the ollamavlm adapter proxies scene questions to the same
-        # GPU-fast Ollama (a caption costs ~1-2 s on Metal vs ~25 s of VM
-        # CPU with the in-container weights). Same adapter contract, same
-        # audited KAI-C path — only where the weights execute changes. On
-        # the bundled-container path the in-VM moondream stays the default
-        # (there may be no host Ollama at all on a Linux server).
-        # ...but only if there is RAM for it. Both Ollama models stay
-        # resident, so proxying vision to Ollama on a machine that cannot
-        # hold both means every scene question evicts the chat model.
+        # When the LLM runs on a host Ollama WITH A CUDA GPU, the VLM belongs
+        # there too: the ollamavlm adapter proxies scene questions to the
+        # same GPU-fast Ollama. Same adapter contract, same audited KAI-C
+        # path — only where the weights execute changes. Everywhere else —
+        # CPU, Apple Silicon, the bundled container — the in-container
+        # moondream adapter is the default: suggest_models explains why
+        # (Ollama's 1.8B moondream on CPU is what burnt two cores for
+        # nothing in #583). ...and only if there is RAM for it: both
+        # Ollama models stay resident, so proxying vision to an Ollama that
+        # cannot hold both means every scene question evicts the chat model.
         local caption_default="moondream"
         if [[ "$llm_where" == "host" && "$SUGGEST_CAPTION_ADAPTER" == "ollamavlm" ]]; then
             caption_default="ollamavlm"
         fi
         configure_value CAPTION_ADAPTER "Scene-description model" "$caption_default" \
-            "Describes what a camera sees. ollamavlm proxies to your Ollama (GPU-fast when the LLM runs on this machine — the default in that case; needs an adapter tag newer than 0.1.3); moondream/blip run inside Docker (moondream answers questions, blip writes plain captions)." "yes" \
+            "Describes what a camera sees. moondream runs inside Docker (0.5B, answers questions, the right pick without a CUDA GPU — on CPU it is ~10x faster than Ollama's 1.8B moondream); blip runs inside Docker (plain captions only, fastest); ollamavlm proxies to your Ollama (only worth it on an NVIDIA GPU; needs an adapter tag newer than 0.1.3)." "yes" \
             "moondream | blip | ollamavlm — all local."
         # ollamavlm chosen → suggest a VLM sized like the LLM was.
         if [[ "$(env_get CAPTION_ADAPTER)" == "ollamavlm" ]]; then
@@ -1185,6 +1245,18 @@ choose_example() {
             pick_model_from_catalog vlm "$vlm_suggest" "Vision model (Ollama)"
             env_set OLLAMA_VLM_MODEL "$PICKED_MODEL"
         fi
+
+        # ── Describing every recorded visit: on for a GPU, asked on CPU ──
+        # The captioner just chosen is also what core calls, in the
+        # background, for EVERY finished visit (a caption + two colour/type
+        # questions) so search can match "white van" and the agent can
+        # answer "did a blue car come?". On a CUDA box that costs ~1-2 s a
+        # visit and stays on. On CPU the same work takes seconds per image
+        # and cannot keep up with a busy camera: the field box spent two
+        # cores on it, continuously, and saved nothing (#583). So it is
+        # offered here with the reason, defaulting off, and an existing
+        # .env keeps whatever the operator chose last time.
+        configure_enrichment_flags
     fi
     if [[ "$EXAMPLE_NAME" != "camera-agent" ]]; then
         # Catalog apps are not prompted here: their knobs (cameras, zones,

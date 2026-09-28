@@ -228,6 +228,56 @@ gpu_llm=$(cut -d"|" -f1 <<<"$(size 30 8 cuda)")
 [[ "$cpu_llm" != "$gpu_llm" ]] && pass \
     || fail "pre/post reboot suggest the same model (${cpu_llm}) — the flag buys nothing"
 
+# ── Vision through Ollama is a GPU path (#583) ──
+# The field box: CAPTION_ADAPTER=ollamavlm on an 8-core CPU, Ollama's 1.8B
+# moondream at 30 s+ a frame, core timing out at 15 s, two cores burnt for
+# zero captions saved. A strong CPU used to be handed ollamavlm because a
+# "fast tier" vision model fit its RAM; fitting and keeping up differ.
+start_test "a strong CPU box is never handed ollamavlm"
+got=$(size 32 16 cpu)
+adapter=$(cut -d'|' -f3 <<<"$got"); vlm=$(cut -d'|' -f2 <<<"$got")
+[[ "$adapter" == "moondream" && -z "$vlm" ]] && pass \
+    || fail "32 GB / 16-core CPU got '${adapter}' with VLM '${vlm}' (got: ${got})"
+
+start_test "Apple Silicon (Metal) is on the CPU side of the vision line"
+# The LLM runs on the host GPU, but the adapter container runs in the
+# Docker VM with no GPU either way — Varun's call: native moondream on M2
+# until there is a real GPU.
+adapter=$(cut -d'|' -f3 <<<"$(size 32 12 metal)")
+[[ "$adapter" == "moondream" ]] && pass \
+    || fail "Metal box got '${adapter}' — the caption adapter has no Metal to use"
+
+start_test "a CUDA box with RAM still gets ollamavlm"
+got=$(size 32 12 cuda)
+adapter=$(cut -d'|' -f3 <<<"$got"); vlm=$(cut -d'|' -f2 <<<"$got")
+[[ "$adapter" == "ollamavlm" && -n "$vlm" ]] && pass \
+    || fail "CUDA box lost the Ollama vision path (got: ${got})"
+
+start_test "every suggestion carries a reason the operator is shown"
+for spec in "8 4 cpu" "32 16 cpu" "32 12 metal" "8 8 cuda" "32 12 cuda"; do
+    size $spec >/dev/null
+    [[ -n "${SUGGEST_CAPTION_REASON:-}" ]] || { fail "no SUGGEST_CAPTION_REASON for ${spec}"; break; }
+done && pass
+
+# ── Background visit descriptions default by hardware (#583) ──
+start_test "visit descriptions default ON with a CUDA GPU"
+HW_ACCEL=cuda; [[ "$(suggest_enrichment_default)" == "true" ]] && pass \
+    || fail "a GPU box should keep enrichment on"
+
+start_test "visit descriptions default OFF on CPU and Metal"
+HW_ACCEL=cpu;   a=$(suggest_enrichment_default)
+HW_ACCEL=metal; b=$(suggest_enrichment_default)
+[[ "$a" == "false" && "$b" == "false" ]] && pass \
+    || fail "CPU='${a}' Metal='${b}' — the captioner cannot keep up with a busy camera there"
+
+start_test "install.ps1 mirrors the CUDA-only rule for ollamavlm"
+if grep -q "accel -eq 'cuda' -and \$pick" scripts/install.ps1 \
+   && grep -q "enrichSuggest = if (\$accel -eq 'cuda') { 'true' } else { 'false' }" scripts/install.ps1; then
+    pass
+else
+    fail "install.ps1 no longer gates ollamavlm and the enrichment default on CUDA"
+fi
+
 start_test "install.ps1 carries the same budget arithmetic"
 if grep -q 'stackGb = 3; \$osHeadroomGb = 2' scripts/install.ps1 \
    && grep -q 'budgetGb = \[math\]::Max(0, \$ramGb - \$stackGb - \$osHeadroomGb)' scripts/install.ps1; then

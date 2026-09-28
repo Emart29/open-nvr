@@ -56,7 +56,11 @@ from __future__ import annotations
 
 import asyncio as _asyncio
 import logging
+import time
 from typing import Any
+
+#: Per-call ceiling, named so the timeout log line can say the limit.
+EMBED_TIMEOUT_S = 15.0
 
 logger = logging.getLogger(__name__)
 
@@ -200,16 +204,26 @@ async def _infer(adapter: str, payload: dict, *, what: str) -> list[float] | Non
 
     import httpx
 
+    started = time.monotonic()
     try:
         async with _EMBED_CONCURRENCY:
-            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=EMBED_TIMEOUT_S,
+                                         trust_env=False) as client:
                 resp = await client.post(
                     f"{settings.kai_c_url}/api/v1/infer/{adapter}",
                     json=payload,
                     headers={"X-Internal-Api-Key": settings.internal_api_key},
                 )
+    except httpx.TimeoutException:
+        # Same rule as the caption and descriptor enrichers (#583): a
+        # timeout means the adapter is up and too slow, not gone.
+        logger.warning(
+            "embed enrichment: %s timed out after %.1fs (limit %.0fs) for %s",
+            adapter, time.monotonic() - started, EMBED_TIMEOUT_S, what)
+        return None
     except Exception as exc:                      # noqa: BLE001
-        logger.warning("embed enrichment: %s unreachable (%s)", adapter, exc)
+        logger.warning("embed enrichment: %s unreachable (%s: %s)",
+                       adapter, type(exc).__name__, exc)
         return None
     if resp.status_code != 200:
         logger.warning("embed enrichment: %s returned %s for %s",
