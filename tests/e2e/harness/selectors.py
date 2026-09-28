@@ -293,7 +293,7 @@ CAMERA_ROW_DELETE = Selector(
     name="delete camera",
     title="Delete camera",
     role=("button", "Delete {name}"),
-    note="triggers native window.confirm -- register a dialog handler first",
+    note="asks first: native confirm on old builds, the shared ConfirmDialog on new ones",
 )
 CAMERA_ROW_LIVE = Selector(name="view live", title="View live", role=("button", "View {name} live"))
 CAMERAS_EMPTY = Selector(name="no cameras empty state", text="No cameras")

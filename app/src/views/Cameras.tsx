@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { apiService } from '../lib/apiService'
 import { queryClient, useCameras, useMediaMtxHealth } from '../lib/queries'
 import { useCameraStatusConnected } from '../hooks/useCameraStatus'
@@ -128,6 +129,7 @@ export function Cameras() {
   const { hasPermission } = usePermissions()
   const canManageCameras = hasPermission('cameras.manage')
   const { showError, showSuccess, showInfo, showWarning } = useSnackbar()
+  const confirm = useConfirm()
   // A mutation (delete / bulk op) is in flight. Distinct from the list's own
   // fetching state: the list now refreshes on its own in the background, and
   // that must never disable the buttons.
@@ -389,12 +391,12 @@ export function Cameras() {
   }
 
   const onDelete = async (c: Camera) => {
-    if (!confirm(
-      `Delete camera "${c.name}"?\n\n` +
-      'This stops its stream and recording immediately and moves it to ' +
-      'Settings → Deleted Cameras. It cannot be edited or reactivated; its ' +
-      'recordings stay viewable there until retention removes them.'
-    )) return
+    if (!(await confirm({
+      title: t('camera.confirmDeleteTitle', { name: c.name }),
+      message: t('camera.confirmDeleteMessage'),
+      confirmLabel: t('camera.delete'),
+      danger: true,
+    }))) return
     try {
       setMutating(true)
       await apiService.deleteCamera(c.id)
@@ -410,20 +412,24 @@ export function Cameras() {
   const onBulkDelete = async () => {
     const ids = Array.from(selected)
     if (!ids.length) return
-    if (!confirm(
-      `Delete ${ids.length} selected camera(s)?\n\n` +
-      'This stops their streams and recording immediately and moves them to ' +
-      'Settings → Deleted Cameras. They cannot be edited or reactivated; their ' +
-      'recordings stay viewable there until retention removes them.'
-    )) return
+    if (!(await confirm({
+      title: t('camera.confirmBulkDeleteTitle', { count: ids.length }),
+      message: t('camera.confirmBulkDeleteMessage'),
+      confirmLabel: t('camera.delete'),
+      danger: true,
+    }))) return
     try {
       setMutating(true)
+      // Per-camera failures used to be swallowed and the toast said
+      // "completed" regardless; count them and say which way it went.
+      let failed = 0
       for (const id of ids) {
-        try { await apiService.deleteCamera(id) } catch { }
+        try { await apiService.deleteCamera(id) } catch { failed++ }
       }
       await refreshCameras()
       setSelected(new Set())
-      showSuccess('Bulk delete completed')
+      if (failed) showError(t('camera.bulkPartial', { failed, total: ids.length }))
+      else showSuccess('Bulk delete completed')
     } catch (e: any) {
       showError(extractApiError(e, 'Bulk delete failed'))
     } finally {
@@ -436,14 +442,16 @@ export function Cameras() {
     if (!ids.length || bulkUserId === '') return
     try {
       setMutating(true)
+      let failed = 0
       for (const id of ids) {
         try {
           await apiService.assignCameraPermission(id, { user_id: Number(bulkUserId), can_view: bulkCanView, can_manage: bulkCanManage })
-        } catch { }
+        } catch { failed++ }
       }
       setShowBulkAssign(false)
       setSelected(new Set())
-      showSuccess('Bulk assign completed')
+      if (failed) showError(t('camera.bulkPartial', { failed, total: ids.length }))
+      else showSuccess('Bulk assign completed')
     } catch (e: any) {
       showError(extractApiError(e, 'Bulk assign failed'))
     } finally {

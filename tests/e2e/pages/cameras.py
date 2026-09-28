@@ -7,7 +7,7 @@ from __future__ import annotations
 from harness import selectors as S
 from harness.budgets import BUDGETS
 
-from .base import DEFAULT_TIMEOUT_MS, BasePage
+from .base import DEFAULT_TIMEOUT_MS, BasePage, confirm_if_asked
 
 
 class CamerasPage(BasePage):
@@ -112,5 +112,8 @@ class CamerasPage(BasePage):
         quietly does not happen, and the test fails later on a row that is
         still present with nothing pointing at the cause.
         """
+        # Native confirm on older builds, the shared ConfirmDialog on newer
+        # ones -- confirm_if_asked answers whichever appears.
         self.accept_native_dialogs()
         self.find(S.CAMERA_ROW_DELETE, scope=self.row(name), name=name).first.click()
+        confirm_if_asked(self.page)
