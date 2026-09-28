@@ -18,12 +18,13 @@
 
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { DeviceBlockedOverlay } from '../components/DeviceBlockedOverlay'
-import { AlertTriangle, Bell, BellRing, Boxes, Briefcase, Camera, Car, ChevronDown, Cloud, Cpu, Database, DoorOpen, FileCheck, FileSearch, GitCommitHorizontal, Hourglass, KeyRound, Layers, LifeBuoy, LogOut, Maximize, Menu, Minimize, Monitor, MonitorPlay, Moon, Network, PackageCheck, Plug, RefreshCcw, Search as SearchIcon, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Sun, UserRound, Users, Globe } from 'lucide-react'
+import { AlertTriangle, Bell, BellRing, Boxes, Briefcase, Camera, Car, ChevronDown, Cloud, Cpu, Database, DoorOpen, FileCheck, GitCommitHorizontal, Hourglass, KeyRound, Layers, LifeBuoy, LogOut, Maximize, Menu, Minimize, Monitor, MonitorPlay, Moon, Network, PackageCheck, Plug, RefreshCcw, Search as SearchIcon, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Sun, UserRound, Users, Globe } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiService } from '../lib/apiService'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { useClickOutside } from '../hooks/useClickOutside'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useAuth } from '../auth/AuthContext'
 import { useTheme } from '../hooks/useTheme'
 import { usePermissions, NAV_PERMISSIONS } from '../hooks/usePermissions'
@@ -87,7 +88,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Security & Network',
     items: [
       { to: '/network', label: 'Network', icon: <Network size={16} />, perm: '/network' },
-      { to: '/logs', label: 'Logs & Forensics', icon: <FileSearch size={16} />, perm: '/logs' },
+      // /logs ("Logs & Forensics") is still only a "coming soon" placeholder,
+      // so it is left out of the menu; the route itself still resolves.
     ],
   },
   {
@@ -160,6 +162,27 @@ export function AppShell() {
   const [sidebarScrolling, setSidebarScrolling] = useState(false)
   const location = useLocation()
   const [openGroup, setOpenGroup] = useState<string | null>(loadOpenGroup)
+
+  // Below 1024px the sidebar is a drawer over the page, opened from the top
+  // bar, instead of a column that squeezed the page to a sliver on a phone.
+  // It is always fully expanded there, and closes on every navigation. The
+  // desktop layout is untouched.
+  const isNarrow = useMediaQuery('(max-width: 1023px)')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  useEffect(() => { setDrawerOpen(false) }, [location.pathname, isNarrow])
+  const expanded = isNarrow || sidebarOpen
+
+  // Escape closes the account menu and the drawer, like every other popup.
+  useEffect(() => {
+    if (!menuOpen && !drawerOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setMenuOpen(false)
+      setDrawerOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen, drawerOpen])
 
   const canView = (path: keyof typeof NAV_PERMISSIONS) => {
     const requiredPerm = NAV_PERMISSIONS[path]
@@ -337,21 +360,34 @@ export function AppShell() {
           read as a toolbar spilled across the bar. No `uppercase` here:
           it was leaking into every menu opened from the bar. */}
       <header className="sticky top-0 z-40 grid h-12 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b border-[var(--border)] bg-[var(--bg-2)] px-4 text-sm text-[var(--text)]">
-        <Link to="/" className="inline-flex items-center justify-self-start" aria-label="OpenNVR home">
-          <Logo className="h-10 w-auto text-[var(--text)]" />
-        </Link>
+        <div className="flex items-center gap-1 justify-self-start">
+          {isNarrow && (
+            <button
+              className={TOP_ICON}
+              onClick={() => setDrawerOpen((o) => !o)}
+              aria-label={t('sidebar.toggle')}
+              aria-expanded={drawerOpen}
+              title={t('sidebar.toggle')}
+            >
+              <Menu size={17} />
+            </button>
+          )}
+          <Link to="/" className="inline-flex items-center" aria-label="OpenNVR home">
+            <Logo className="h-10 w-auto text-[var(--text)]" />
+          </Link>
+        </div>
 
         <LiveClock />
 
         <div className="flex items-center justify-self-end gap-1">
           <AlertBell />
           {canView('/live') && (
-            <Link to="/live" className={TOP_ICON} title={t('header.openLiveView')} aria-label={t('header.openLiveView')}>
+            <Link to="/live" className={`${TOP_ICON} max-sm:hidden`} title={t('header.openLiveView')} aria-label={t('header.openLiveView')}>
               <MonitorPlay size={17} />
             </Link>
           )}
           <button
-            className={TOP_ICON}
+            className={`${TOP_ICON} max-sm:hidden`}
             onClick={toggle}
             title={isFullscreen ? t('header.exitFullscreen') : t('header.enterFullscreen')}
             aria-label={isFullscreen ? t('header.exitFullscreen') : t('header.enterFullscreen')}
@@ -398,7 +434,7 @@ export function AppShell() {
             {menuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl"
+                className="absolute right-0 z-50 mt-2 w-72 max-w-[calc(100vw-1rem)] overflow-hidden border border-[var(--border)] bg-[var(--panel)] shadow-2xl"
               >
                 <div className="flex items-center gap-3 bg-[var(--bg-2)] px-4 py-4">
                   <Avatar name={user?.username} size="lg" />
@@ -419,14 +455,14 @@ export function AppShell() {
                       role="menuitem"
                       to="/settings"
                       onClick={() => setMenuOpen(false)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[var(--text)] hover:bg-[var(--panel-2)]"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-[var(--text)] hover:bg-[var(--panel-2)]"
                     >
                       <SettingsIcon size={16} className="text-[var(--text-dim)]" /> {t('header.settings')}
                     </Link>
                   )}
                   <button
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-red-500 hover:bg-red-500/10"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[var(--danger)] hover:bg-[color-mix(in_oklab,var(--danger)_10%,transparent)]"
                     onClick={logout}
                   >
                     <LogOut size={16} /> {t('header.logout')}
@@ -439,23 +475,31 @@ export function AppShell() {
       </header>
 
       <div className="flex">
-        {/* Sidebar */}
-  <aside className={`${sidebarOpen ? 'w-56' : 'w-14'} flex-shrink-0 sticky top-12 self-start h-[calc(100vh-3rem)] transition-all duration-200 bg-[var(--bg-2)] flex flex-col`}>
+        {isNarrow && drawerOpen && (
+          <div className="fixed inset-0 top-12 z-30 bg-black/50" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
+        )}
+        {/* Sidebar: a column on desktop, a drawer below 1024px */}
+        <aside
+          inert={isNarrow && !drawerOpen}
+          className={isNarrow
+            ? `fixed top-12 bottom-0 left-0 z-40 w-64 shadow-2xl transition-transform duration-200 bg-[var(--bg-2)] flex flex-col ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`
+            : `${sidebarOpen ? 'w-56' : 'w-14'} flex-shrink-0 sticky top-12 self-start h-[calc(100vh-3rem)] transition-all duration-200 bg-[var(--bg-2)] flex flex-col`}
+        >
           {/* Fixed header: toggle + pinned items never scroll away; its bottom
               border is the clip line for the scrollable nav below */}
           <div className="flex-shrink-0 p-2 border-b border-[var(--border)]">
             <button
               className="inline-flex items-center justify-center p-2 text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)] rounded"
-              onClick={() => setSidebarOpen((s) => !s)}
+              onClick={() => (isNarrow ? setDrawerOpen(false) : setSidebarOpen((s) => !s))}
               aria-label={t('sidebar.toggle')}
-              title={sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')}
+              title={expanded ? t('sidebar.collapse') : t('sidebar.expand')}
             >
               <Menu size={16} />
             </button>
             {pinnedGroups.map((group) => (
               <div key={group.key} className="mt-2 space-y-0.5">
                 {group.items.map((item) => (
-                  <SideLink key={item.to} to={item.to} end={item.end} label={t(NAV_LABEL_KEYS[item.label] ?? item.label)} icon={item.icon} collapsed={!sidebarOpen} />
+                  <SideLink key={item.to} to={item.to} end={item.end} label={t(NAV_LABEL_KEYS[item.label] ?? item.label)} icon={item.icon} collapsed={!expanded} />
                 ))}
               </div>
             ))}
@@ -465,7 +509,7 @@ export function AppShell() {
           <nav ref={sidebarRef} onScroll={onSidebarScroll} className={`flex-1 overflow-y-auto overflow-x-hidden px-2 sidebar-scroll ${sidebarScrolling ? 'is-scrolling' : ''}`}>
             {menuGroups.map((group, gi) => {
               const collapsed = openGroup !== group.key
-              if (!sidebarOpen) {
+              if (!expanded) {
                 return (
                   <div key={group.key} className="mb-2 pb-2 border-b border-[var(--border)] last:border-b-0 space-y-0.5">
                     {group.items.map((item) => (
