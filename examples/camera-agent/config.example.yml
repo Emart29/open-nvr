@@ -123,6 +123,19 @@ interrupt_addressee: true
 thinking_aloud: true
 filler_min_ms: 1500
 filler_source: template
+# The router (router.py) decides simple camera questions BEFORE the LLM
+# sees them. router_tier0: when every slot resolves — which camera (named,
+# "all", the one the UI is on, or the only one), which tool, which object,
+# which window — the tool runs at once and the model is asked only to SAY
+# the answer with a ~200-token prompt and no tool schemas; that skips the
+# tool-calling iteration (17 s of a 71 s field turn on CPU). Anything with
+# a side effect (alarms, monitors, reports, stop…) or about WHO always
+# goes to the model. router_hints: otherwise, a short system message
+# names the tool the question most resembles; the prompt is unchanged so
+# the cache holds. Every turn logs "router: tier=…" — grow the phrasings
+# in router.py from the misses, not from imagination.
+router_tier0: true
+router_hints: true
 # turn_cpu_threads: 1
 # turn_timer_secs: 0.8
 

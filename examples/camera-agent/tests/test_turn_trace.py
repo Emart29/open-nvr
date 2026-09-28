@@ -13,13 +13,14 @@ from context import CameraSpec
 
 
 class _ScriptedLLM:
-    """First call: ask for a tool. Second call: compose the answer."""
+    """A call that has not seen a tool result asks for a tool; a call that
+    has (the router's compose call, or iteration two) composes the answer."""
     def __init__(self):
         self.calls = 0
 
-    async def chat(self, **kw):
+    async def chat(self, *, messages=(), **kw):
         self.calls += 1
-        if self.calls == 1:
+        if not any(m.get("role") == "tool" for m in messages):
             return {"message": {"content": "", "tool_calls": [{
                 "id": "t1", "type": "function",
                 "function": {"name": "describe_camera",
@@ -28,9 +29,10 @@ class _ScriptedLLM:
                             "tool_calls": []}}
 
 
-def _runtime():
+def _runtime(*, router: bool = True):
     cfg = AppConfig(kaic_url="http://k", kaic_api_key="key", system_prompt="t",
-                    cameras=[CameraSpec("cam1", "http://x/f.jpg", "front")])
+                    cameras=[CameraSpec("cam1", "http://x/f.jpg", "front")],
+                    router_tier0=router, router_hints=router)
     rt = CameraAgentRuntime(cfg)
     rt.ollama = _ScriptedLLM()
 
@@ -47,15 +49,29 @@ def _runtime():
 
 
 def test_trace_records_llm_and_tool_steps_in_order():
+    """With the router off: the classic llm → tool → llm shape."""
+    rt = _runtime(router=False)
+    reply = asyncio.run(ca._run_conversation_turn(rt, [], "what do you see on cam1?"))
+    assert "person" in reply.lower()
+    steps = [(t["step"], t["detail"]) for t in rt.last_turn_trace]
+    assert steps[0] == ("route", "tier2")
+    assert steps[1][0] == "llm"
+    assert steps[2][0] == "describe_camera"
+    assert "cam1" in steps[2][1] and "vlm" in steps[2][1]   # names the path
+    assert steps[3][0] == "llm"
+    assert all(t["ms"] >= 0 for t in rt.last_turn_trace)
+
+
+def test_trace_records_a_routed_turn_as_route_tool_compose():
+    """The router decided: no tool-calling iteration, one compose call."""
     rt = _runtime()
     reply = asyncio.run(ca._run_conversation_turn(rt, [], "what do you see on cam1?"))
     assert "person" in reply.lower()
     steps = [(t["step"], t["detail"]) for t in rt.last_turn_trace]
-    assert steps[0][0] == "llm"
+    assert steps[0] == ("route", "tier0 describe_camera")
     assert steps[1][0] == "describe_camera"
-    assert "cam1" in steps[1][1] and "vlm" in steps[1][1]   # names the path
-    assert steps[2][0] == "llm"
-    assert all(t["ms"] >= 0 for t in rt.last_turn_trace)
+    assert steps[2] == ("llm", "compose")
+    assert rt.ollama.calls == 1, "the whole tool-calling iteration was skipped"
 
 
 def test_trace_marks_detector_fallback_when_vision_down():
