@@ -91,6 +91,31 @@ class BasePage:
         return errors
 
 
+def confirm_if_asked(page: Any, timeout_ms: int = 3_000) -> None:
+    """Answer "yes" to whatever confirmation a destructive click raised.
+
+    Works for both styles the app has used: a native ``window.confirm``
+    (accepted by a one-shot handler registered here) and an in-page
+    confirmation dialog (``role="dialog"`` with a confirming button). Call it
+    right *after* the click. Tests written this way survive the move from
+    native confirms to the shared ConfirmDialog without edits.
+    """
+    import re
+
+    dialog = page.locator('[role="alertdialog"], [role="dialog"]').filter(
+        has=page.get_by_role(
+            "button", name=re.compile(r"^(Confirm|Delete|Remove|Yes|OK|Block|Forget|Revoke)\b", re.I)
+        )
+    )
+    try:
+        dialog.last.wait_for(state="visible", timeout=timeout_ms)
+    except Exception:  # noqa: BLE001 -- no in-page dialog: native, or none at all
+        return
+    dialog.last.get_by_role(
+        "button", name=re.compile(r"^(Confirm|Delete|Remove|Yes|OK|Block|Forget|Revoke)\b", re.I)
+    ).last.click()
+
+
 def fatal_errors(errors: list[str]) -> list[str]:
     """Filter out console noise that is not a real failure.
 
@@ -100,4 +125,4 @@ def fatal_errors(errors: list[str]) -> list[str]:
     return [e for e in errors if "ResizeObserver" not in e]
 
 
-__all__ = ["BasePage", "fatal_errors", "DEFAULT_TIMEOUT_MS"]
+__all__ = ["BasePage", "confirm_if_asked", "fatal_errors", "DEFAULT_TIMEOUT_MS"]

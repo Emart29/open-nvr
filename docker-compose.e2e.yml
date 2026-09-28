@@ -137,6 +137,9 @@ services:
       - E2E_GIT_SHA=${E2E_GIT_SHA:-}
       - CORE_TAG=${CORE_TAG:-}
       - ADAPTER_TAG=${ADAPTER_TAG:-}
+      # Names the UI sweep's output folder (tests/ui/test_ui_sweep.py), e.g.
+      # "before" / "after". Empty means a timestamp.
+      - E2E_SWEEP_LABEL=${E2E_SWEEP_LABEL:-}
       # Playwright needs a writable browser cache outside the read-only mount.
       - HOME=/tmp/e2e-home
     volumes:
