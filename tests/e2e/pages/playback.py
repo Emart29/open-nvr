@@ -99,6 +99,13 @@ class PlaybackPage(BasePage):
         block = self.find(S.TIMELINE_FOOTAGE).last
         block.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
         box = block.bounding_box()
+        # A minute of footage in the default 24h window is under a pixel
+        # wide, so every point "inside" it is the same second. Zoom to the
+        # 2-minute preset (centred on the playhead, i.e. on this footage).
+        if box and box["width"] < 40:
+            self.page.get_by_role("button", name="2m", exact=True).click()
+            self.page.wait_for_timeout(300)
+            box = block.bounding_box()
         track = self.find(S.TIMELINE_TRACK).first.bounding_box()
         if not box or not track:
             raise AssertionError("no footage block to scrub into")
