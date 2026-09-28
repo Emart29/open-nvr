@@ -23,6 +23,7 @@ import { useTranslation, useDateFormat } from '../i18n'
 import { extractApiError } from '../lib/apiError'
 import { RecordingBrowser } from '../components/RecordingBrowser'
 import { Cloud } from 'lucide-react'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type AIModel = {
   id: number
@@ -90,6 +91,7 @@ export function AIModelsBYOM() {
   const fmt = useDateFormat()
   const { user } = useAuth()
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const canAdmin = !!user?.is_superuser
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -422,7 +424,7 @@ export function AIModelsBYOM() {
 
   async function handleDelete(id: number, name: string) {
     if (!canAdmin) return
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return
+    if (!(await confirm({ title: `Are you sure you want to delete "${name}"?`, danger: true }))) return
 
     // Stop inference if running
     if (runningModels.has(id)) {
@@ -531,7 +533,7 @@ export function AIModelsBYOM() {
   }
 
   async function deleteCloudCredential(id: string) {
-    if (!confirm('Delete this credential? Associated models will also be deleted.')) return
+    if (!(await confirm({ title: 'Delete this credential? Associated models will also be deleted.', danger: true }))) return
     try {
       setCloudLoading(true)
       await apiService.deleteCloudCredential(id)
@@ -569,7 +571,7 @@ export function AIModelsBYOM() {
   }
 
   async function deleteCloudModel(id: number) {
-    if (!confirm('Delete this cloud model configuration?')) return
+    if (!(await confirm({ title: 'Delete this cloud model configuration?', danger: true }))) return
     try {
       setCloudLoading(true)
       await apiService.deleteCloudModel(id)

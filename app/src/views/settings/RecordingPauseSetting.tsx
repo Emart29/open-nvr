@@ -24,6 +24,7 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { usePermissions } from '../../hooks/usePermissions'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type PauseInfo = { since: string; resume_at: string | null; by: string; reason: string | null }
 
@@ -33,6 +34,7 @@ type PauseInfo = { since: string; resume_at: string | null; by: string; reason: 
  * Superuser only; the server enforces the same.
  */
 export function RecordingPauseSetting() {
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const { t } = useTranslation()
   const { isSuperuser } = usePermissions()
@@ -67,7 +69,7 @@ export function RecordingPauseSetting() {
 
   const toggle = async () => {
     const next = !enabled
-    if (!next || window.confirm(t('recordingPause.confirmEnable'))) {
+    if (!next || (await confirm({ title: t('recordingPause.confirmEnable') }))) {
       setBusy('toggle')
       try {
         const { data } = await apiService.setRecordingPauseSetting(next)

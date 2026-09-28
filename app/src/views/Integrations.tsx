@@ -23,6 +23,7 @@ import { useSnackbar } from '../components/Snackbar'
 import { Modal } from '../components/Modal'
 import { Plus, Trash, Settings, Activity, CheckCircle, AlertCircle, Play, Plug } from 'lucide-react'
 import { useTranslation } from '../i18n'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type IntegrationType = 'webhook' | 'slack' | 'teams' | 'email' | 'mqtt' | 's3' | 'syslog' | 'prometheus'
 
@@ -39,6 +40,7 @@ const INTEGRATION_TYPES: { value: IntegrationType; label: string }[] = [
 
 export function Integrations() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { user } = useAuth()
   const canAdmin = !!user?.is_superuser
   const { showSuccess, showError } = useSnackbar()
@@ -104,7 +106,7 @@ export function Integrations() {
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this integration?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this integration?', danger: true }))) return
     try {
       await apiService.deleteIntegration(id)
       showSuccess('Integration deleted')

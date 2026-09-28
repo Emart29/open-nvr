@@ -19,11 +19,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { duplicateCameraNames, isDuplicateCameraError } from '../services/cameraService'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type Device = { ip: string | null; service_urls: string[] }
 type Profile = { token: string; name: string }
 
 export function OnvifTools() {
+  const confirm = useConfirm()
   const [loading, setLoading] = useState(false)
   const [devices, setDevices] = useState<Device[]>([])
   const [selectedIp, setSelectedIp] = useState<string>('')
@@ -167,11 +169,11 @@ export function OnvifTools() {
       } catch (e: any) {
         if (!isDuplicateCameraError(e)) throw e
         const names = duplicateCameraNames(e)
-        const ok = confirm(
-          'A camera with this IP address or stream URL is already added' +
-          (names.length ? `: ${names.join(', ')}` : '') +
-          '. Add it again anyway?'
-        )
+        const ok = await confirm({
+          title: 'A camera with this IP address or stream URL is already added' +
+            (names.length ? `: ${names.join(', ')}` : '') +
+            '. Add it again anyway?',
+        })
         if (!ok) return
         await apiService.createCamera(payload, { force: true })
       }

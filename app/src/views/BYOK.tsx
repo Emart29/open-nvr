@@ -22,11 +22,13 @@ import { extractApiError } from '../lib/apiError'
 import { useAuth } from '../auth/AuthContext'
 import { useTranslation } from '../i18n'
 import { KeyRound, Upload, FileText, Shield, CheckCircle, AlertCircle, Loader2, Info, X } from 'lucide-react'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type KeyItem = { id: string; name: string; description?: string; cert_pem?: string; key_pem?: string; created_at?: string }
 
 export function BYOK() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { user } = useAuth()
   const canAdmin = !!user?.is_superuser
   const [loading, setLoading] = useState(false)
@@ -126,7 +128,7 @@ export function BYOK() {
 
   async function clearCertificates() {
     if (!canAdmin) return
-    if (!confirm(t('byok.confirmClear'))) return
+    if (!(await confirm({ title: t('byok.confirmClear'), danger: true }))) return
     try {
       setLoading(true)
       setError(null)

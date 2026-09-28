@@ -77,6 +77,7 @@ import {
 import type { RegisteredApp } from './AppCatalog'
 import { AppConfigureButton, AppPageHeader } from './apps/AppSetup'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 export const LPR_TASK = 'license_plate_recognition'
 
@@ -707,6 +708,7 @@ function toCsv(rows: PlateEvent[], cameraName: (id: number) => string): string {
 
 export function Vehicles() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useSnackbar()
@@ -1145,13 +1147,14 @@ export function Vehicles() {
         // depending on state — the control you wanted was missing exactly
         // when you wanted to undo something. Now the icon is the state:
         // lit means on, dim means off, and clicking it flips that.
-        const toggle = (list: 'registry' | 'monitor', on: boolean) => {
+        const toggle = async (list: 'registry' | 'monitor', on: boolean) => {
           if (list === 'registry' && !on && hasDetails
-            && !window.confirm(
-              `${p} has owner or unit details in the vehicle register.
-
-`
-              + 'Removing it discards that entry and those details.')) {
+            && !(await confirm({
+              title: `${p} has owner or unit details in the vehicle register.`,
+              message: 'Removing it discards that entry and those details.',
+              confirmLabel: 'Remove',
+              danger: true,
+            }))) {
             return
           }
           toggleList.mutate({ plateText: p, list, on })

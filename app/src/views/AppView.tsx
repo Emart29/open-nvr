@@ -275,8 +275,8 @@ export function AppView() {
             className="hover:!text-[var(--danger,#ef4444)]"
             title="Uninstall"
             aria-label={`Uninstall ${app.name}`}
-            onClick={() => {
-              if (window.confirm(`Uninstall ${app.name}?`)) uninstall.mutate()
+            onClick={async () => {
+              if (await confirm({ title: `Uninstall ${app.name}?`, confirmLabel: 'Uninstall', danger: true })) uninstall.mutate()
             }}
             disabled={uninstall.isPending}
           >

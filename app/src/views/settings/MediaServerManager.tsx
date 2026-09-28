@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { useAuth } from '../../auth/AuthContext'
+import { useSnackbar } from '../../components/Snackbar'
 
 export function MediaServerManager() {
   const { user: me } = useAuth()
@@ -162,6 +163,7 @@ export function MediaServerManager() {
 }
 
 function SetupTab({ setupData }: { setupData: any }) {
+  const { showSuccess, showError } = useSnackbar()
   if (!setupData) return <div className="text-sm text-[var(--text-dim)]">Loading setup data...</div>
 
   return (
@@ -200,8 +202,10 @@ function SetupTab({ setupData }: { setupData: any }) {
         <button
           className="mt-2 px-3 py-1 bg-[var(--accent)] text-white text-sm"
           onClick={() => {
-            navigator.clipboard.writeText(setupData.configuration_yaml)
-            alert('Configuration copied to clipboard!')
+            navigator.clipboard.writeText(setupData.configuration_yaml).then(
+              () => showSuccess('Configuration copied to clipboard!'),
+              () => showError('Could not copy to the clipboard'),
+            )
           }}
         >
           Copy to Clipboard

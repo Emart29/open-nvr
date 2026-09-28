@@ -23,6 +23,7 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { usePermissions } from '../../hooks/usePermissions'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type ApiToken = {
   id: number
@@ -72,6 +73,7 @@ const STATUS_BADGE = { active: 'success', revoked: 'neutral', expired: 'warning'
  * The secret is shown once, right after creation; only its hash is stored.
  */
 export function ApiTokens() {
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const { t } = useTranslation()
   const { showSuccess, showError } = useSnackbar()
@@ -153,7 +155,7 @@ export function ApiTokens() {
   }
 
   const revoke = async (tok: ApiToken) => {
-    if (!window.confirm(t('apiTokens.confirmRevoke', { name: tok.name }))) return
+    if (!(await confirm({ title: t('apiTokens.confirmRevoke', { name: tok.name }), confirmLabel: 'Revoke', danger: true }))) return
     setBusy(String(tok.id))
     try {
       await apiService.revokeApiToken(tok.id)

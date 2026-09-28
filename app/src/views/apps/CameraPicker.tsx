@@ -47,6 +47,7 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { Button } from '../../components/ui'
 import { StackedDialog } from './StackedDialog'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 export type PickerCamera = {
   id: number
@@ -144,20 +145,23 @@ function useDisplayNames(cameras: PickerCamera[]) {
   }, [cameras])
 }
 
-function rolesConfirmed(
+async function rolesConfirmed(
+  confirm: ReturnType<typeof useConfirm>,
   removing: PickerCamera[],
   names: Map<number, string>,
   cameraRoles?: Record<string, string>,
-): boolean {
+): Promise<boolean> {
   const withRole = removing.filter((c) => cameraRoles?.[String(c.id)])
   if (withRole.length === 0) return true
   const list = withRole
     .map((c) => `${names.get(c.id)} ("${cameraRoles![String(c.id)]}")`)
     .join(', ')
-  return window.confirm(
-    `${list} ${withRole.length === 1 ? 'has a role' : 'have roles'}. Removing ${
+  return confirm({
+    title: `${list} ${withRole.length === 1 ? 'has a role' : 'have roles'}. Removing ${
       withRole.length === 1 ? 'it' : 'them'} stops that role from doing anything. Remove anyway?`,
-  )
+    confirmLabel: 'Remove',
+    danger: true,
+  })
 }
 
 export function CameraPicker({
@@ -183,6 +187,7 @@ export function CameraPicker({
   onSetUp?: (cameraId: number) => void
 }) {
   const [choosing, setChoosing] = useState(false)
+  const confirm = useConfirm()
   const cameras = query.data?.cameras ?? []
   const names = useDisplayNames(cameras)
 
@@ -200,8 +205,8 @@ export function CameraPicker({
   const selected = cameras.filter((c) => draft.has(c.id))
   const unsaved = cameras.some((c) => draft.has(c.id) !== c.picked)
 
-  const remove = (cam: PickerCamera) => {
-    if (!rolesConfirmed([cam], names, cameraRoles)) return
+  const remove = async (cam: PickerCamera) => {
+    if (!(await rolesConfirmed(confirm, [cam], names, cameraRoles))) return
     const next = new Set(draft)
     next.delete(cam.id)
     onChange(next)
@@ -214,9 +219,9 @@ export function CameraPicker({
       names={names}
       initial={draft}
       onClose={() => setChoosing(false)}
-      onDone={(next) => {
+      onDone={async (next) => {
         const removing = cameras.filter((c) => draft.has(c.id) && !next.has(c.id))
-        if (!rolesConfirmed(removing, names, cameraRoles)) return
+        if (!(await rolesConfirmed(confirm, removing, names, cameraRoles))) return
         onChange(next)
         setChoosing(false)
       }}

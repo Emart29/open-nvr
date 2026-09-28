@@ -20,6 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from '../lib/apiService';
 import { RecordingTimeline } from './RecordingTimeline';
 import { useTranslation, useDateFormat } from '../i18n';
+import { useSnackbar } from './Snackbar';
 
 interface RecordingSegment {
   path: string;
@@ -80,6 +81,7 @@ export const RecordingBrowser: React.FC<RecordingBrowserProps> = ({
 }) => {
   const { t } = useTranslation();
   const fmt = useDateFormat();
+  const { showWarning } = useSnackbar();
   const [loading, setLoading] = useState(false);
   const [cameraRecordings, setCameraRecordings] = useState<CameraRecordings[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null);
@@ -142,7 +144,7 @@ export const RecordingBrowser: React.FC<RecordingBrowserProps> = ({
     const validSegmentPaths = segmentPaths.filter(path => path && path.trim() !== '');
     
     if (validSegmentPaths.length === 0) {
-      alert('⚠️ No complete segments available for analysis.\n\nThis recording has no analyzable segments yet.\n\nPlease wait for at least one segment to complete or select a different recording.');
+      showWarning('No complete segments available for analysis. Wait for at least one segment to complete, or select a different recording.');
       return;
     }
 

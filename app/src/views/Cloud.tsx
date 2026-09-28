@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { useTranslation } from '../i18n'
 import { Play, Square, Server, Plus, Trash2, AlertCircle, CheckCircle, Loader2, Info, X, Shield, Pencil } from 'lucide-react'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type CloudSettings = {
   streaming: {
@@ -83,6 +84,7 @@ const DEFAULT_CLOUD: CloudSettings = {
 
 export function Cloud() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [activeTab, setActiveTab] = useState<'streaming' | 's3'>('streaming')
   const [cfg, setCfg] = useState<CloudSettings>(DEFAULT_CLOUD)
   const [loading, setLoading] = useState(true)
@@ -193,7 +195,7 @@ export function Cloud() {
   }
 
   async function deleteStreamTarget(targetId: string) {
-    if (!confirm('Delete this stream target?')) return
+    if (!(await confirm({ title: 'Delete this stream target?', danger: true }))) return
     try {
       setLoading(true)
       await apiService.deleteStreamTarget(targetId)

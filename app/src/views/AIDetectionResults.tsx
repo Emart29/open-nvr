@@ -21,6 +21,7 @@ import { apiService } from '../lib/apiService'
 import { useAuth } from '../auth/AuthContext'
 import { useTranslation, useDateFormat } from '../i18n'
 import { extractApiError } from '../lib/apiError'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 type DetectionResult = {
   id: number
@@ -96,6 +97,7 @@ type WSInferenceEvent = {
 
 export function AIDetectionResults() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const fmt = useDateFormat()
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -353,7 +355,7 @@ export function AIDetectionResults() {
   }, [notice])
 
   async function handleDelete(id: number) {
-    if (!confirm('Are you sure you want to delete this detection result?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this detection result?', danger: true }))) return
 
     try {
       setLoading(true)
@@ -369,7 +371,7 @@ export function AIDetectionResults() {
   }
 
   async function handleDeleteOld(days: number) {
-    if (!confirm(`Are you sure you want to delete all results older than ${days} days?`)) return
+    if (!(await confirm({ title: `Are you sure you want to delete all results older than ${days} days?`, danger: true }))) return
 
     try {
       setLoading(true)

@@ -971,6 +971,7 @@ export function AppActionModal({
   action: ManifestAction
   onClose: () => void
 }) {
+  const confirm = useConfirm()
   const params = action.params ?? []
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
     Object.fromEntries(
@@ -999,7 +1000,7 @@ export function AppActionModal({
     onError: (e) => setError(extractApiError(e, `${action.label} failed.`)),
   })
 
-  const submit = () => {
+  const submit = async () => {
     setError(null)
     const payload: Record<string, any> = {}
     for (const p of params) {
@@ -1033,7 +1034,7 @@ export function AppActionModal({
         if (text || !p.required) payload[p.name] = text
       }
     }
-    if (action.confirm && !window.confirm(`Run "${action.label}" on ${app.name}?`)) return
+    if (action.confirm && !(await confirm({ title: `Run "${action.label}" on ${app.name}?` }))) return
     runMutation.mutate(payload)
   }
 
@@ -1720,6 +1721,7 @@ function NetworkPanel({ app, isAdmin }: { app: RegisteredApp; isAdmin: boolean }
 }
 
 function AppCard({ app, caps, tier0, skill }: { app: RegisteredApp; caps: CapabilitiesLike; tier0: Tier0Like; skill?: SkillEntry }) {
+  const confirm = useConfirm()
   const queryClient = useQueryClient()
   const { showSuccess, showError } = useSnackbar()
   // Enable/disable is a site decision (superuser-only on the server;
@@ -1812,8 +1814,13 @@ function AppCard({ app, caps, tier0, skill }: { app: RegisteredApp; caps: Capabi
     uninstallMutation.isPending ||
     (uninstallStatus.data?.status === 'pending' && !uninstallStatus.timedOut)
 
-  const confirmUninstall = () => {
-    if (window.confirm(`Uninstall ${app.name}? This asks the reconciler to remove the app from this host.`)) {
+  const confirmUninstall = async () => {
+    if (await confirm({
+      title: `Uninstall ${app.name}?`,
+      message: 'This asks the reconciler to remove the app from this host.',
+      confirmLabel: 'Uninstall',
+      danger: true,
+    })) {
       uninstallMutation.mutate()
     }
   }

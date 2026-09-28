@@ -24,6 +24,7 @@ import { extractApiError } from '../../lib/apiError'
 import { usePermissions } from '../../hooks/usePermissions'
 import { useTranslation } from '../../i18n'
 import { GeometryEditor, type GeometryReference } from '../apps/GeometryEditor'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type Pt = [number, number]
 type Zone = { id: number; camera_id: number; name: string; polygon: Pt[]; labels: string[] | null }
@@ -38,6 +39,7 @@ const inputCls = 'w-full bg-[var(--panel)] border border-[var(--border)] px-3 py
  * per-zone occupancy sensor for each. Drawn on a live snapshot.
  */
 export function CameraZones() {
+  const confirm = useConfirm()
   const { t } = useTranslation()
   const { hasPermission } = usePermissions()
   const canEdit = hasPermission('cameras.manage')
@@ -121,7 +123,7 @@ export function CameraZones() {
   }
 
   const remove = async (zone: Zone) => {
-    if (cameraId == null || !window.confirm(t('zones.confirmDelete', { name: zone.name }))) return
+    if (cameraId == null || !(await confirm({ title: t('zones.confirmDelete', { name: zone.name }), confirmLabel: 'Delete', danger: true }))) return
     setBusy(true)
     try {
       await apiService.deleteCameraZone(cameraId, zone.id)

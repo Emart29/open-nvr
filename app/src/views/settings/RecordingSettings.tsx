@@ -23,6 +23,7 @@ import { useSnackbar } from '../../components/Snackbar'
 import { UsageBar } from '../../components/ui/stats'
 import { RecordingPauseSetting } from './RecordingPauseSetting'
 import { useDateFormat, type DateFormatters } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 interface OrphanIdentity {
     camera_uuid?: string | null
@@ -67,6 +68,7 @@ function formatDay(iso: string | null | undefined, fmt: DateFormatters): string 
 }
 
 export function RecordingSettings() {
+    const confirm = useConfirm()
     const fmt = useDateFormat()
     const { showError, showSuccess } = useSnackbar()
     const [loading, setLoading] = useState(false)
@@ -151,9 +153,11 @@ export function RecordingSettings() {
             return
         }
         const cam = cameras.find((c) => c.id === camId)
-        const ok = window.confirm(
-            `Attach ${orphan.file_count} recording file(s) (${formatDay(orphan.earliest, fmt)} – ${formatDay(orphan.latest, fmt)}, ${formatBytes(orphan.total_bytes)}) to camera "${cam?.name || camId}"?\n\nThe footage will appear in that camera's playback timeline.`
-        )
+        const ok = await confirm({
+            title: `Attach ${orphan.file_count} recording file(s) (${formatDay(orphan.earliest, fmt)} – ${formatDay(orphan.latest, fmt)}, ${formatBytes(orphan.total_bytes)}) to camera "${cam?.name || camId}"?`,
+            message: "The footage will appear in that camera's playback timeline.",
+            confirmLabel: 'Attach',
+        })
         if (!ok) return
         try {
             setOrphanBusy(orphan.id)
@@ -174,9 +178,12 @@ export function RecordingSettings() {
     }
 
     const handleDeleteOrphan = async (orphan: OrphanTree) => {
-        const ok = window.confirm(
-            `Permanently delete ${orphan.file_count} recording file(s) (${formatBytes(orphan.total_bytes)}) from "${orphan.id}"?\n\nThis cannot be undone.`
-        )
+        const ok = await confirm({
+            title: `Permanently delete ${orphan.file_count} recording file(s) (${formatBytes(orphan.total_bytes)}) from "${orphan.id}"?`,
+            message: 'This cannot be undone.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })
         if (!ok) return
         try {
             setOrphanBusy(orphan.id)

@@ -22,6 +22,7 @@ import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
 import { useAuth } from '../../auth/AuthContext'
 import { useTranslation } from '../../i18n'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type Role = {
   id: number
@@ -38,6 +39,7 @@ type RoleForm = {
 
 export function RolesManager() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { user: me } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -134,7 +136,7 @@ export function RolesManager() {
   }
 
   const onDelete = async (r: Role) => {
-    if (!confirm(`${t('admin.confirmDeleteRole')} "${r.name}" ?`)) return
+    if (!(await confirm({ title: `${t('admin.confirmDeleteRole')} "${r.name}" ?`, danger: true }))) return
     try {
       setLoading(true)
       setError(null)

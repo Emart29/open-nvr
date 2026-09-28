@@ -32,6 +32,7 @@ import { useCameraCapabilities } from '../../hooks/useCameraCapabilities'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
 import { apiService } from '../../lib/apiService'
 import { extractApiError } from '../../lib/apiError'
+import { useConfirm } from '../../components/ui/ConfirmDialog'
 
 type CameraLite = { id: number; name: string }
 
@@ -262,6 +263,7 @@ function NetworkTab({ cameraId }: { cameraId: number }) {
 }
 
 function UsersTab({ cameraId }: { cameraId: number }) {
+  const confirm = useConfirm()
   const { t } = useTranslation()
   const { showSuccess, showError } = useSnackbar()
   const [data, setData] = useState<any>(null)
@@ -301,7 +303,7 @@ function UsersTab({ cameraId }: { cameraId: number }) {
     }
   }
   const remove = async (name: string) => {
-    if (!window.confirm(`Delete camera user "${name}"? This cannot be undone.`)) return
+    if (!(await confirm({ title: `Delete camera user "${name}"?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return
     setBusy(name)
     try {
       await apiService.deleteCameraUser(cameraId, name)
@@ -315,10 +317,11 @@ function UsersTab({ cameraId }: { cameraId: number }) {
   }
   const reboot = async () => {
     if (
-      !window.confirm(
-        'Reboot this camera? Live view and recording will drop for ~30–60 seconds. ' +
-          'No settings are changed.'
-      )
+      !(await confirm({
+        title: 'Reboot this camera?',
+        message: 'Live view and recording will drop for ~30–60 seconds. No settings are changed.',
+        confirmLabel: 'Reboot',
+      }))
     )
       return
     setBusy('reboot')
