@@ -52,6 +52,17 @@ Every page starts with `PageHeader`. It renders the page's only `<h1>`, and keep
 - **Every string goes through `t()`**, with an entry in both `locales/en.ts` and `locales/fr.ts`.
 - **Keep test hooks stable.** Existing `title`, `placeholder`, `aria-label`, button text and `data-testid` values are what `tests/e2e/harness/selectors.py` finds. If one must change, update the selector in the same commit.
 - **Popups:** Escape closes the topmost one, focus stays inside, and focus returns to the opener. `Modal` does all three; hand-built overlays don't.
+  - Pass `closeOnBackdrop={false}` for a form, so a stray click beside it doesn't lose what was typed.
+
+## Enforced by lint
+
+`npm run lint` (and CI) fails on:
+
+- `confirm()`, `alert()` and `prompt()`, including `window.` forms. Use `useConfirm`, `useSnackbar`, or an inline field.
+- A `fixed inset-0` class outside the shared `Modal`. Use `Modal`.
+- A Tailwind palette class (`bg-red-600`, `text-neutral-500`, …). Use a theme token.
+
+Special layers are exempt in `app/eslint.config.js`: full-screen video and camera views, the mobile nav drawer, stacked pickers and print sheets. Adding a file there needs a reason, the same as an `eslint-disable` comment does.
 
 ## Checking a UI change
 

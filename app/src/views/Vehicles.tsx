@@ -3448,6 +3448,7 @@ function lastMonths(n: number): { year: number; month: number }[] {
   return out
 }
 
+/* eslint-disable no-restricted-syntax -- a paper print sheet: black on white in every theme */
 function ReportOverlay({
   registry,
   monitors,
@@ -3698,6 +3699,8 @@ function ReportOverlay({
 // open browser — filtered to this app's alarms. Sound, phone-call and
 // hooter configuration stay site-wide (one guard phone for every app's
 // alarms), linked below.
+
+/* eslint-enable no-restricted-syntax */
 
 function VehicleAlarmsTab({ cameraName }: { cameraName: (id: number) => string }) {
   const [onlyUnacked, setOnlyUnacked] = useState(false)

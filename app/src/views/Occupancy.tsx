@@ -766,6 +766,7 @@ const REPORT_PERIODS: { label: string; days: number }[] = [
   { label: 'Last 30 days', days: 30 },
 ]
 
+/* eslint-disable no-restricted-syntax -- a paper print sheet: black on white in every theme */
 function OccupancyReportOverlay({
   cameraName, maxOccupancy, onClose,
 }: {
@@ -1043,6 +1044,8 @@ function useCameraStill(cameraId: number) {
   }, [query.data])
   return { data: url, isPending: query.isPending }
 }
+
+/* eslint-enable no-restricted-syntax */
 
 function HeatmapCanvas({ heat }: { heat: HeatmapResp }) {
   const ref = useRef<HTMLCanvasElement>(null)
