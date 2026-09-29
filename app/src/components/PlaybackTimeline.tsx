@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEdgeAutoPan } from '../hooks/useEdgeAutoPan'
+import { firstLocalTick } from '../lib/time'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
 
 export interface TimelineSegment {
@@ -28,7 +29,7 @@ export interface TimelineSegment {
 }
 
 interface PlaybackTimelineProps {
-  /** Footage blocks (red). Everything else in the view is a grey gap. */
+  /** Footage blocks (accent blue). Everything else in the view is a grey gap. */
   segments: TimelineSegment[]
   /** Epoch ms where the still-recording file begins. Footage at/after this is
    *  rendered as a LIVE zone (green) — it is not reliably playable as VOD. */
@@ -170,7 +171,7 @@ export function PlaybackTimeline({
   )
 
   // The LIVE zone: footage at/after the still-recording file's start. Drawn
-  // over the red blocks so the red/green boundary is the exact live edge.
+  // over the footage blocks so the blue/green boundary is the exact live edge.
   const liveBlocks = useMemo(() => {
     if (liveEdgeMs == null) return []
     return segments
@@ -186,7 +187,7 @@ export function PlaybackTimeline({
 
   const ticks = useMemo(() => {
     const interval = pickTickInterval(span)
-    const first = Math.ceil(viewStart / interval) * interval
+    const first = firstLocalTick(viewStart, interval)
     const out: { ms: number; pct: number; label: string }[] = []
     for (let t = first; t <= viewEnd; t += interval) {
       out.push({ ms: t, pct: toPct(t), label: fmtTick(t, interval, fmt) })
@@ -336,13 +337,13 @@ export function PlaybackTimeline({
         onPointerLeave={handleLeave}
         onPointerCancel={handleCancel}
       >
-        {/* Footage (red) */}
+        {/* Footage (accent blue) */}
         {blocks.map((b, i) => (
           <div
             key={i}
             data-testid="playback-footage-block"
             className="absolute top-0 bottom-0"
-            style={{ left: `${b.left}%`, width: `${b.width}%`, background: '#dc2626' }}
+            style={{ left: `${b.left}%`, width: `${b.width}%`, background: 'var(--accent)' }}
           />
         ))}
 
@@ -351,7 +352,7 @@ export function PlaybackTimeline({
           <div
             key={`live-${i}`}
             className="absolute top-0 bottom-0 flex items-center overflow-hidden"
-            style={{ left: `${b.left}%`, width: `${b.width}%`, background: '#16a34a' }}
+            style={{ left: `${b.left}%`, width: `${b.width}%`, background: 'var(--ok)' }}
           >
             {b.width > 4 && (
               <span className="ml-1 flex items-center gap-1 text-[9px] font-semibold text-white/90 whitespace-nowrap">
@@ -365,7 +366,7 @@ export function PlaybackTimeline({
         {/* Clip selection band */}
         {selection && selection.outMs > selection.inMs && (
           <div
-            className="absolute top-0 bottom-0 bg-[var(--accent)]/35 border-x-2 border-[var(--accent)] pointer-events-none"
+            className="absolute top-0 bottom-0 bg-[color-mix(in_oklab,var(--warn)_35%,transparent)] border-x-2 border-[var(--warn)] pointer-events-none"
             style={{
               left: `${toPct(selection.inMs)}%`,
               width: `${toPct(selection.outMs) - toPct(selection.inMs)}%`,

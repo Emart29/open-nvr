@@ -108,6 +108,18 @@ export function formatSeenAt(
   return `${date} ${time}`
 }
 
+/**
+ * The first tick at or after `startMs` on a grid of `intervalMs` laid in
+ * LOCAL time. Ticks on multiples of the interval since the epoch sit on UTC
+ * hours, which a +5:30 zone labels 02:30, 05:30… instead of 03:00, 06:00….
+ * The offset is taken at `startMs`; a DST change inside the window shifts
+ * later ticks by that hour, which a day-long axis can live with.
+ */
+export function firstLocalTick(startMs: number, intervalMs: number): number {
+  const offset = -new Date(startMs).getTimezoneOffset() * 60_000
+  return Math.ceil((startMs + offset) / intervalMs) * intervalMs - offset
+}
+
 /** The unabbreviated timestamp, for the tooltip on a compact cell. */
 export function seenAtTitle(
   iso: string | null | undefined, fmt: DateFormatters,
