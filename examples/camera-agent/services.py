@@ -17,11 +17,12 @@ VAD, turn-taking, and pipeline coordination; the OpenNVR adapter
 clients in ``adapter_clients.py`` own the wire format. These classes
 are just the glue.
 
-Pipecat's service APIs evolve between minor versions. This file
-targets ``pipecat-ai >=0.0.55,<1.0``. If you upgrade Pipecat and see
-import errors at boot, check the new service base classes in
-``pipecat.services`` and adjust the imports below — the body of each
-``run_*`` method should still be portable since it's just an
+Pipecat's service APIs evolve between minor versions. This file is
+written against the version pinned in ``pyproject.toml`` (1.x: the
+``pipecat.services.*_service`` base classes, the universal
+``LLMContext``). If you bump Pipecat and see import errors at boot,
+check the new base classes and adjust the imports below — the body of
+each ``run_*`` method should still be portable since it's just an
 ``async def`` calling our adapter clients.
 """
 from __future__ import annotations

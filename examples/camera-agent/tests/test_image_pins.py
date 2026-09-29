@@ -20,9 +20,12 @@ def test_the_image_installs_from_the_lock_and_pyproject_agrees_with_it():
     uv.lock and installs that. pyproject.toml pins pipecat with == and
     the lock resolves to the same version."""
     docker = (HERE / "Dockerfile").read_text()
-    assert "uv export --frozen" in docker and "uv.lock" in docker
-    assert "pipecat-ai" not in docker.replace("pipecat-ai[", "").replace("pipecat", ""), (
-        "no hand-kept pipecat pin in the Dockerfile: the lock is the one source")
+    assert "uv export --locked" in docker and "uv.lock" in docker, (
+        "--locked: a lock that no longer matches pyproject.toml fails the build, "
+        "instead of being baked into the image (--frozen would not check)")
+    assert "--require-hashes" in docker, "the lock's hashes are enforced at install"
+    assert re.search(r"pipecat-ai(\[[^\]]*\])?\s*[=<>~!]", docker) is None, (
+        "no hand-kept pipecat pin or range in the Dockerfile: the lock is the one source")
     m = re.search(r'pipecat-ai\[silero,websocket\]==([0-9][0-9.]*)"', (HERE / "pyproject.toml").read_text())
     assert m, "pyproject.toml must pin pipecat with == (never a range)"
     lock = re.search(r'name = "pipecat-ai"\nversion = "([^"]+)"', (HERE / "uv.lock").read_text())

@@ -18,11 +18,14 @@ license = { text = "AGPL-3.0" }
 # OpenAILLMContext, vad_analyzer on the transport) is gone; the port
 # lives in serializer.py / services.py / build_pipeline_task.
 dependencies = [
-    # PINNED, not a range: the image (Dockerfile) installs this exact
-    # version, the tests run against uv.lock, and the two must agree —
-    # the range resolved to 1.12 the day it appeared and the image broke
-    # while the lock stayed on 1.8.1. Bump: `uv lock` here, then the
-    # Dockerfile, then run tests/test_pipeline_e2e.py and the demo page.
+    # PINNED, not a range: the tests run against uv.lock and the image
+    # (Dockerfile) installs exactly what the lock says, so this line is
+    # the one place the version lives. A range once resolved to a new
+    # pipecat the day it appeared and broke the image while the lock
+    # stayed put. Bump: change this, `uv lock`, run the full suite
+    # (tests/test_pipeline_e2e.py included) and the demo page. The
+    # Dockerfile needs no edit; tests/test_image_pins.py checks the two
+    # agree.
     "pipecat-ai[silero,websocket]==1.12.0",
     "httpx>=0.27,<1.0",
     "fastapi>=0.110,<1.0",

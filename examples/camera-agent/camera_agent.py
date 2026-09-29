@@ -5661,7 +5661,7 @@ def build_core_processors(runtime: CameraAgentRuntime, *, user_params: Any = Non
 
     stt = OpenNvrWhisperSTT(
         client=runtime.whisper,
-        trailing_silence_secs=float(getattr(runtime.cfg, "stt_trailing_silence_secs", 0.5)),
+        trailing_silence_secs=runtime.cfg.stt_trailing_silence_secs,
     )
     llm = OpenNvrOllamaLLM(
         client=runtime.ollama,
@@ -5686,7 +5686,7 @@ def build_pipeline_task(runtime: CameraAgentRuntime, transport: Any) -> Any:
     Imported here (not at module top) so the camera-agent module
     stays importable in test environments without Pipecat.
 
-    Turn-taking (Pipecat 1.12): the user aggregator owns it. Silero VAD
+    Turn-taking: Pipecat's user aggregator owns it. Silero VAD
     opens a turn; **Smart Turn v3** — Pipecat's semantic end-of-turn
     model, bundled with the wheel and run on CPU with onnxruntime —
     closes it, so a pause mid-sentence ("show me the… gate camera") no

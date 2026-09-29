@@ -34,17 +34,20 @@ WORKDIR /app
 # shipped numpy 2 / opencv 5 / fastapi 0.141 against a lock that said
 # numpy 1.26 / opencv 4.11 / fastapi 0.115. Pipecat's API shifts between
 # minors (camera_agent.py, services.py and serializer.py are written
-# against 1.12, pinned in pyproject.toml); bumping it is `uv lock` first,
-# then the full test suite (tests/test_pipeline_e2e.py included) and the
-# demo page — this file needs no edit. tests/test_image_pins.py guards
-# the shape. The App SDK is left out of the export (it is installed from
-# the in-repo tree below, like the detector examples do); its own
-# dependencies are in the lock and land here.
+# against the version pinned in pyproject.toml); bumping it is `uv lock`
+# first, then the full test suite (tests/test_pipeline_e2e.py included)
+# and the demo page — this file needs no edit. tests/test_image_pins.py
+# guards the shape. The App SDK is left out of the export (it is
+# installed from the in-repo tree below, like the detector examples do);
+# its own dependencies are in the lock and land here.
 COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /bin/uv
 COPY examples/camera-agent/pyproject.toml examples/camera-agent/uv.lock /src/examples/camera-agent/
 COPY sdk/opennvr-app-sdk/pyproject.toml /src/sdk/opennvr-app-sdk/pyproject.toml
+# --locked: the lock must match pyproject.toml or the build fails HERE —
+# a bumped pin without `uv lock` is a build error, not an old pipecat in
+# the image. Hashes stay in: pip verifies every wheel against the lock.
 RUN cd /src/examples/camera-agent \
-    && uv export --frozen --no-dev --no-hashes --no-emit-project \
+    && uv export --locked --no-dev --no-emit-project \
         --no-emit-package opennvr-app-sdk --extra device \
         -o /src/requirements.txt \
     && grep -c "==" /src/requirements.txt
@@ -59,7 +62,7 @@ RUN cd /src/examples/camera-agent \
 RUN --mount=type=cache,target=/root/.cache/pip \
     for i in 1 2 3 4 5; do \
         echo "pip install attempt $i/5..."; \
-        pip install --timeout 300 --retries 10 -r /src/requirements.txt \
+        pip install --timeout 300 --retries 10 --require-hashes -r /src/requirements.txt \
         && break; \
         if [ "$i" = 5 ]; then echo "pip install failed after 5 attempts" >&2; exit 1; fi; \
         echo "attempt $i failed; retrying in 15s..."; sleep 15; \

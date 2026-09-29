@@ -231,9 +231,9 @@ Two layers handle the demo page:
 
 ## Turn detection on CPU (Smart Turn v3)
 
-Since Pipecat 1.8 the agent closes a turn with **Smart Turn v3** (v3.2
-weights since Pipecat 1.12) — a small semantic end-of-turn model bundled
-in the wheel and run on CPU with onnxruntime — instead of a silence timer. What it costs, measured on a
+Since Pipecat 1.8 the agent closes a turn with **Smart Turn v3** (the
+v3.2 weights bundled in the wheel) — a small semantic end-of-turn model
+run on CPU with onnxruntime — instead of a silence timer. What it costs, measured on a
 4-core ARM VM with no GPU (`tests/test_turn_hardware.py` covers the sizing;
 the numbers come from `LocalSmartTurnAnalyzerV3._predict_endpoint` on 8 s
 of audio):
