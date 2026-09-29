@@ -52,7 +52,7 @@ export function FootageWidget({ editing, onRemove }: { editing?: boolean; onRemo
       editing={editing}
       onRemove={onRemove}
       meta={q.data?.total_duration ? <span className="font-mono tabular-nums">{formatDuration(q.data.total_duration)} {t('dashboard.stored')}</span> : undefined}
-      actions={<Link to="/playback" className="text-[11px] text-[var(--accent)] hover:underline px-1">{t('dashboard.playback')}</Link>}
+      actions={<Link to="/playback/sync" className="text-[11px] text-[var(--accent)] hover:underline px-1">{t('dashboard.playback')}</Link>}
     >
       <div className="absolute inset-0 p-1">
         {q.isPending ? (

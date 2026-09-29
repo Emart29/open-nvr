@@ -167,7 +167,7 @@ export function VitalsWidget({ editing, onRemove }: { editing?: boolean; onRemov
           unit={cams.data ? `/ ${list.length}` : undefined}
           tone={stalled ? 'warn' : 'neutral'}
           sub={stalled ? `${stalled} ${t('dashboard.stalled')}` : recOff ? `${recOff} ${t('dashboard.notRecording')}` : t('dashboard.allRecording')}
-          onClick={() => navigate('/playback')}
+          onClick={() => navigate('/playback/sync')}
         >
           <SegmentBar parts={[
             { key: 'rec', value: recording, ink: 'var(--ok)', label: t('dashboard.recordingNow') },
