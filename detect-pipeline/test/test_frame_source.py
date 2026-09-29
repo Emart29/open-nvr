@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import time
 
 from detect_pipeline.ffmpeg_presets import HwAccel, frame_size_bytes
@@ -614,8 +615,6 @@ def test_a_slow_consumer_gets_the_newest_frame_and_the_count_of_what_it_missed()
     """Detection is busy; the decoder keeps going; the consumer comes back
     to the NEWEST frame, and the frames in between are counted, not
     queued."""
-    import threading
-
     from detect_pipeline.frame_source import _FrameSlot
 
     slot = _FrameSlot(drop=True)
@@ -639,8 +638,6 @@ def test_a_slow_consumer_gets_the_newest_frame_and_the_count_of_what_it_missed()
 def test_seq_zero_is_never_overwritten():
     """seq 0 is the worker's restart signal and carries deliberate_restart;
     the drain waits for the consumer to take it rather than replace it."""
-    import threading
-
     from detect_pipeline.frame_source import _FrameSlot
 
     slot = _FrameSlot(drop=True)
@@ -661,28 +658,19 @@ def test_seq_zero_is_never_overwritten():
 
 
 class _PacedStdout:
-    """A decoder that reports how far the drain has read it, and that the
-    test can hold back — so 'was the decoder blocked by detection?' is a
-    fact, not a race."""
+    """A decoder that says when the drain has read it to EOF — so 'was the
+    decoder blocked by detection?' is a fact the test can wait on, not a
+    race it has to time."""
 
     def __init__(self, n: int):
         self.buf = io.BytesIO(_synthetic(n))
-        self.frames_read = 0
-        self.eof = threading_event()
+        self.eof = threading.Event()
 
     def read(self, k: int) -> bytes:
         chunk = self.buf.read(k)
-        if chunk:
-            if len(chunk) == SIZE or self.buf.tell() % SIZE == 0:
-                self.frames_read = self.buf.tell() // SIZE
-        else:
+        if not chunk:
             self.eof.set()
         return chunk
-
-
-def threading_event():
-    import threading
-    return threading.Event()
 
 
 def test_the_decoder_is_never_blocked_by_a_slow_detector():
@@ -704,15 +692,12 @@ def test_the_decoder_is_never_blocked_by_a_slow_detector():
     assert first.seq == 0
     assert stdout.eof.wait(2), "the drain reached EOF while the consumer held frame 0"
     rest = list(it)
-    assert [f.seq for f in rest] == [5], "the newest frame, once the consumer returned"
-    assert fs.frames_dropped == 4
+    assert [f.seq for f in rest] == [5], "the newest frame, once the consumer returned (1-4 dropped)"
 
 
 def test_a_consumer_that_leaves_releases_a_blocked_drain():
     """Lossless mode blocks the drain in put(); the consumer closing its
     generator must let that thread finish, not leak it holding a frame."""
-    import threading
-
     stdout = _PacedStdout(5)
 
     class _Proc(_FakeProc):
@@ -724,12 +709,15 @@ def test_a_consumer_that_leaves_releases_a_blocked_drain():
                      spawn=lambda argv: _Proc(), max_restarts=0,
                      backoff_seconds=0, _sleep=lambda s: None,
                      drop_late_frames=False)
+    def drain_alive() -> bool:
+        return any(t.name == "ffmpeg-stdout" and t.is_alive() for t in threading.enumerate())
+
     it = fs.stream()
     next(it)
     time.sleep(0.05)                                   # the drain is now blocked
-    before = threading.active_count()
+    assert drain_alive()
     it.close()
     deadline = time.monotonic() + 2
-    while threading.active_count() >= before and time.monotonic() < deadline:
+    while drain_alive() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert threading.active_count() < before, "the ffmpeg-stdout thread did not exit"
+    assert not drain_alive(), "the ffmpeg-stdout thread did not exit"

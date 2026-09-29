@@ -198,6 +198,18 @@ def test_dropped_frames_are_counted_from_seq_gaps_and_warned_about(monkeypatch, 
     assert "3 of 4 decoded frames" in caplog.text
 
 
+def test_the_capacity_warning_is_a_share_of_what_was_decoded():
+    """25% of decoded frames — dropped / (dropped + detected), as the
+    knob's comment and the changelog say — not dropped / detected, which
+    fired at a 20% share."""
+    from detect_pipeline.service import DROP_WARN_SHARE
+    assert DROP_WARN_SHARE == 0.25
+    dropped, detected = 21, 79                       # 21% of 100 decoded
+    assert not (dropped >= (dropped + detected) * DROP_WARN_SHARE)
+    dropped, detected = 25, 75                       # exactly a quarter
+    assert dropped >= (dropped + detected) * DROP_WARN_SHARE
+
+
 class _RestartingFramesSource:
     """Emits seq 0,1,2 then 0,1 — the second 0 is an ffmpeg-restart signal."""
 

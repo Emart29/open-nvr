@@ -240,13 +240,22 @@ class _FrameSlot:
 
 
 def _drain_frames(stream, width: int, height: int, slot: _FrameSlot, *,
-                  deliberate: bool) -> None:
-    """The drain thread: read frames at line rate into the slot until EOF."""
+                  deliberate: bool, proc=None) -> None:
+    """The drain thread: read frames at line rate into the slot until EOF.
+
+    A read error while ffmpeg is still running is a real fault and is
+    logged as one; the same error after the process was terminated is the
+    pipe being torn down and is not worth a line. Either way the session
+    ends the way EOF ends it — the consumer sees None and restarts.
+    """
     try:
         for frame in read_frames(stream, width, height, deliberate=deliberate):
             slot.put(frame)
-    except Exception:  # pragma: no cover - pipe torn down on terminate
-        pass
+    except Exception:
+        alive = proc is not None and proc.poll() is None
+        log.log(logging.WARNING if alive else logging.DEBUG,
+                "frame source: reading the decoder's output failed%s",
+                "" if alive else " (process already gone)", exc_info=True)
     finally:
         slot.close()
 
@@ -295,11 +304,10 @@ class FrameSource:
     ) -> None:
         self.rtsp_url = rtsp_url
         # The decoder is drained on its own thread and the consumer takes the
-        # newest frame; a frame the consumer did not get to is dropped and
-        # counted (see _FrameSlot). False stalls the decoder instead.
+        # newest frame; a frame the consumer did not get to is dropped — the
+        # worker counts those exactly from the gaps in Frame.seq (see
+        # _FrameSlot). False stalls the decoder instead.
         self.drop_late_frames = drop_late_frames
-        #: Frames overwritten before the consumer took them, all sessions.
-        self.frames_dropped = 0
         self.width = width
         self.height = height
         self.fps = fps
@@ -464,13 +472,16 @@ class FrameSource:
             # session ends when the drain sees EOF (ffmpeg exited or was
             # terminated), never because the detector was slow.
             slot = _FrameSlot(drop=self.drop_late_frames)
-            threading.Thread(
-                target=_drain_frames,
-                args=(proc.stdout, self.width, self.height, slot),
-                kwargs={"deliberate": was_deliberate},
-                name="ffmpeg-stdout", daemon=True,
-            ).start()
             try:
+                # Inside the try: a thread that cannot start (a box at its
+                # thread limit — the overloaded box this exists for) must
+                # still reach the finally and reap the ffmpeg it spawned.
+                threading.Thread(
+                    target=_drain_frames,
+                    args=(proc.stdout, self.width, self.height, slot),
+                    kwargs={"deliberate": was_deliberate, "proc": proc},
+                    name="ffmpeg-stdout", daemon=True,
+                ).start()
                 while True:
                     frame = slot.take()
                     if frame is None:
@@ -482,7 +493,6 @@ class FrameSource:
                 # Release a drain blocked in put() (the consumer is gone)
                 # before the reap, so the thread never outlives its session.
                 slot.close()
-                self.frames_dropped += slot.dropped
                 _terminate(proc)
             if self._closing:      # closed mid-session: do not respawn
                 return

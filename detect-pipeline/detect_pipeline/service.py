@@ -675,7 +675,7 @@ class CameraWorker:
         win_n = 0
         # Dropped-frame reporting window: frames the drain overwrote while
         # detection was busy (#507), reported once per window as a WARNING
-        # when it is most of what the camera decoded.
+        # when they are DROP_WARN_SHARE or more of what the camera decoded.
         drop_t0 = time.monotonic()
         drop_n = 0
         drop_seen = 0
@@ -712,7 +712,7 @@ class CameraWorker:
                 drop_seen += 1
                 now = time.monotonic()
                 if now - drop_t0 >= DROP_REPORT_WINDOW_S:
-                    if drop_n and drop_n >= drop_seen * DROP_WARN_SHARE:
+                    if drop_n and drop_n >= (drop_n + drop_seen) * DROP_WARN_SHARE:
                         log.warning(
                             "tier0 %s: detection exceeds this box's capacity — "
                             "%d of %d decoded frames in the last %.0fs were never "

@@ -106,9 +106,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the seq gaps — with a once-a-minute WARNING naming the camera when
   drops are a quarter or more of what it decoded. Frames are dropped;
   sessions are not. Restart accounting is unchanged (seq 0 is never
-  overwritten), the tracker ages by wall time so an irregular gap is
-  just a longer gap, and the region budget's job shrinks to detecting
-  on more of the frames the camera decodes.
+  overwritten). Known trade: the tracker's coast TTL is wall time, but
+  its other lifecycle knobs (confirm, disappear, stationary) are frame
+  counts sized from the configured fps, so a camera dropping most of its
+  frames tracks proportionally slower — where before it tracked nothing,
+  its session being dead. Deriving those from the observed rate is a
+  follow-up; the AI page shows the dropped count per camera.
 - **A test-harness race, not a product bug, went red on `main`.** The
   shared server test fixture handed every thread one SQLite connection
   (`StaticPool`); a `session.close()` from the MQTT bridge's thread could
