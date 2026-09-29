@@ -247,7 +247,10 @@ def test_converse_wake_gate_answers_when_addressed(harness):
     async def chat(*, messages, tools=None, temperature=0.4, max_tokens=256, **kw):
         # The wake phrase must be stripped before the model sees the question.
         user = [m for m in messages if m.get("role") == "user"][-1]["content"].lower()
-        assert "camera agent" not in user and user.strip() == "what do you see"
+        # The user turn carries the clock above the user's words (see
+        # _user_turn); the words themselves are the last paragraph.
+        words = user.strip().split("\n\n")[-1].strip()
+        assert "camera agent" not in user and words == "what do you see"
         return {"message": {"role": "assistant", "content": "I see the front door."}}
     state["set_chat"](chat)
 

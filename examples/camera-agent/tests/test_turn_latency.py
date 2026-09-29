@@ -25,12 +25,14 @@ def _runtime():
 
 # ── 1. the prompt's static prefix is byte-identical across turns ──────
 
-def test_the_turns_system_prompt_carries_no_clock_and_the_clock_follows_the_history():
+def test_the_turns_system_prompt_carries_no_clock_and_the_clock_rides_the_user_turn():
     """Ollama renders the tool schemas inside the system turn, after the
     system text: a clock anywhere in that text sits ahead of ~3.5k tokens
-    of schemas and changes every minute. So the turn's system prompt has
-    NO clock, and the clock is its own system message after the history —
-    where nothing cached follows it."""
+    of schemas and changes every minute. And EVERY system-role message
+    lands in that one block — template.go's collate joins them — so a
+    "trailing" system clock is no better. The turn's system prompt has
+    NO clock, no system message follows the history, and the clock rides
+    in the user turn: the one message rendered last."""
     rt = _runtime()
     marker = "The current date and time is"
     assert marker not in rt.build_system_prompt(clock=False)
@@ -50,8 +52,11 @@ def test_the_turns_system_prompt_carries_no_clock_and_the_clock_follows_the_hist
     msgs = seen["messages"]
     assert msgs[0]["role"] == "system" and marker not in msgs[0]["content"]
     assert msgs[1:3] == history, "history right after the static prefix"
-    assert msgs[3]["role"] == "system" and msgs[3]["content"].startswith(marker)
-    assert msgs[4] == {"role": "user", "content": "is the front door clear"}
+    assert msgs[3]["role"] == "user", "the user turn right after the history"
+    assert msgs[3]["content"].startswith("[" + marker)
+    assert msgs[3]["content"].endswith("\n\nis the front door clear"), "the user's words, last"
+    assert not any(m["role"] == "system" for m in msgs[1:]), (
+        "Ollama would hoist it in front of the tool schemas")
 
 
 def test_two_builds_share_everything_before_the_clock():
@@ -198,6 +203,55 @@ def test_the_question_decides_face_matching_when_the_model_left_the_flag_out():
         out = asyncio.run(tools.search_history({"label": "person"}))
         assert (rec.calls > 0) is expect, q
         assert ("Recognised: Priya" in out) is expect, q
+
+
+def test_the_flag_as_a_string_is_read_as_a_boolean():
+    """qwen2.5:1.5b also hands over "false" — the string. bool("false")
+    is True; that was four recognitions for 'did anyone come'."""
+    ev, rec = _Events([_visit(i) for i in range(1, 5)]), _Recognise()
+    tools = _tools(ev, rec)
+    tools.current_question = "who came to the door"
+    asyncio.run(tools.search_history({"label": "person", "identify_faces": "false"}))
+    assert rec.calls == 0
+
+
+def test_a_weekday_or_a_camera_word_is_not_a_name():
+    from tools import asked_who
+    assert asked_who("did anyone come to the door on Monday") is False
+    assert asked_who("how many people came in September") is False
+    assert asked_who("is there a Car on the Front door camera") is False
+    assert asked_who("was Priya at the door") is True
+    assert asked_who("who came by") is True
+    assert asked_who(None) is None, "no question to read"
+
+
+def test_no_question_to_read_means_match_as_before():
+    """The streaming /ws path calls the handler straight from the
+    pipeline, in a task that set no question: match, as it always did —
+    never another path's stale question."""
+    ev, rec = _Events([_visit(i) for i in range(1, 5)]), _Recognise()
+    tools = _tools(ev, rec)
+    asyncio.run(tools.search_history({"label": "person"}))
+    assert rec.calls == 4
+
+
+def test_the_question_is_task_local():
+    """A scheduled report's turn runs while a person's is in flight; each
+    tool call must see ITS turn's question, not whichever was set last."""
+    ev, rec = _Events([_visit(i) for i in range(1, 5)]), _Recognise()
+    tools = _tools(ev, rec)
+
+    async def turn(q, expect):
+        tools.current_question = q
+        await asyncio.sleep(0.01)              # the other turn sets its own meanwhile
+        assert tools.current_question == q
+        out = await tools.search_history({"label": "person"})
+        assert ("Recognised" in out) is expect, q
+
+    async def both():
+        await asyncio.gather(turn("who came to the door", True),
+                             turn("did anything happen overnight", False))
+    asyncio.run(both())
 
 
 def test_a_bad_read_does_not_cost_a_photo_or_a_name():

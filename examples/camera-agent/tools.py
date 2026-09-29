@@ -24,6 +24,7 @@ metadata + the event ring.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import re
 import base64
 import logging
@@ -414,9 +415,67 @@ def build_tool_definitions(
 # ── Tool handlers ──────────────────────────────────────────────────
 
 
-#: WHO questions — the word, or the shape of a name. search_history uses
-#: it to decide face matching when the model left identify_faces out.
-_WHO_RE = re.compile(r"\b(who|whom|whose|recogni[sz]e|name)\b|(?<=[a-z0-9,] )[A-Z][a-z]{2,}\b")
+#: The question the current turn is answering, for tools that decide by
+#: it (face matching only when somebody asked WHO). A context variable,
+#: not a slot on the tools object: turns are not serialised — a background
+#: task or a scheduled report runs its own turn while a person's is in
+#: flight — and each asyncio task sees the value ITS turn set. ``None``
+#: means nobody told this task (the streaming /ws path calls tool handlers
+#: straight from the pipeline), and the tool falls back to matching, as
+#: it always did before the question could decide.
+_question: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "camera_agent_question", default=None)
+
+_WHO_RE = re.compile(r"\b(who|whom|whose|recogni[sz]e|name)\b")
+#: A capitalised word mid-sentence — "was Priya here" from an STT that
+#: capitalises names; the words below have that shape and are not names.
+_NAME_RE = re.compile(r"(?<=[a-z0-9,] )([A-Z][a-z]{2,})\b")
+_NOT_NAMES = frozenset({
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+    "camera", "cameras", "cam", "front", "back", "side", "door", "gate", "garage",
+    "driveway", "yard", "porch", "street", "kitchen", "office", "lobby",
+    "please", "okay", "thanks", "hey", "there", "what", "who", "how", "when",
+    "where", "which", "yes", "the", "any", "some", "today", "tonight",
+})
+#: "a Car", "the Door", "my Garage": a determiner precedes a noun, not a name.
+_DETERMINERS = frozenset({"a", "an", "the", "this", "that", "my", "your", "our",
+                          "any", "some", "no", "every", "each"})
+
+
+def asked_who(text: str | None) -> bool | None:
+    """Did the question ask WHO — the word, or a name? ``None`` when there
+    is no question to read (see ``_question``)."""
+    if text is None:
+        return None
+    if _WHO_RE.search(text.lower()):
+        return True
+    for m in _NAME_RE.finditer(text):
+        word = m.group(1)
+        if word.lower() in _NOT_NAMES:
+            continue
+        before = text[:m.start()].rstrip().split()
+        if before and before[-1].lower().strip(",") in _DETERMINERS:
+            continue
+        return True
+    return False
+
+
+def _as_bool(value: Any) -> bool | None:
+    """A tool argument a small model may hand over as the STRING "false".
+    ``None`` = not given, or not readable as a boolean."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "1", "yes", "y", "on"):
+            return True
+        if v in ("false", "0", "no", "n", "off", ""):
+            return False
+    return None
 
 
 class CameraTools:
@@ -494,7 +553,6 @@ class CameraTools:
         # can never present a photo from 16:25 as the current view.
         self.last_evidence_frames: list[dict] = []
         #: The utterance the current turn is answering (set by the turn).
-        self.current_question: str = ""
         # Why the last describe fell back from the VLM ("" = it didn't) —
         # surfaced by the system self-check so degradation is visible.
         self.last_vision_error: str | None = None
@@ -1237,6 +1295,15 @@ class CameraTools:
 
     # ── search_history (canonical event store — RFC-0001 C1) ──────
 
+    @property
+    def current_question(self) -> str | None:
+        """The question this task's turn is answering (see ``_question``)."""
+        return _question.get()
+
+    @current_question.setter
+    def current_question(self, text: str | None) -> None:
+        _question.set(text)
+
     async def search_history(self, args: dict[str, Any]) -> str:
         """Answer "who/what came between X and Y?" from the events store.
 
@@ -1342,9 +1409,11 @@ class CameraTools:
         # it says nothing (small models routinely omit optional booleans)
         # the question itself decides — "was Priya here" must not turn
         # into a list of times with no name because a flag went missing.
-        flag = args.get("identify_faces")
-        asked_who = bool(_WHO_RE.search(getattr(self, "current_question", "") or ""))
-        identify = label == "person" and (bool(flag) if flag is not None else asked_who)
+        flag = _as_bool(args.get("identify_faces"))
+        if flag is None:
+            who = asked_who(self.current_question)
+            flag = True if who is None else who    # no question to read: match, as before
+        identify = label == "person" and flag
         crops = await self._fetch_evidence(
             events, cap=max(self.EVIDENCE_FRAMES_CAP, self.FACE_ID_CAP if identify else 0))
         self._attach_evidence_frames(events, crops)
@@ -1498,7 +1567,7 @@ class CameraTools:
         return out
 
     def _attach_evidence_frames(self, events, crops: dict[int, bytes]) -> None:
-        """Publish up to ``cap`` remembered best-frames onto this turn.
+        """Publish up to EVIDENCE_FRAMES_CAP remembered best-frames onto this turn.
 
         Each carries its own timestamp caption. That is not decoration: every
         frame the UI has ever rendered in a chat bubble was the LIVE view, so

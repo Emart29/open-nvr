@@ -35,12 +35,18 @@ to be, and each is now a rule:
    text. The clock line (which changes every minute) used to sit in the
    system prompt, ahead of ~3.5k tokens of schemas, so the whole prefix
    was re-prefilled on every turn — the 17 s "iter 1" against 2.6 s for
-   "iter 2" of the same turn. On the `/converse` path the clock is now
-   its own system message AFTER the history, where nothing cached follows
-   it; the pre-warm sends the same clockless system + tools. Keep it that
-   way: anything that varies per turn belongs after the history. (The
-   streaming `/ws` context keeps the clock in its system prompt because
-   that context is built once per session and does not change within it.)
+   "iter 2" of the same turn. On the `/converse` path the clock now rides
+   IN the user turn (`[The current date and time is …]` on its own line
+   above the user's words); the pre-warm sends the same clockless system
+   + tools. Not a system message after the history: Ollama collects
+   every system-role message into the one leading system block, which the
+   Qwen and Llama templates render before the tool schemas — so a
+   "trailing" system clock still busts the prefix, and several
+   OpenAI-compatible servers reject a second system turn outright. Keep
+   it that way: anything that varies per turn belongs in the user turn.
+   (The streaming `/ws` context keeps the clock in its system prompt
+   because that context is built once per session and does not change
+   within it.)
 2. **Whisper runs greedy (`beam_size: 1`).** Beam 5 costs 30-50% more CPU
    and buys nothing on a clean, VAD-trimmed utterance of a few seconds.
 3. **The Piper voice is a MEDIUM tier by default** (`PIPER_VOICE`,
@@ -285,7 +291,7 @@ itself — worth trying with your model; the template is the safe default.
 |------|------------------|---------------------------|-----|
 | LLM | `qwen2.5:1.5b` (non-thinking) | `qwen2.5:3b` / `llama3.1:8b-instruct` | Must support tool-calling. 1.5B answers tool calls in ~1–2 s warm on CPU; bigger is slower. Qwen2.5 dense models are Apache-2.0. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
-| TTS | Piper `en_US-libritts-high` | (voice of choice) | Piper is fast and CPU-friendly; pick the voice to match the persona gender. |
+| TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
 | Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
 | Caption | BLIP | — | Optional; `describe_camera` falls back to the detector if absent. |
 | Faces | InsightFace | — | Optional; only loaded for recognition/enrollment. |

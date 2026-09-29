@@ -5302,10 +5302,10 @@ class CameraAgentRuntime:
         renders the tool schemas inside the system turn, AFTER this text, so
         a clock anywhere in here sits before ~3.5k tokens of schemas and
         changes every minute — the whole prefix re-prefilled per turn. The
-        JSON /converse path therefore sends the clock as its own system
-        message after the history (see _run_conversation_turn); the
-        streaming /ws path keeps it here because that context is built once
-        per session and stays byte-identical for the session's length."""
+        JSON /converse path therefore carries the clock in the user turn
+        (see _user_turn); the streaming /ws path keeps it here because that
+        context is built once per session and stays byte-identical for the
+        session's length."""
         roster = "\n".join(
             f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
         )
@@ -7575,6 +7575,24 @@ def _is_config_question(text: str) -> bool:
     return bool(_CONFIG_RE.search(text or ""))
 
 
+def _user_turn(runtime: "CameraAgentRuntime", user_text: str) -> str:
+    """The user message as the model sees it: the per-turn clock, then the
+    user's own words.
+
+    The clock is NOT a system message after the history. Ollama's chat
+    path collects every system-role message into the one leading system
+    block (template.go ``collate``), which the Qwen and Llama templates
+    render BEFORE the tool schemas — so a "trailing" system clock still
+    lands ahead of ~3.5k cached tokens and re-prefills the prefix every
+    minute. Several OpenAI-compatible servers (Gemma, Mistral templates)
+    reject a system turn after the first outright. The user turn is the
+    one message that is rendered last, wherever it is sent; the clock
+    rides in it. History keeps the user's bare words (what the UI shows),
+    so only that short tail re-prefills, never the system + tools.
+    """
+    return f"[{runtime._clock_line()}]\n\n{user_text}"
+
+
 def _pick_camera(text: str, cameras: list[str], preferred: str | None = None) -> str:
     """Best-effort: which camera did the user mean? An explicit name in the
     utterance wins; otherwise fall back to the UI-selected ``preferred``
@@ -7681,8 +7699,8 @@ async def _run_conversation_turn(
     # No clock in the system prompt: Ollama renders the tool schemas right
     # after it, and a line that changes every minute in front of ~3.5k
     # tokens of schemas re-prefilled the whole prefix on every turn — the
-    # 17 s "iter 1" of the field trace. The clock goes after the history,
-    # as its own system message (below), where nothing cached follows it.
+    # 17 s "iter 1" of the field trace. The clock rides in the USER turn
+    # (see _user_turn), the last thing in the prompt.
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": runtime.build_system_prompt(clock=False)}
     ]
@@ -7700,14 +7718,12 @@ async def _run_conversation_turn(
             ),
         })
     messages.extend(history)
-    messages.append({"role": "system", "content": runtime._clock_line()})
-    messages.append({"role": "user", "content": user_text})
+    messages.append({"role": "user", "content": _user_turn(runtime, user_text)})
     # The question itself, for tools that decide by it (face matching only
-    # when somebody asked WHO — tools.search_history).
-    try:
-        runtime.tools.current_question = user_text
-    except Exception:  # noqa: BLE001 — a runtime without tools (tests)
-        pass
+    # when somebody asked WHO — tools.search_history). Task-local: a
+    # background task's or a scheduled report's turn does not overwrite
+    # the one a person is waiting on.
+    runtime.tools.current_question = user_text
 
     # Per-turn pipeline trace: ordered (step, detail, ms) of everything this
     # turn executed — LLM iterations, every tool, forced groundings — so the
