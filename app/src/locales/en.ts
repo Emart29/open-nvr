@@ -530,7 +530,7 @@ export const translations: TranslationCatalog = {
   'nav.search': 'Search',
   'search.title': 'Search',
   'search.description': 'Describe what you’re looking for and jump straight to the recording.',
-  'search.placeholder': 'red truck at the dock yesterday',
+  'search.placeholder': 'Search by object, colour, plate, camera or time',
   'search.answer.scopePage': 'Summary of the {{shown}} results on this page (of {{total}})',
   'search.answer.scopeAll': 'Summary of all {{total}} results',
   'search.answer.at': 'at {{time}}',

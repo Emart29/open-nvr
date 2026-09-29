@@ -37,7 +37,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Camera as CameraIcon, CarFront, Clock, ImageOff, Info, LayoutGrid, List, Play, Route,
+  Camera as CameraIcon, CarFront, Clock, CornerDownLeft, ImageOff, Info, LayoutGrid, List, Play, Route,
   Search as SearchIcon, Sparkles, Tag, Type, UserRound, X,
 } from 'lucide-react'
 import { api } from '../lib/api'
@@ -750,128 +750,147 @@ export function Search() {
     </div>
   )
 
-  const shell = 'flex min-h-0 flex-1 flex-col  border border-[var(--border)] bg-[var(--panel)]'
+  const shell = 'flex min-h-0 flex-1 flex-col border border-[var(--border)] bg-[var(--panel-2)]'
 
   return (
     // Bounded to the viewport, like Live View: the page itself never
     // scrolls; the results do, under a toolbar and pager that stay put.
     // 5rem = the 3rem top bar + the shell's p-4.
-    <section className="flex h-[calc(100vh-5rem)] min-h-[480px] flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap items-baseline gap-x-3">
-        <h1 className="text-lg font-semibold text-[var(--text)]">{t('search.title')}</h1>
-        <p className="text-sm text-[var(--text-dim)]">{t('search.description')}</p>
-      </div>
+    <section className="flex h-[calc(100vh-5rem)] min-h-[480px] flex-col gap-2">
+      <div className="shrink-0 border border-[var(--border)] bg-[var(--panel-2)]">
+        {/* The page's one line of purpose, so it reads first: larger and
+            brighter than a widget header, above a field that stays quiet. */}
+        <div className="flex items-center gap-2.5 px-3 py-2 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+          <SearchIcon size={16} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
+          <h1 className="text-[15px] font-bold text-[var(--text)] whitespace-nowrap">{t('search.title')}</h1>
+          <p className="min-w-0 truncate text-sm font-medium text-[var(--text)]">{t('search.description')}</p>
+        </div>
 
-      {/* ── The box ── */}
-      {/* No panel around it: the field is the thing, and a box inside a
-          box read as clutter. Icon and clear button sit inside the input,
-          the Search button beside it at the same height. */}
-      <div className="shrink-0 space-y-2">
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => { e.preventDefault(); run(draft.trim()) }}
-        >
-          <div className="relative min-w-0 flex-1">
-            <SearchIcon
-              size={17}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]"
-            />
-            <input
-              ref={boxRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={t('search.placeholder')}
-              aria-label={t('search.title')}
-              className="h-10 w-full border border-[var(--border)] bg-[var(--panel-2)] pl-10 pr-9 text-sm outline-none transition-colors placeholder:text-[var(--text-dim)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
-            />
-            {draft && (
-              <button
-                type="button"
-                onClick={() => { setDraft(''); run('') }}
-                title="Clear"
-                aria-label="Clear"
-                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-[var(--text-dim)] hover:bg-[var(--bg-2)] hover:text-[var(--text)]"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <Button variant="primary" type="submit" className="h-10 px-5">Search</Button>
-        </form>
-
-        {/* What it understood — each chip removable, which is the way out
-            of a wrong guess — and the person picker on the same line. */}
-        {(chips.length > 0 || people.length > 0 || nothingAsked) && (
-          <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
-            {chips.length > 0 && (
-              <span className="text-[var(--text-dim)]">
-                {editing ? 'Filters:' : 'Searching for:'}
-              </span>
-            )}
-            {chips.map((c) => (
-              <span
-                key={`${c.key}:${c.value ?? ''}`}
-                title={c.title}
-                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-2)] pl-2 pr-1 py-0.5"
-              >
-                {c.icon}
-                <span>{c.label}</span>
+        {/* ── The box ── */}
+        {/* Title and field in one panel: the title is the panel's header, the
+            field its body, so the two no longer read as the same control. The
+            submit sits inside the field's end as a quiet Enter key — the box is
+            the control, not a button beside it. */}
+        <div className="space-y-2 p-2.5">
+          <form
+            className="flex items-stretch"
+            onSubmit={(e) => { e.preventDefault(); run(draft.trim()) }}
+          >
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]"
+              />
+              <input
+                ref={boxRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.title')}
+                className="h-9 w-full border border-[var(--border)] bg-[var(--bg-2)] pl-9 pr-16 text-[13px] outline-none transition-colors placeholder:text-[color-mix(in_oklab,var(--text-dim)_50%,transparent)] focus:border-[var(--accent)] focus:placeholder:text-[color-mix(in_oklab,var(--text-dim)_20%,transparent)]"
+              />
+              <span className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                {draft && (
+                  <button
+                    type="button"
+                    onClick={() => { setDraft(''); run('') }}
+                    title="Clear"
+                    aria-label="Clear"
+                    className="grid h-6 w-6 place-items-center text-[var(--text-dim)] hover:bg-[var(--panel)] hover:text-[var(--text)]"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
                 <button
-                  type="button"
-                  aria-label={`Remove ${c.label}`}
-                  className="ml-0.5 rounded-full p-0.5 text-[var(--text-dim)] hover:text-[var(--danger)]"
-                  onClick={() => drop(c.key, c.value)}
+                  type="submit"
+                  title="Search (Enter)"
+                  aria-label="Search"
+                  className={`grid h-6 w-7 place-items-center border transition-colors ${
+                    draft.trim()
+                      ? 'border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white'
+                      : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)]'
+                  }`}
                 >
-                  <X size={11} />
+                  <CornerDownLeft size={13} />
                 </button>
               </span>
-            ))}
-            {editing && (
-              <Button size="sm" variant="ghost" onClick={() => { setFilters(null); setPage(0) }}>
-                Undo changes
-              </Button>
-            )}
+            </div>
+          </form>
 
-            {nothingAsked && chips.length === 0 && (
-              <>
-                <span className="text-[var(--text-dim)]">Try</span>
-                {EXAMPLES.map((e, i) => (
-                  <span key={e} className="inline-flex items-center gap-2">
-                    {i > 0 && <span aria-hidden className="text-[var(--border)]">·</span>}
-                    <button
-                      type="button"
-                      className="text-[var(--accent)] hover:underline"
-                      onClick={() => run(e)}
-                    >
-                      {e}
-                    </button>
-                  </span>
-                ))}
-              </>
-            )}
-
-            {/* Only when this box has recognised somebody: a picker that
-                can only be set to "Anyone" is worse than none. Names are
-                deliberately not searchable words, so this is the way in. */}
-            {people.length > 0 && (
-              <label className="ml-auto inline-flex items-center gap-1.5 text-[var(--text-dim)]">
-                <UserRound size={12} /> Person
-                <select
-                  value={pickedPerson}
-                  onChange={(e) => setPerson(e.target.value)}
-                  className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]"
+          {/* What it understood — each chip removable, which is the way out
+              of a wrong guess — and the person picker on the same line. */}
+          {(chips.length > 0 || people.length > 0 || nothingAsked) && (
+            <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
+              {chips.length > 0 && (
+                <span className="text-[var(--text-dim)]">
+                  {editing ? 'Filters:' : 'Searching for:'}
+                </span>
+              )}
+              {chips.map((c) => (
+                <span
+                  key={`${c.key}:${c.value ?? ''}`}
+                  title={c.title}
+                  className="inline-flex items-center gap-1 border border-[var(--border)] bg-[var(--bg-2)] pl-2 pr-1 py-0.5"
                 >
-                  <option value="">Anyone</option>
-                  {people.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.value} ({p.visits})
-                    </option>
+                  {c.icon}
+                  <span>{c.label}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${c.label}`}
+                    className="ml-0.5 p-0.5 text-[var(--text-dim)] hover:text-[var(--danger)]"
+                    onClick={() => drop(c.key, c.value)}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+              {editing && (
+                <Button size="sm" variant="ghost" onClick={() => { setFilters(null); setPage(0) }}>
+                  Undo changes
+                </Button>
+              )}
+
+              {nothingAsked && chips.length === 0 && (
+                <>
+                  <span className="text-[var(--text-dim)]">Try</span>
+                  {EXAMPLES.map((e, i) => (
+                    <span key={e} className="inline-flex items-center gap-2">
+                      {i > 0 && <span aria-hidden className="text-[var(--border)]">·</span>}
+                      <button
+                        type="button"
+                        className="text-[var(--accent)] hover:underline"
+                        onClick={() => run(e)}
+                      >
+                        {e}
+                      </button>
+                    </span>
                   ))}
-                </select>
-              </label>
-            )}
-          </div>
-        )}
+                </>
+              )}
+
+              {/* Only when this box has recognised somebody: a picker that
+                  can only be set to "Anyone" is worse than none. Names are
+                  deliberately not searchable words, so this is the way in. */}
+              {people.length > 0 && (
+                <label className="ml-auto inline-flex items-center gap-1.5 text-[var(--text-dim)]">
+                  <UserRound size={12} /> Person
+                  <select
+                    value={pickedPerson}
+                    onChange={(e) => setPerson(e.target.value)}
+                    className="border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                  >
+                    <option value="">Anyone</option>
+                    {people.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.value} ({p.visits})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {notices.length > 0 && (
@@ -879,7 +898,7 @@ export function Search() {
           {notices.map((n) => (
             <div
               key={n.key}
-              className={`flex flex-wrap items-center gap-2 rounded border px-3 py-1.5 text-xs ${
+              className={`flex flex-wrap items-center gap-2 border px-3 py-1.5 text-xs ${
                 n.tone === 'warn'
                   ? 'border-[var(--badge-warning-bg)] bg-[var(--badge-warning-bg)]/40 text-[var(--badge-warning-text)]'
                   : 'border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-dim)]'
@@ -919,13 +938,13 @@ export function Search() {
           <div className="shrink-0 border-b border-[var(--border)]">{toolbar}</div>
           <div className="min-h-0 flex-1 overflow-y-auto thin-scroll p-3">
             {searchQuery.isPending ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-                {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-48" />)}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] items-start gap-2">
+                {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-video" />)}
               </div>
             ) : searchQuery.isError || results.length === 0 ? (
               emptyBody
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] items-start gap-2">
                 {results.map((h, i) => (
                   <ResultCard
                     key={h.id}
@@ -1006,7 +1025,7 @@ function ClaimChips({ claims, onRefine, max }: { claims: Claim[]; onRefine: (c: 
           type="button"
           onClick={() => onRefine(c)}
           title={claimTitle(c)}
-          className="rounded-full border border-[var(--border)] bg-[var(--bg-2)] px-2 py-0.5 text-[10px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+          className="border border-[var(--border)] bg-[var(--bg-2)] px-1.5 py-0.5 text-[10px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
         >
           {c.value}
         </button>
@@ -1020,7 +1039,7 @@ function ClaimChips({ claims, onRefine, max }: { claims: Claim[]; onRefine: (c: 
   )
 }
 
-function FollowButton({ onFollow, compact }: { onFollow: () => void; compact?: boolean }) {
+function FollowButton({ onFollow, compact, className = '' }: { onFollow: () => void; compact?: boolean; className?: string }) {
   const { t } = useTranslation()
   return (
     // Following an object is a different question from watching this
@@ -1030,7 +1049,7 @@ function FollowButton({ onFollow, compact }: { onFollow: () => void; compact?: b
       onClick={(e) => { e.stopPropagation(); onFollow() }}
       title={t('search.follow')}
       aria-label={t('search.follow')}
-      className="inline-flex items-center gap-1 border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]"
+      className={className || 'inline-flex items-center gap-1 border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)] hover:text-[var(--text)] hover:border-[var(--accent)]'}
     >
       <Route size={12} />
       {!compact && t('search.follow')}
@@ -1049,41 +1068,47 @@ function ResultCard(
   const fmt = useDateFormat()
   const at = hit.anchor?.at ?? hit.started_at
   return (
-    <div className="flex flex-col overflow-hidden border border-[var(--border)] bg-[var(--panel-2)] transition-colors hover:border-[var(--accent)]">
+    <div className="group/card relative flex flex-col overflow-hidden border border-[var(--border)] bg-black transition-colors hover:border-[var(--accent)]">
       <Link
         onClick={() => reportOpened(rank)}
         to={recordingHref(hit)}
-        className="group block focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        className="group relative block aspect-video focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
         title={at ? `Play the recording from ${fmt.dateTime(at)}` : 'Open recordings'}
       >
-        <div className="relative aspect-video bg-[var(--bg-2)]">
-          <Thumb hit={hit} className="h-full w-full object-cover" />
-          <span className="absolute left-1.5 top-1.5">
-            <Badge variant="neutral" className="capitalize">{hit.label ?? hit.event_type}</Badge>
-          </span>
-          {hit.plate_text && (
-            <span className="absolute right-1.5 top-1.5">
-              <Badge variant="info" className="font-mono">{hit.plate_text}</Badge>
-            </span>
-          )}
-          <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
-            <span className="rounded-full bg-black/60 p-2 text-white"><Play size={18} /></span>
-          </span>
-        </div>
-        <div className="flex items-center gap-2 px-2.5 pt-2 text-xs">
+        {/* The whole crop, on black: filling the box cut objects off and
+            blew a small crop up past what it can hold. Absolute, because an
+            aspect-ratio box is only a minimum — a tall crop in normal flow
+            grows it, and the grid then stretches the whole row. */}
+        <span className="absolute inset-0">
+          <Thumb hit={hit} className="h-full w-full object-contain" />
+        </span>
+        <span className="absolute left-1.5 top-1.5 flex max-w-[calc(100%-2.5rem)] flex-wrap items-center gap-1">
+          <Badge variant="neutral" className="capitalize">{hit.label ?? hit.event_type}</Badge>
+          {hit.plate_text && <Badge variant="info" className="font-mono">{hit.plate_text}</Badge>}
+        </span>
+        <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="rounded-full bg-black/60 p-2 text-white"><Play size={16} /></span>
+        </span>
+        {/* Label band, as on Live View: camera and time over the picture. */}
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-black/80 to-transparent" />
+        <span className="pointer-events-none absolute inset-x-2 bottom-1 flex items-center gap-2 text-[11px] text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
           <span className="truncate font-medium">{hit.camera_name ?? `Camera ${hit.camera_id}`}</span>
-          <span className="ml-auto shrink-0 tabular-nums text-[var(--text-dim)]">{when(at, fmt)}</span>
-        </div>
-        {hit.caption && (
-          <div className="px-2.5 pt-0.5 text-[11px] text-[var(--text-dim)] line-clamp-1" title={hit.caption}>
-            {hit.caption}
-          </div>
-        )}
+          <span className="ml-auto shrink-0 tabular-nums text-white/75">{when(at, fmt)}</span>
+        </span>
       </Link>
-      {/* Each claim is itself a search: one click finds every other red van. */}
-      <div className="mt-auto flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1.5">
-        <ClaimChips claims={hit.claims} onRefine={onRefine} max={3} />
-        <span className="ml-auto"><FollowButton onFollow={onFollow} compact /></span>
+      {/* Below the picture: a caption and claims on the left — each claim
+          is itself a search, one click finds every other red van — and on
+          the right "where did it go", outside the link to the video
+          because following an object is a different question from
+          watching this moment. */}
+      <div className="flex items-start gap-1.5 border-t border-[var(--border)] bg-[var(--panel-2)] px-2 py-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          {hit.caption && (
+            <span className="w-full truncate text-[11px] text-[var(--text-dim)]" title={hit.caption}>{hit.caption}</span>
+          )}
+          <ClaimChips claims={hit.claims} onRefine={onRefine} max={3} />
+        </div>
+        <FollowButton onFollow={onFollow} compact />
       </div>
     </div>
   )
@@ -1101,8 +1126,8 @@ function tableColumns(
       header: 'Snapshot',
       width: 'w-28',
       cell: (h) => (
-        <div className="h-12 w-20 overflow-hidden bg-[var(--bg-2)]">
-          <Thumb hit={h} className="h-full w-full object-cover" />
+        <div className="h-12 w-20 overflow-hidden bg-black">
+          <Thumb hit={h} className="h-full w-full object-contain" />
         </div>
       ),
     },

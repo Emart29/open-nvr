@@ -509,7 +509,7 @@ export const translations: TranslationCatalog = {
   'nav.search': 'Recherche',
   'search.title': 'Recherche',
   'search.description': "Retrouvez un moment dans vos enregistrements en le décrivant — quoi, où et quand — et ouvrez la vidéo à cet instant.",
-  'search.placeholder': 'camion rouge au quai hier',
+  'search.placeholder': 'Rechercher par objet, couleur, plaque, caméra ou heure',
   'search.answer.scopePage': 'Calculé sur les {{shown}} résultats de cette page, sur {{total}} correspondances',
   'search.answer.scopeAll': 'Calculé sur l’ensemble des {{total}} correspondances',
   'search.answer.at': 'toutes à {{time}}',
