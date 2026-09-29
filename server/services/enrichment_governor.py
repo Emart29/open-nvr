@@ -289,6 +289,11 @@ async def admit_live(gate: gate_mod.AdapterGate, kind: Kind,
     change that; the lane's worker waits and retries."""
     state = governor().evaluate()
     if state is State.PAUSED:
+        if priority == "requested":
+            # Not a drop: the lane's worker holds and asks again. Counting
+            # it on the gate would let a flapping PAUSE bury the real
+            # breaker drops under retries of work that was never lost.
+            return False
         gate.dropped_open += 1
         gate._note_drop(f"governor paused: {governor().reason}")
         return False

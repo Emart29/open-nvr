@@ -465,4 +465,4 @@ async def enrich_event_descriptors(event_id: int, *,
         db.rollback()
     finally:
         db.close()
-    return "dropped" if dropped else None
+    return "dropped" if dropped else "done"
