@@ -83,6 +83,10 @@ export default defineConfig({
         // Backend API proxy - can be overridden via VITE_API_BASE_URL env var
         target: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
         changeOrigin: true,
+        // The live events socket (/api/v1/events/ws) is under /api too.
+        // Without ws the upgrade is never forwarded, the socket can't open,
+        // and every page under `npm run dev` reads "reconnecting" forever.
+        ws: true,
         rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
 
