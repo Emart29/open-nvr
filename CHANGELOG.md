@@ -92,6 +92,23 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Tier-0 no longer stalls the decoder when detection falls behind
+  (#507).** The worker read ffmpeg's stdout in the same loop that ran
+  detection, so detector latency was backpressure on the decoder: with a
+  64 KiB pipe (~2% of one 1080p frame) a camera over its frame budget
+  blocked ffmpeg almost at once, MediaMTX dropped the reader, and the
+  session died — logged as a flaky camera (`Failed reading RTSP data:
+  End of file`) when the cause was us, while the region budget shed
+  accuracy in exactly the busy scenes that blew the budget. The decoder
+  is now drained on its own thread into a single-slot handoff; the
+  detect loop takes the newest frame and what it did not get to is
+  dropped and counted — `tier0_frames_dropped_total{camera}`, exact from
+  the seq gaps — with a once-a-minute WARNING naming the camera when
+  drops are a quarter or more of what it decoded. Frames are dropped;
+  sessions are not. Restart accounting is unchanged (seq 0 is never
+  overwritten), the tracker ages by wall time so an irregular gap is
+  just a longer gap, and the region budget's job shrinks to detecting
+  on more of the frames the camera decodes.
 - **A test-harness race, not a product bug, went red on `main`.** The
   shared server test fixture handed every thread one SQLite connection
   (`StaticPool`); a `session.close()` from the MQTT bridge's thread could
