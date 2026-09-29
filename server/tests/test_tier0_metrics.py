@@ -167,6 +167,7 @@ def test_reduce_enforce_rollup():
     assert abs(r["health"]["min_fps_ratio"] - 0.4) < 1e-9
     assert r["health"]["worst_camera"] == "cam2"
     assert r["health"]["restarts_total"] == 3
+    assert r["health"]["frames_dropped_total"] == 0, "absent metric reads as none dropped"
     # motion gate verdict per camera: cam2's scene never calibrated, so the
     # gate is latched open there — the 0% it contributes has a reason
     cams = {c["camera"]: c for c in r["cameras"]}
@@ -336,6 +337,7 @@ tier0_tracks_active{camera="cam1"} 2
 tier0_mainstream_fallback{camera="cam1"} 1
 tier0_visits_posted_total{camera="cam1"} 7
 tier0_visits_dropped_total{camera="cam1"} 1
+tier0_frames_dropped_total{camera="cam1"} 41
 tier0_events_published_total{camera="cam1"} 292
 tier0_sink_errors_total{camera="cam1"} 3
 tier0_stationary_skipped_total{camera="cam1"} 44
@@ -358,6 +360,8 @@ def test_per_camera_rows_surface_the_struggling_camera():
     assert c1["regions_capped_total"] == 415
     assert c1["tracks_active"] == 2
     assert c1["visits_posted"] == 7 and c1["visits_dropped"] == 1
+    assert c1["frames_dropped"] == 41, "the #507 capacity signal, per camera"
+    assert r["health"]["frames_dropped_total"] == 41
     assert c1["mainstream_fallback"] is True
 
     c2 = cams["cam2"]

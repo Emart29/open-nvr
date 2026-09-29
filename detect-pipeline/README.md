@@ -420,7 +420,7 @@ show detect-pipeline CPU/RAM next to them): `tier0_process_cpu_percent`,
 **Operator health — "is it running and keeping up?"** (the capacity signal for a
 fixed box): `tier0_worker_up{camera}`, `tier0_processing_fps{camera}` vs
 `tier0_target_fps{camera}` (a ratio well under 1 = the box can't keep up with that
-camera), and `tier0_worker_restarts_total{camera}` (repeated feed restarts = an
+camera), and `tier0_frames_dropped_total{camera}` (decoded frames detection never reached because it was still busy — near the camera's fps, the box cannot serve it at this budget; the worker WARNs), `tier0_worker_restarts_total{camera}` (repeated feed restarts = an
 unhealthy camera). Plus `tier0_stage_latency_seconds{camera,stage}` — per-stage time
 (`decode|motion|region|detect|track`) so you can see *where* a frame's time goes, not
 just the end-to-end total.

@@ -429,6 +429,18 @@ def record_decode_config(
     metrics.gauge("tier0_decode_config", 1.0, labels)
 
 
+def record_frames_dropped(camera_id: str, n: int) -> None:
+    """Decoded frames the detector never saw: the drain thread overwrote
+    them because detection was still busy with an older one (#507). Exact,
+    from the gaps in Frame.seq. A sustained rate near the camera's fps is
+    the capacity signal — the box cannot serve this camera at its
+    configured detector budget — and the worker WARNs on it; before the
+    drain was decoupled, the same condition dropped the RTSP session and
+    read as a flaky camera."""
+    if n > 0:
+        metrics.inc("tier0_frames_dropped_total", {"camera": camera_id}, float(n))
+
+
 def record_worker_restart(camera_id: str) -> None:
     """A source (ffmpeg) restart for this camera — repeated restarts = an unhealthy feed."""
     metrics.inc("tier0_worker_restarts_total", {"camera": camera_id})
