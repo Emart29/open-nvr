@@ -209,7 +209,7 @@ class AppConfig:
     llm_temperature: float = 0.4
     llm_max_tokens: int = 256
 
-    # Turn-taking (Pipecat 1.8). Silero VAD opens a turn; Smart Turn v3
+    # Turn-taking (Pipecat's user aggregator). Silero VAD opens a turn; Smart Turn v3
     # (semantic end-of-turn, bundled, CPU) closes it. The VAD stop window
     # is short on purpose — the model judges the pause, the VAD only
     # notices it. turn_stop_secs: silence after which Smart Turn is
@@ -220,6 +220,11 @@ class AppConfig:
     vad_start_secs: float = 0.15
     vad_stop_secs: float = 0.2
     vad_min_volume: float = 0.08
+    # Silence appended to each utterance before Whisper hears it, so the
+    # model hears the end of speech and finishes the last word (pipecat's
+    # segmented STT, since 1.10). Half a second on a three-second clip is
+    # a few percent of the transcription; 0 disables it.
+    stt_trailing_silence_secs: float = 0.5
     turn_stop_secs: float = 2.0
     # Smart Turn v3 only ever looks at the LAST 8 s of a turn (it pads or
     # truncates to the model window), so buffering more is pure cost.
@@ -3021,6 +3026,7 @@ def load_config(path: str | Path) -> AppConfig:
         vad_start_secs=_float("vad_start_secs", 0.15),
         vad_stop_secs=_float("vad_stop_secs", 0.2),
         vad_min_volume=_float("vad_min_volume", 0.08),
+        stt_trailing_silence_secs=_float("stt_trailing_silence_secs", 0.5),
         turn_stop_secs=_float("turn_stop_secs", 2.0),
         turn_max_secs=_float("turn_max_secs", 8.0),
         turn_stop_timeout_secs=_float("turn_stop_timeout_secs", 6.0),
@@ -5543,7 +5549,7 @@ def describe_turn_profile(cfg: Any) -> str:
 
 def build_user_turn_params(cfg: Any, runtime: Any = None) -> Any:
     """The user aggregator's parameters — where turn-taking lives in
-    Pipecat 1.8. Silero VAD opens a turn; **Smart Turn v3** (the
+    Pipecat's user aggregator. Silero VAD opens a turn; **Smart Turn v3** (the
     bundled semantic end-of-turn model, CPU) closes it; the aggregator's
     ``user_turn_stop_timeout`` is the last resort so a turn never hangs.
     Interruptions stay off (the demo client sends no cancel frames).
@@ -5653,7 +5659,10 @@ def build_core_processors(runtime: CameraAgentRuntime, *, user_params: Any = Non
         OpenNvrWhisperSTT,
     )
 
-    stt = OpenNvrWhisperSTT(client=runtime.whisper)
+    stt = OpenNvrWhisperSTT(
+        client=runtime.whisper,
+        trailing_silence_secs=float(getattr(runtime.cfg, "stt_trailing_silence_secs", 0.5)),
+    )
     llm = OpenNvrOllamaLLM(
         client=runtime.ollama,
         tools=runtime.tool_definitions,
@@ -5677,7 +5686,7 @@ def build_pipeline_task(runtime: CameraAgentRuntime, transport: Any) -> Any:
     Imported here (not at module top) so the camera-agent module
     stays importable in test environments without Pipecat.
 
-    Turn-taking (Pipecat 1.8): the user aggregator owns it. Silero VAD
+    Turn-taking (Pipecat 1.12): the user aggregator owns it. Silero VAD
     opens a turn; **Smart Turn v3** — Pipecat's semantic end-of-turn
     model, bundled with the wheel and run on CPU with onnxruntime —
     closes it, so a pause mid-sentence ("show me the… gate camera") no

@@ -105,6 +105,13 @@ class OpenNvrWhisperSTT(SegmentedSTTService):
     v3 to stop — see ``build_pipeline_task``) decide, and the
     ``max_duration_secs`` of the turn analyzer bounds a runaway
     utterance. The pre-1.x force-stop timers that lived here are gone.
+
+    Since pipecat 1.10 the base is queue-based: ``run_stt`` runs in a
+    background task while audio and other frames keep flowing through
+    the pipeline, so a two-second Whisper call on CPU no longer stalls
+    the turn machinery behind it; and each segment is padded with
+    ``trailing_silence_secs`` of silence so the model hears the end of
+    speech (``stt_trailing_silence_secs`` in config).
     """
 
     def __init__(
@@ -112,8 +119,9 @@ class OpenNvrWhisperSTT(SegmentedSTTService):
         *,
         client: WhisperClient,
         sample_rate: int = 16000,
+        trailing_silence_secs: float = 0.5,
     ) -> None:
-        super().__init__(sample_rate=sample_rate)
+        super().__init__(sample_rate=sample_rate, trailing_silence_secs=trailing_silence_secs)
         self._client = client
 
     # Whisper hallucinates short tokens when fed near-silence or very short

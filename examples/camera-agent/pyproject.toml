@@ -23,7 +23,7 @@ dependencies = [
     # the range resolved to 1.12 the day it appeared and the image broke
     # while the lock stayed on 1.8.1. Bump: `uv lock` here, then the
     # Dockerfile, then run tests/test_pipeline_e2e.py and the demo page.
-    "pipecat-ai[silero,websocket]==1.8.1",
+    "pipecat-ai[silero,websocket]==1.12.0",
     "httpx>=0.27,<1.0",
     "fastapi>=0.110,<1.0",
     "uvicorn>=0.27,<1.0",
