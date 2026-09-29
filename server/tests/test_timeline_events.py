@@ -146,6 +146,17 @@ def test_newest_first_and_limit(db):
     assert rows[0].started_at >= rows[-1].started_at
 
 
+def test_newest_read_first_not_newest_track_start(db):
+    """The plate list shows when a plate was READ. A car that sat in view
+    before its plate was read started earlier than a later car, but was
+    read after it — it must list first, or the times run out of order."""
+    lingered = _visit(db, start_min=0, label="car")
+    lingered.observed_at = T + timedelta(minutes=30)   # read half an hour in
+    quick = _visit(db, start_min=10, label="car")      # never read: seen = start
+    db.commit()
+    assert [r.id for r in query_events(db, label="car")] == [lingered.id, quick.id]
+
+
 # ── evidence store ──────────────────────────────────────────────────
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
