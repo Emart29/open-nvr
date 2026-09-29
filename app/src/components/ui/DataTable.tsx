@@ -143,7 +143,7 @@ export type DataTableProps<T> = {
  * header, and a magic `calc(100vh - 420px)` would be wrong on the first
  * layout that differs from the one it was tuned against.
  */
-function useAvailableHeight(
+export function useAvailableHeight(
   enabled: boolean,
   scrollerRef: React.RefObject<HTMLDivElement | null>,
   footerRef: React.RefObject<HTMLDivElement | null>,

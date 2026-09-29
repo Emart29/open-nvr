@@ -33,9 +33,9 @@ import {
 } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowRight, BellRing, BookUser, Car, ChevronRight, Download, FileText, Fingerprint,
-  History, Pencil, PhoneCall, Plus, RefreshCw, ScanLine, Search, ShieldAlert,
-  ShieldCheck, SlidersHorizontal, Trash2, Upload, Volume2,
+  ArrowRight, BellRing, BookUser, Car, Download, FileText,
+  History, Pencil, Plus, RefreshCw, Search, ShieldAlert,
+  ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, Volume2,
 } from 'lucide-react'
 import { apiService } from '../lib/apiService'
 import { useAuth } from '../auth/AuthContext'
@@ -58,7 +58,7 @@ import { usePagination } from '../hooks/usePagination'
 import { useRowSelection } from '../hooks/useRowSelection'
 import { AlarmsFilters, AlarmsSelectionBar, AlarmsTable, cameraIdFromHandle } from '../components/alarms/AlarmsTable'
 import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
-import { DataTable, type Column } from '../components/ui/DataTable'
+import { DataTable, useAvailableHeight, type Column } from '../components/ui/DataTable'
 import { Pagination } from '../components/ui/Pagination'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { Switch } from '../components/ui/Switch'
@@ -72,11 +72,12 @@ import {
 import { cameraService } from '../services/cameraService'
 import {
   Badge, Button, Card, CardContent,
-  EmptyState, PageHeader, SeverityBadge, Skeleton,
+  EmptyState, SeverityBadge, Skeleton,
 } from '../components/ui'
 import type { RegisteredApp } from './AppCatalog'
 import { AppConfigureButton, AppPageHeader } from './apps/AppSetup'
 import { AppCamerasCard } from './apps/AppCamerasCard'
+import { MoreMenu } from '../components/ui/MoreMenu'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 
 export const LPR_TASK = 'license_plate_recognition'
@@ -649,51 +650,6 @@ function plateSeenAt(e: PlateEvent, fmt: DateFormatters): string | null {
   return iso ? fmt.dateTime(iso) : null
 }
 
-// One stat, as a chip. Bordered box at the app's own `rounded` (4px,
-// same as Card/Badge/Button) — NOT `rounded-full`, which appears nowhere
-// else in the product.
-//
-// Most of these are a shortcut as well as a number: "1 registered" is
-// the Vehicle register tab, "2 monitored" is Monitoring. A figure the
-// operator is already looking at is the most natural place to click, so
-// the chip is a real <button> when it has a destination — keyboard
-// reachable, with a hover and a focus ring — and a plain <span> when it
-// is only a number.
-//
-// font-mono + tabular-nums so a figure ticking over on the 60s poll
-// cannot change the chip's width mid-glance.
-function StatChip({ icon: Icon, value, label, onClick, title }: {
-  icon: typeof Fingerprint
-  value: number | string | undefined
-  label: string
-  onClick?: () => void
-  title?: string
-}) {
-  const body = (
-    <>
-      <Icon size={16} className="text-[var(--text-dim)] shrink-0" />
-      <span className="font-mono text-xl font-semibold leading-none tabular-nums text-[var(--text)]">
-        {value ?? '…'}
-      </span>
-      <span className="text-sm leading-none text-[var(--text-dim)]">{label}</span>
-    </>
-  )
-  const shell = 'flex flex-1 min-w-[9rem] items-center justify-center gap-2  border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2'
-  if (!onClick) {
-    return <span className={shell}>{body}</span>
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`${shell} transition-colors hover:border-[var(--text-dim)] hover:bg-[var(--panel-2)]`}
-    >
-      {body}
-    </button>
-  )
-}
-
 function toCsv(rows: PlateEvent[], cameraName: (id: number) => string): string {
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
   const head = 'plate,camera,seen_at,left_at,label'
@@ -1246,7 +1202,7 @@ export function Vehicles() {
       },
     },
     {
-      key: 'seen', header: 'Date & time', width: 'w-[164px]',
+      key: 'seen', header: 'Date & time', width: 'w-[184px]',
       className: 'whitespace-nowrap',
       // Colour and numerals belong to the DATA, not the header — putting
       // them on `className` dimmed this column's header and made it the
@@ -1268,21 +1224,26 @@ export function Vehicles() {
         if (monitoredPlates.has(p)) {
           return (
             <Badge variant="destructive" title={monitors.find((m) => m.plate === p)?.note}>
-              monitored
+              Monitored
             </Badge>
           )
         }
-        if (registryPlates.has(p)) return <Badge variant="success">registered</Badge>
-        if (expiredPlates.has(p)) return <Badge variant="warning">pass expired</Badge>
-        if (allow.includes(p)) return <Badge variant="success">expected</Badge>
-        if (alarmOnUnknown) return <Badge variant="warning">unknown</Badge>
+        if (registryPlates.has(p)) return <Badge variant="success">Registered</Badge>
+        if (expiredPlates.has(p)) return <Badge variant="warning">Pass expired</Badge>
+        if (allow.includes(p)) return <Badge variant="success">Expected</Badge>
+        if (alarmOnUnknown) return <Badge variant="warning">Unknown</Badge>
         return <span className="text-[var(--text-dim)]">—</span>
       },
     },
   ] as Column<PlateEvent>[])
+    // With one camera in play (the filter picks one, or only one camera
+    // reads plates) every row names the same camera: the column was a
+    // third of the table repeating one word. Its gate-role badge goes
+    // with it — the role is the camera's, and the camera is known.
+    .filter((c) => c.key !== 'camera' || (cameraId === '' && lprCameras.length > 1))
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       <div>
         {/* The description dropped "searched from the evidence store,
             whichever part of the platform ran the OCR" — an implementation
@@ -1294,105 +1255,86 @@ export function Vehicles() {
           description={t('vehicles.description')}
           actions={
             <>
-              {/* A settings destination, not a filter — it belongs with
-                  the other page-level actions rather than wedged between
-                  the severity chips and the pager. Only on the tab it
-                  applies to; this header is shared by all four. */}
-              {/* Every tab, not just Alarms: how the site SOUNDS is
-                  something you go and set, not something you only think
-                  about while already looking at a list of alarms. */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate('/alerts-incidents')}
-                title={t('vehicles.soundTooltip')}
+              {/* A status, not a filter: whether a stranger's plate raises
+                  an alarm is a site setting (Gate settings). It sat among
+                  the reads filters looking like one; here it is visible
+                  from every tab, beside the actions that change things. */}
+              {alarmOnUnknown && (
+                <span
+                  className="inline-flex items-center gap-1.5 text-[11px] text-[var(--badge-warning-text)]"
+                  title={t('vehicles.unknownHighAlert')}
+                >
+                  <BellRing size={12} aria-hidden="true" /> {t('vehicles.unknownAlarm')}
+                </span>
+              )}
+              <AppConfigureButton app={lprApp} size="sm" className="h-7" />
+              <button
+                type="button"
+                onClick={() => eventsQuery.refetch()}
+                disabled={eventsQuery.isFetching}
+                title={t('vehicles.refresh')}
+                aria-label={t('vehicles.refresh')}
+                className="grid h-7 w-7 place-items-center border border-[var(--border)] text-[var(--text-dim)] transition-colors hover:bg-[var(--panel)] hover:text-[var(--text)] disabled:cursor-not-allowed"
               >
-                <Volume2 size={13} /> {t('vehicles.sound')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setReportOpen(true)}>
-                <FileText size={13} /> {t('vehicles.report')}
-              </Button>
-              {/* An empty PAGE is not an empty result set, so the guard is
-                  the export's own state, not the row count. */}
-              <Button variant="outline" size="sm" onClick={exportCsv} disabled={exporting}>
-                <Download size={13} className={exporting ? 'animate-pulse' : ''} />
-                {exporting ? 'Exporting…' : t('vehicles.export')}
-              </Button>
-              <AppConfigureButton app={lprApp} size="sm" />
-              <Button size="sm" onClick={() => eventsQuery.refetch()} disabled={eventsQuery.isFetching}>
-                <RefreshCw size={13} className={eventsQuery.isFetching ? 'animate-spin' : ''} /> {t('vehicles.refresh')}
-              </Button>
+                <RefreshCw size={13} className={eventsQuery.isFetching ? 'animate-spin' : ''} />
+              </button>
+              {/* The occasional actions, folded: five equal buttons read as
+                  five primary actions. An empty PAGE is not an empty result
+                  set, so the export's guard is its own state, not the row
+                  count. Sound is on every tab — how the site SOUNDS is
+                  something you go and set, not only think about while
+                  looking at alarms. */}
+              <MoreMenu
+                items={[
+                  { key: 'report', label: t('vehicles.report'), icon: <FileText size={13} />, onClick: () => setReportOpen(true) },
+                  {
+                    key: 'export',
+                    label: exporting ? 'Exporting…' : t('vehicles.export'),
+                    icon: <Download size={13} />,
+                    onClick: exportCsv,
+                    disabled: exporting,
+                  },
+                  {
+                    key: 'sound',
+                    label: t('vehicles.sound'),
+                    icon: <Volume2 size={13} />,
+                    onClick: () => navigate('/alerts-incidents'),
+                    title: t('vehicles.soundTooltip'),
+                  },
+                ]}
+              />
             </>
           }
-        />
-        <AppCamerasCard app={lprApp} />
+        >
+          {/* Which cameras this app reads, as a row of the header panel —
+              a fact about the page, not a separate card. */}
+          <AppCamerasCard app={lprApp} embedded />
 
-        {/* Sits directly under the product description, where it reads as
-            part of what this page IS rather than an interruption in the
-            middle of the work. Deliberately NOT below the table: the
-            fill-height calculation reserves for anything under there, so
-            it would cost table rows on every visit. */}
-        <div className="mb-3 flex items-start gap-2.5 border border-[var(--border)] bg-[var(--bg-2)] px-3 py-2">
-            <PhoneCall size={15} className="mt-0.5 shrink-0 text-[var(--text-dim)]" />
-            <p className="min-w-0 flex-1 text-xs leading-snug">
-              <span className="font-medium text-[var(--text)]">Need more for your site?</span>{' '}
-              <span className="text-[var(--text-dim)]">
-                Housing societies, industrial estates, factories, company campuses,
-                warehouses and logistics yards — phone-number &amp; SMS alerts,
-                WhatsApp notifications, complete gate &amp; process automation
-                (barrier lift for registered vehicles, truck-bay logging),
-                scheduled reports, or any custom feature. We build per-site
-                solutions.
-              </span>
-            </p>
-            {/* The one accent-filled control on the page. Everything
-                around it is outline or ghost, so primary is the loudest
-                thing available without inventing a colour outside the
-                token set — and the arrow says it leaves the app. */}
-            <Button
-              variant="primary"
-              size="sm"
-              className="shrink-0 self-center font-medium"
-              onClick={() => window.open(CONTACT_URL, '_blank', 'noopener,noreferrer')}
+          {/* What else can be built for a site. One line, one point of
+              colour: an accent edge and glyph so the eye catches it, a bold
+              lead-in so it is read, the rest dim so it does not compete with
+              the work. It was two lines of copy and the page's one filled
+              button — the loudest thing on a screen people use all day.
+              Always shown: it is small enough not to need a way to hide it. */}
+          <div className="flex items-center gap-2 border-t border-[var(--border)] border-l-2 border-l-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_6%,transparent)] px-3 py-1.5 text-xs">
+            <Sparkles size={13} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
+            <span
+              className="min-w-0 truncate text-[var(--text-dim)]"
+              title="Housing societies, industrial estates, factories, campuses, warehouses and logistics yards — phone-number & SMS alerts, WhatsApp notifications, gate & process automation, scheduled reports, or any custom feature."
             >
-              {t('vehicles.contact')} <ArrowRight size={13} />
-            </Button>
-        </div>
-
-        {lprApp && (
-          // flex-1 on each chip so the row spans the page instead of
-          // trailing off mid-width. min-w keeps them from crushing
-          // together before they wrap.
-          <div className="mb-3 flex flex-wrap items-stretch gap-2">
-            <StatChip
-              icon={ScanLine} value={stats?.total_reads} label={t('vehicles.plateReads')}
-              onClick={() => setTab('reads')} title={t('vehicles.showReadsTooltip')}
-            />
-            <StatChip
-              icon={Fingerprint} value={stats?.unique_plates} label="unique plates"
-            />
-            {gatesConfigured && (
-              <StatChip icon={Car} value={occupancyQuery.data?.inside} label="inside now" />
-            )}
-            {/* The registry and monitoring tabs are superuser-only, so a
-                chip that navigates to one is too. "Busiest camera" used
-                to sit here: on a single-camera site it names the only
-                camera there is, and on any site it repeats what the
-                monthly report breaks down properly. */}
-            {canConfigure && (
-              <StatChip
-                icon={BookUser} value={registry.length} label={t('vehicles.register')}
-                onClick={() => setTab('registry')} title={t('vehicles.openRegister')}
-              />
-            )}
-            {canConfigure && (
-              <StatChip
-                icon={ShieldAlert} value={monitors.length} label={t('vehicles.monitoring')}
-                onClick={() => setTab('monitoring')} title={t('vehicles.openMonitoring')}
-              />
-            )}
+              <span className="font-semibold text-[var(--text)]">Need more for your site?</span>{' '}
+              SMS &amp; WhatsApp alerts, gate automation, custom features — built per site.
+            </span>
+            <a
+              href={CONTACT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 pl-2 text-xs font-medium text-[var(--accent)] hover:underline"
+            >
+              {t('vehicles.contact')} <ArrowRight size={12} />
+            </a>
           </div>
-        )}
+        </AppPageHeader>
 
         {/* Header and tabs are ONE block. PageHeader carries its own mb-4
             and the section's space-y-4 was stacking a second 16px on top,
@@ -1410,26 +1352,21 @@ export function Vehicles() {
             { key: 'monitoring', label: `${t('vehicles.monitoring')} (${monitors.length})` },
             {
             key: 'alarms',
-            // "(119/1358)" — unacknowledged over total, in the same
-            // parenthesised shape the other tabs use, so the row of tabs
-            // still scans as one thing. Only the unacknowledged half
-            // takes colour: it is the number you act on, and a badge
-            // around it made the tab shout louder than the tab you were
-            // actually on. At zero it stays dim — nothing to act on,
-            // nothing to highlight.
+            // "Alarms (318)" and, only when some are unacknowledged, a small
+            // "N new" beside it. "(0/318)" asked the reader to know which
+            // number was which; the word says it.
             label: (
               <span className="inline-flex items-center gap-1.5">
                 {t('vehicles.alarms')}
                 {typeof alarmCounts.data?.total === 'number' && (
-                  <span className="text-[var(--text-dim)]">
-                    (
-                    <span className={alarmCounts.data.unacked
-                      ? 'font-semibold text-[var(--badge-warning-text)]'
-                      : undefined}
-                    >
-                      {alarmCounts.data.unacked ?? 0}
-                    </span>
-                    /{alarmCounts.data.total})
+                  <span className="text-[var(--text-dim)]">({alarmCounts.data.total})</span>
+                )}
+                {(alarmCounts.data?.unacked ?? 0) > 0 && (
+                  <span
+                    className="bg-[var(--badge-warning-bg)] px-1.5 text-[10px] font-semibold leading-4 text-[var(--badge-warning-text)]"
+                    title={`${alarmCounts.data!.unacked} not yet acknowledged`}
+                  >
+                    {alarmCounts.data!.unacked} new
                   </span>
                 )}
               </span>
@@ -1719,10 +1656,14 @@ export function Vehicles() {
                 reads.setPage(1)
               }}
             />
-            {alarmOnUnknown && (
-              <Badge variant="warning" title={t('vehicles.unknownHighAlert')}>
-                <BellRing size={12} /> {t('vehicles.unknownAlarm')}
-              </Badge>
+            {/* The figures the stat boxes carried, minus the two the tabs
+                already show and the read count the pager already says. */}
+            {lprApp && (stats?.unique_plates != null || (gatesConfigured && occupancyQuery.data?.inside != null)) && (
+              <span className="font-mono text-[11px] tabular-nums text-[var(--text-dim)]">
+                {stats?.unique_plates != null && `${stats.unique_plates} unique plates`}
+                {stats?.unique_plates != null && gatesConfigured && occupancyQuery.data?.inside != null && ' · '}
+                {gatesConfigured && occupancyQuery.data?.inside != null && `${occupancyQuery.data.inside} inside now`}
+              </span>
             )}
             {!lprApp && (
               <span className="text-xs text-[var(--text-dim)]">
@@ -2202,9 +2143,14 @@ function RegistryTab({
   // list — except while nothing is set up, when they are the only useful
   // thing on the tab.
   // On its own tab there is nothing to fold it under, so it opens.
-  const [settingsOpen, setSettingsOpen] = useState(() => view === 'gate' || reading.length === 0)
   const settingsRef = useRef<HTMLDivElement | null>(null)
-  const settingsToggleRef = useRef<HTMLButtonElement | null>(null)
+  const settingsHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  // Gate settings is its own tab now, so its body scrolls inside the page
+  // the way the reads table does: tabs and header stay put, the settings
+  // move. Measured, like the table, rather than a tuned calc(100vh - N).
+  const settingsBodyRef = useRef<HTMLDivElement | null>(null)
+  const noFooterRef = useRef<HTMLDivElement | null>(null)
+  const settingsMaxHeight = useAvailableHeight(view === 'gate', settingsBodyRef, noFooterRef, 240)
   const settingsPanelId = useId()
   const [settingsFlash, setSettingsFlash] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -2279,11 +2225,10 @@ function RegistryTab({
   // to make room only after the panel renders, and a scroll taken before
   // that lands short of a panel the shrink then moves.
   const openSettings = ({ highlight = false }: { highlight?: boolean } = {}) => {
-    setSettingsOpen(true)
     requestAnimationFrame(() => requestAnimationFrame(() => {
       settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       // Focus follows, so a keyboard user lands where the page went.
-      settingsToggleRef.current?.focus({ preventScroll: true })
+      settingsHeadingRef.current?.focus({ preventScroll: true })
       if (highlight) {
         setSettingsFlash(true)
         window.setTimeout(() => setSettingsFlash(false), 1500)
@@ -2366,15 +2311,6 @@ function RegistryTab({
   const roles = Object.values(cameraRoles)
   const hasIn = roles.some((r) => r.role === 'gate_in')
   const hasOut = roles.some((r) => r.role === 'gate_out')
-  const withRole = cameras.filter((c) => cameraRoles[String(c.id)]).length
-  // What the folded panel says, so its state is visible without opening it.
-  const settingsSummary = [
-    `Unknown-vehicle alarm ${alarmOnUnknown ? 'on' : 'off'}`,
-    `barrier ${barrierMode === 'registered' ? 'on' : 'off'}`,
-    `overstay ${overstayHours > 0 ? `${overstayHours} h` : 'off'}`,
-    `${withRole} of ${cameras.length} camera${cameras.length === 1 ? '' : 's'} with a role`,
-  ].join(' · ')
-
   const addButton = (
     <Button
       variant="primary" size="sm"
@@ -2495,199 +2431,196 @@ function RegistryTab({
           {/* A brief accent ring when opened from elsewhere, so the eye lands
               on the panel the page just scrolled to. */}
           <Card className={`transition-shadow duration-300 ${settingsFlash ? 'ring-2 ring-[var(--accent)]' : ''}`}>
-            <button
-              ref={settingsToggleRef}
-              type="button"
-              aria-expanded={settingsOpen}
-              aria-controls={settingsPanelId}
-              onClick={() => (settingsOpen ? setSettingsOpen(false) : openSettings())}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)]"
+            {/* A heading, not a fold: on its own tab there is nothing to
+                collapse it into. Focusable (not tabbable) so a jump here
+                from elsewhere lands a keyboard user on it. */}
+            <h3
+              ref={settingsHeadingRef}
+              tabIndex={-1}
+              className="flex items-center gap-2 px-4 py-3 text-sm font-medium outline-none"
             >
-              <ChevronRight
-                size={16}
-                className={`shrink-0 text-[var(--text-dim)] transition-transform ${settingsOpen ? 'rotate-90' : ''}`}
-              />
-              <span className="shrink-0 text-sm font-medium">{t('vehicles.gateSettings')}</span>
-              {!settingsOpen && (
-                <span className="min-w-0 truncate text-xs text-[var(--text-dim)]">{settingsSummary}</span>
-              )}
-            </button>
-            {settingsOpen && (
-              <div id={settingsPanelId} className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
-                <SettingRow
-                  icon={<BellRing size={18} className={alarmOnUnknown ? 'text-[var(--warning,#b7791f)]' : 'text-[var(--text-dim)]'} />}
-                  title={t('vehicles.alarmUnknown')}
-                  summary={t('vehicles.alarmSummary')}
-                  info={t('vehicles.alarmInfo')}
-                >
-                  <Switch
-                    checked={alarmOnUnknown}
-                    onChange={onToggleAlarm}
-                    label={t('vehicles.alarmUnknown')}
-                  />
-                </SettingRow>
-                <SettingRow
-                  icon={<Car size={18} className={barrierMode === 'registered' ? 'text-[var(--success,#46a758)]' : 'text-[var(--text-dim)]'} />}
-                  title={t('vehicles.automaticBarrier')}
-                  summary={hasIn
-                    ? 'Registered vehicles are allowed at Gate IN; everything else is denied.'
-                    : (
-                      <span className="text-[var(--warning,#b7791f)]">
-                        Needs a Gate IN camera — set one under Camera roles below.
-                      </span>
-                    )}
-                  info={
-                    <>
-                      Publishes an allow/deny decision for every read on a Gate IN
-                      camera. Install the <b>Gate Controller</b> app from the App
-                      Catalog to wire those decisions to your relay — it ships in
-                      dry-run, so nothing moves until you say so.
-                    </>
-                  }
-                >
-                  <Switch
-                    checked={barrierMode === 'registered'}
-                    onChange={onToggleBarrier}
-                    label={t('vehicles.automaticBarrier')}
-                  />
-                </SettingRow>
-                <SettingRow
-                  icon={<History size={18} className={overstayHours > 0 ? 'text-[var(--warning,#b7791f)]' : 'text-[var(--text-dim)]'} />}
-                  title={t('vehicles.overstay')}
-                  summary={t('vehicles.overstaySummary')}
-                  info={t('vehicles.overstayInfo')}
-                >
-                  {overstayHours > 0 && (
-                    <label className="flex items-center gap-1.5 text-xs text-[var(--text-dim)]">
-                      after
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        aria-label="Overstay threshold in hours"
-                        value={overstayDraft ?? String(overstayHours)}
-                        onChange={(e) => setOverstayDraft(e.target.value)}
-                        onBlur={commitOverstay}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                          if (e.key === 'Escape') setOverstayDraft(null)
-                        }}
-                        className="w-16 border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-sm text-[var(--text)]"
-                      />
-                      hours
-                    </label>
+              <SlidersHorizontal size={15} className="shrink-0 text-[var(--text-dim)]" aria-hidden="true" />
+              {t('vehicles.gateSettings')}
+            </h3>
+            <div
+              id={settingsPanelId}
+              ref={settingsBodyRef}
+              className="divide-y divide-[var(--border)] overflow-y-auto border-t border-[var(--border)] thin-scroll"
+              style={settingsMaxHeight ? { maxHeight: settingsMaxHeight } : undefined}
+            >
+              <SettingRow
+                icon={<BellRing size={18} className={alarmOnUnknown ? 'text-[var(--warning,#b7791f)]' : 'text-[var(--text-dim)]'} />}
+                title={t('vehicles.alarmUnknown')}
+                summary={t('vehicles.alarmSummary')}
+                info={t('vehicles.alarmInfo')}
+              >
+                <Switch
+                  checked={alarmOnUnknown}
+                  onChange={onToggleAlarm}
+                  label={t('vehicles.alarmUnknown')}
+                />
+              </SettingRow>
+              <SettingRow
+                icon={<Car size={18} className={barrierMode === 'registered' ? 'text-[var(--success,#46a758)]' : 'text-[var(--text-dim)]'} />}
+                title={t('vehicles.automaticBarrier')}
+                summary={hasIn
+                  ? 'Registered vehicles are allowed at Gate IN; everything else is denied.'
+                  : (
+                    <span className="text-[var(--warning,#b7791f)]">
+                      Needs a Gate IN camera — set one under Camera roles below.
+                    </span>
                   )}
-                  <Switch
-                    checked={overstayHours > 0}
-                    onChange={(on) => {
-                      setOverstayDraft(null)
-                      onSetOverstay(on ? OVERSTAY_DEFAULT_HOURS : 0)
-                    }}
-                    label={t('vehicles.overstay')}
-                  />
-                </SettingRow>
+                info={
+                  <>
+                    Publishes an allow/deny decision for every read on a Gate IN
+                    camera. Install the <b>Gate Controller</b> app from the App
+                    Catalog to wire those decisions to your relay — it ships in
+                    dry-run, so nothing moves until you say so.
+                  </>
+                }
+              >
+                <Switch
+                  checked={barrierMode === 'registered'}
+                  onChange={onToggleBarrier}
+                  label={t('vehicles.automaticBarrier')}
+                />
+              </SettingRow>
+              <SettingRow
+                icon={<History size={18} className={overstayHours > 0 ? 'text-[var(--warning,#b7791f)]' : 'text-[var(--text-dim)]'} />}
+                title={t('vehicles.overstay')}
+                summary={t('vehicles.overstaySummary')}
+                info={t('vehicles.overstayInfo')}
+              >
+                {overstayHours > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--text-dim)]">
+                    after
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      aria-label="Overstay threshold in hours"
+                      value={overstayDraft ?? String(overstayHours)}
+                      onChange={(e) => setOverstayDraft(e.target.value)}
+                      onBlur={commitOverstay}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                        if (e.key === 'Escape') setOverstayDraft(null)
+                      }}
+                      className="w-16 border border-[var(--border)] bg-[var(--bg-2)] px-2 py-1 text-sm text-[var(--text)]"
+                    />
+                    hours
+                  </label>
+                )}
+                <Switch
+                  checked={overstayHours > 0}
+                  onChange={(on) => {
+                    setOverstayDraft(null)
+                    onSetOverstay(on ? OVERSTAY_DEFAULT_HOURS : 0)
+                  }}
+                  label={t('vehicles.overstay')}
+                />
+              </SettingRow>
 
-                {/* Camera roles — the site's layout in the vehicle story */}
-                <div className="space-y-2 px-4 py-3">
-                  <div className="flex items-center gap-1.5 text-sm font-medium">
-                    {t('vehicles.cameraRoles')}
-                    <InfoTip label={t('vehicles.aboutRoles')}>
-                      <b>Gate IN</b> is required for gate features. <b>Gate OUT</b>{' '}
-                      unlocks exit times, stay durations and “inside now”.{' '}
-                      <b>Parking</b>, or a named location of your own, enriches each
-                      vehicle’s history.
-                    </InfoTip>
-                  </div>
-                  <div className="text-xs text-[var(--text-dim)]">
-                    Where each camera sits. Giving a camera a role starts plate reading on it.
-                  </div>
-                  {reading.length > 0 && !hasIn && (
-                    <div className="border border-[var(--warning,#b7791f)] px-3 py-2 text-xs text-[var(--warning,#b7791f)]">
-                      No Gate IN camera yet — mark at least one. Until then there is no gate
-                      history and no “inside now”; reads still collect normally.
-                    </div>
-                  )}
-                  {reading.length > 0 && hasIn && !hasOut && (
-                    <div className="border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-dim)]">
-                      No Gate OUT camera — entries are recorded, but exit times, stay
-                      durations and “inside now” stay off until you mark one.
-                    </div>
-                  )}
-                  {cameras.length === 0 ? (
-                    <div className="text-xs text-[var(--text-dim)]">{t('vehicles.noCameras')}</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs text-[var(--text-dim)] border-b border-[var(--border)]">
-                            <th className="py-1.5 pr-4 font-normal">Camera</th>
-                            <th className="py-1.5 pr-4 font-normal">Role</th>
-                            <th className="py-1.5 font-normal">Plate reading</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {cameras.map((c) => {
-                            // Every camera is on offer: any number of apps may use
-                            // the same one. A role here is ANPR's pick of the
-                            // camera — the same pick its Cameras section shows.
-                            const entry = cameraRoles[String(c.id)]
-                            return (
-                              <tr
-                                key={c.id}
-                                className="border-b border-[var(--border)] last:border-0"
-                              >
-                                <td className="py-1.5 pr-4">{c.name}</td>
-                                <td className="py-1.5 pr-4">
-                                  <div className="flex items-center gap-2">
-                                    <select
-                                      value={entry?.role ?? ''}
-                                      aria-label={`Role of ${c.name}`}
-                                      onChange={(e) => {
-                                        const role = e.target.value as CameraRole | ''
-                                        onSetRole(c.id, role, role === 'other' ? (entry?.label ?? '') : undefined)
-                                      }}
-                                      className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm"
-                                    >
-                                      <option value="">{t('vehicles.noRole')}</option>
-                                      <option value="gate_in">Gate IN</option>
-                                      <option value="gate_out">Gate OUT</option>
-                                      <option value="parking">Parking</option>
-                                      <option value="other">Other…</option>
-                                    </select>
-                                    {entry?.role === 'other' && (
-                                      <input
-                                        defaultValue={entry.label ?? ''}
-                                        placeholder="e.g. Basement"
-                                        aria-label={`Location name for ${c.name}`}
-                                        onBlur={(e) => onSetRole(c.id, 'other', e.target.value.trim())}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                                        }}
-                                        className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm w-36"
-                                      />
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="py-1.5 text-xs">
-                                  {cameraAdopted(c, LPR_SKILL) ? (
-                                    <span className="inline-flex items-center gap-1.5 text-[var(--success,#46a758)]">
-                                      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
-                                      {t('vehicles.reading')}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[var(--text-dim)]">{t('vehicles.notReading')}</span>
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+              {/* Camera roles — the site's layout in the vehicle story */}
+              <div className="space-y-2 px-4 py-3">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  {t('vehicles.cameraRoles')}
+                  <InfoTip label={t('vehicles.aboutRoles')}>
+                    <b>Gate IN</b> is required for gate features. <b>Gate OUT</b>{' '}
+                    unlocks exit times, stay durations and “inside now”.{' '}
+                    <b>Parking</b>, or a named location of your own, enriches each
+                    vehicle’s history.
+                  </InfoTip>
                 </div>
+                <div className="text-xs text-[var(--text-dim)]">
+                  Where each camera sits. Giving a camera a role starts plate reading on it.
+                </div>
+                {reading.length > 0 && !hasIn && (
+                  <div className="border border-[var(--warning,#b7791f)] px-3 py-2 text-xs text-[var(--warning,#b7791f)]">
+                    No Gate IN camera yet — mark at least one. Until then there is no gate
+                    history and no “inside now”; reads still collect normally.
+                  </div>
+                )}
+                {reading.length > 0 && hasIn && !hasOut && (
+                  <div className="border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-dim)]">
+                    No Gate OUT camera — entries are recorded, but exit times, stay
+                    durations and “inside now” stay off until you mark one.
+                  </div>
+                )}
+                {cameras.length === 0 ? (
+                  <div className="text-xs text-[var(--text-dim)]">{t('vehicles.noCameras')}</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-[var(--text-dim)] border-b border-[var(--border)]">
+                          <th className="py-1.5 pr-4 font-normal">Camera</th>
+                          <th className="py-1.5 pr-4 font-normal">Role</th>
+                          <th className="py-1.5 font-normal">Plate reading</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cameras.map((c) => {
+                          // Every camera is on offer: any number of apps may use
+                          // the same one. A role here is ANPR's pick of the
+                          // camera — the same pick its Cameras section shows.
+                          const entry = cameraRoles[String(c.id)]
+                          return (
+                            <tr
+                              key={c.id}
+                              className="border-b border-[var(--border)] last:border-0"
+                            >
+                              <td className="py-1.5 pr-4">{c.name}</td>
+                              <td className="py-1.5 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={entry?.role ?? ''}
+                                    aria-label={`Role of ${c.name}`}
+                                    onChange={(e) => {
+                                      const role = e.target.value as CameraRole | ''
+                                      onSetRole(c.id, role, role === 'other' ? (entry?.label ?? '') : undefined)
+                                    }}
+                                    className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm"
+                                  >
+                                    <option value="">{t('vehicles.noRole')}</option>
+                                    <option value="gate_in">Gate IN</option>
+                                    <option value="gate_out">Gate OUT</option>
+                                    <option value="parking">Parking</option>
+                                    <option value="other">Other…</option>
+                                  </select>
+                                  {entry?.role === 'other' && (
+                                    <input
+                                      defaultValue={entry.label ?? ''}
+                                      placeholder="e.g. Basement"
+                                      aria-label={`Location name for ${c.name}`}
+                                      onBlur={(e) => onSetRole(c.id, 'other', e.target.value.trim())}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                      }}
+                                      className="py-1 px-2 border border-[var(--border)] bg-[var(--bg-2)] text-sm w-36"
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-1.5 text-xs">
+                                {cameraAdopted(c, LPR_SKILL) ? (
+                                  <span className="inline-flex items-center gap-1.5 text-[var(--success,#46a758)]">
+                                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+                                    {t('vehicles.reading')}
+                                  </span>
+                                ) : (
+                                  <span className="text-[var(--text-dim)]">{t('vehicles.notReading')}</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </Card>
         </div>
       )}
