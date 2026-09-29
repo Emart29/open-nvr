@@ -19,8 +19,9 @@ import { extractApiError } from '../../lib/apiError'
 /**
  * The title strip at the top of a page's first panel: accent icon, bold
  * title, the page's one line of purpose, optional actions on the right.
- * One fixed height with or without actions, so every page that uses it
+ * One height with or without actions (44px), so every page that uses it
  * starts at the same line — hand-built copies drifted by a few pixels each.
+ * It only grows when a narrow screen wraps the actions onto a second line.
  * Sits inside a bordered panel; it draws only the divider beneath itself.
  */
 export function PageTitleBar({ icon, title, description, actions }: {
@@ -30,7 +31,7 @@ export function PageTitleBar({ icon, title, description, actions }: {
   actions?: ReactNode
 }) {
   return (
-    <div className="h-11 flex items-center gap-2.5 px-3 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+    <div className="min-h-11 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
       <span className="shrink-0 flex text-[var(--accent)]" aria-hidden="true">{icon}</span>
       <h1 className="text-[15px] font-bold text-[var(--text)] whitespace-nowrap">{title}</h1>
       {description && (

@@ -9,23 +9,28 @@
 //
 // One row, not a card with a header: it is a fact about the app, read at
 // a glance. The cameras and the control that changes them sit together;
-// the skills are information, so they read as a quiet sentence rather
-// than as chips that look clickable. While the app has no cameras it
+// the skills sit at the row's end in small text, their names emphasised
+// and the words around them dim (not chips, which would look clickable). While the app has no cameras it
 // renders nothing — the header's notice (AppNoCamerasNotice) already
 // says so, with the button that fixes it.
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Camera as CameraIcon, Info, PenLine } from 'lucide-react'
 import { Badge, Card } from '../../components/ui'
 import type { RegisteredApp } from '../AppCatalog'
 import { AppConfigureButton, appHasNoCameras } from './AppSetup'
-import { listOf, skillLabel } from '../../lib/skillNames'
+import { skillLabel } from '../../lib/skillNames'
 import { useAppCameras } from './CameraPicker'
 
 /** Cameras shown before "+N more" — enough for a typical site, few
  *  enough that a 40-camera app does not turn the row into a wall. */
 const SHOWN = 5
 
-export function AppCamerasCard({ app }: { app: RegisteredApp | null | undefined }) {
+export function AppCamerasCard({ app, embedded = false }: {
+  app: RegisteredApp | null | undefined
+  /** A row inside the page's header panel (AppPageHeader children) rather
+   *  than a card of its own. */
+  embedded?: boolean
+}) {
   const takesPicks = !!app && app.camera_picker !== false
   const picks = useAppCameras(app?.id ?? '', takesPicks)
   const [expanded, setExpanded] = useState(false)
@@ -36,10 +41,14 @@ export function AppCamerasCard({ app }: { app: RegisteredApp | null | undefined 
   const hidden = cameras.length - visible.length
   const dim = 'text-[var(--text-dim)]'
   const canChange = takesPicks && !app.all_cameras
-  const pill = 'inline-flex items-center gap-1  px-1.5 py-0.5 text-xs text-[var(--accent)] hover:bg-[var(--panel)]'
+  const pill = 'inline-flex items-center gap-1 px-1.5 py-0.5 text-xs text-[var(--accent)] hover:bg-[var(--panel)]'
+  const row = 'flex flex-wrap items-center gap-x-6 gap-y-2 px-3 py-2 text-[13px]'
+  const wrap = (children: ReactNode) => embedded
+    ? <div className={`border-t border-[var(--border)] ${row}`}>{children}</div>
+    : <Card className={row}>{children}</Card>
 
-  return (
-    <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5 text-sm">
+  return wrap(
+    <>
       {/* Cameras and the control that changes them, as one group. */}
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <span className={`inline-flex items-center gap-1.5 ${dim}`}>
@@ -60,8 +69,9 @@ export function AppCamerasCard({ app }: { app: RegisteredApp | null | undefined 
           <>
             {visible.map((c) => (
               <Badge key={c.id} variant={c.live_online === false ? 'warning' : 'neutral'}
-                     title={c.live_online === false ? 'Camera is offline' : c.location ?? undefined}>
-                {c.name}
+                     className="max-w-[180px]"
+                     title={c.live_online === false ? `${c.name} — camera is offline` : [c.name, c.location].filter(Boolean).join(' — ')}>
+                <span className="min-w-0 truncate">{c.name}</span>
               </Badge>
             ))}
             {hidden > 0 && (
@@ -88,13 +98,21 @@ export function AppCamerasCard({ app }: { app: RegisteredApp | null | undefined 
         )}
       </div>
 
-      {/* Information, not a control: plain dim text. */}
+      {/* What the app runs on its cameras, always in view but small: the
+          skill names carry the weight, the words around them stay dim. */}
       {skills.length > 0 && (
-        <div className={`ml-auto flex min-w-0 items-center gap-1.5 text-xs ${dim}`}>
-          <Info size={13} className="shrink-0" />
-          <span>Adds {listOf(skills.map(skillLabel))} to each camera</span>
-        </div>
+        <span className={`ml-auto inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] ${dim}`}>
+          <Info size={12} className="shrink-0" aria-hidden="true" />
+          <span>Adds</span>
+          {skills.map((sk, i) => (
+            <span key={sk} className="inline-flex items-center gap-1.5">
+              {i > 0 && <span aria-hidden="true">·</span>}
+              <span className="font-medium text-[var(--text)]">{skillLabel(sk)}</span>
+            </span>
+          ))}
+          <span>to each camera</span>
+        </span>
       )}
-    </Card>
+    </>
   )
 }
