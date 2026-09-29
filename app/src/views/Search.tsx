@@ -128,6 +128,20 @@ type SearchResponse = {
    *  — or why it could not. Absent on a deployment that has never
    *  embedded anything, which is most of them. */
   semantic?: { used: boolean; reason?: string; note?: string; text_total?: number }
+  /** What the question needed that the matching visits do not have yet,
+   *  and what this search queued to be described now. "Not yet" is a
+   *  different answer from "no": an empty page over undescribed visits
+   *  must say so, and say when to look again. Null when the question
+   *  needed nothing a description would add. */
+  pending?: {
+    missing: number
+    requested: number
+    already_queued: number
+    eta_s: number
+    request_id?: string | null
+    capped_at?: number
+    needs?: { caption: boolean; kinds: string[] }
+  } | null
 }
 
 /** The filters the page owns, which are exactly the API's parameters. */
@@ -413,6 +427,7 @@ export function Search() {
   const results = data?.results ?? []
   const relax = data?.relax ?? []
   const relaxed = data?.relaxed
+  const pending = data?.pending
   const semantic = data?.semantic
   const total = data?.total ?? 0
   const pages = Math.ceil(total / pageSize)
@@ -608,6 +623,31 @@ export function Search() {
           }}
         >
           Search “{relaxed.dropped}” only
+        </Button>
+      ),
+    })
+  }
+  // NOT YET IS NOT NO. The question needed a description the matching
+  // visits do not have; the server queued them to be described now.
+  // Say how many and roughly when, and give the operator the refetch.
+  if (pending && pending.missing > 0 && pending.requested + pending.already_queued > 0) {
+    const queued = pending.requested + pending.already_queued
+    const eta =
+      pending.eta_s >= 90
+        ? t('search.pending.minutes', { n: Math.max(1, Math.round(pending.eta_s / 60)) })
+        : t('search.pending.seconds', { n: Math.max(5, Math.round(pending.eta_s / 5) * 5) })
+    notices.push({
+      key: 'pending',
+      tone: 'info',
+      icon: <Clock size={13} />,
+      text: t(pending.missing > queued ? 'search.pending.describingSome' : 'search.pending.describing', {
+        missing: pending.missing,
+        queued,
+        eta,
+      }),
+      action: (
+        <Button variant="outline" size="sm" onClick={() => void searchQuery.refetch()}>
+          {t('search.pending.checkAgain')}
         </Button>
       ),
     })

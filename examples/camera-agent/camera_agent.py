@@ -95,6 +95,36 @@ from context import (
 from frame_sources import build_frame_source, discover_local_cameras
 from monitor_host import MonitorHost
 from tools import CameraTools, build_tool_definitions
+# The question-shape helpers (what a camera question looks like, which
+# camera it names, which tool answers it) live in router.py and are
+# imported HERE — never the other way round: this file is __main__ in
+# the container, and a module that imports camera_agent executes it a
+# second time. They keep their names in this namespace for the tests
+# and the forced-grounding path.
+from router import (  # noqa: F401 — re-exported
+    _CAMERA_WORDS,
+    _CAMERA_RE,
+    _looks_like_camera_question,
+    _DETECTION_WORDS,
+    _DETECTION_RE,
+    _DESCRIBE_WORDS,
+    _DESCRIBE_RE,
+    _COUNT_RE,
+    _pick_forced_tool,
+    _PAST_RE,
+    _WINDOW_RE,
+    _HISTORY_LABELS,
+    _ATTR_WORDS,
+    _ATTR_ALIASES,
+    _attr_words,
+    _is_past_question,
+    _CLOCK_RANGE_RE,
+    _window_from_text,
+    _pick_forced_call,
+    _CONFIG_RE,
+    _is_config_question,
+    _pick_camera,
+)
 
 logger = logging.getLogger("camera-agent")
 
@@ -166,6 +196,13 @@ class AppConfig:
     llm_api_key: str | None = None
     piper_url: str = "http://127.0.0.1:9001"
     piper_token: str = ""
+    # Which Piper voice to ask for, per request (the adapter honours a
+    # ``voice`` key). Empty = the adapter's own default. The compose
+    # stack passes PIPER_VOICE, whose default is a MEDIUM-tier voice: on
+    # CPU the tier is the cost — libritts-high took ~4 cores and 25 s
+    # for two sentences on the field box; a medium voice is 2-3x cheaper
+    # and as intelligible.
+    piper_voice: str = ""
 
     # LLM tuning.
     llm_model: str = "qwen2.5:1.5b"
@@ -219,6 +256,13 @@ class AppConfig:
     # LLM to write the line in the SAME first pass (a few extra output
     # tokens), template as fallback.
     thinking_aloud: bool = True
+    # The router (router.py): decide simple camera questions before the
+    # LLM sees them. router_tier0 — when every slot resolves (camera,
+    # tool, label, window), call the tool now and ask the model only to
+    # SAY the answer; router_hints — otherwise append the likely tool to
+    # the user message and run the full turn unchanged.
+    router_tier0: bool = True
+    router_hints: bool = True
     filler_min_ms: float = 1500.0
     filler_source: str = "template"
     # Reasoning toggle for "thinking" models (Qwen3 etc.). Leave None for
@@ -2969,6 +3013,7 @@ def load_config(path: str | Path) -> AppConfig:
         llm_keep_alive=(raw["llm_keep_alive"] if raw.get("llm_keep_alive") is not None else -1),
         piper_url=_str("piper_url", "http://127.0.0.1:9001"),
         piper_token=_str("piper_token", ""),
+        piper_voice=_str("piper_voice", os.environ.get("PIPER_VOICE", "")),
         llm_model=_str("llm_model", "qwen2.5:1.5b"),
         llm_temperature=_float("llm_temperature", 0.4),
         llm_max_tokens=_int("llm_max_tokens", 256),
@@ -2988,6 +3033,8 @@ def load_config(path: str | Path) -> AppConfig:
         interrupt_addressee=(True if raw.get("interrupt_addressee") is None
                              else bool(raw.get("interrupt_addressee"))),
         thinking_aloud=(True if raw.get("thinking_aloud") is None else bool(raw.get("thinking_aloud"))),
+        router_tier0=(True if raw.get("router_tier0") is None else bool(raw.get("router_tier0"))),
+        router_hints=(True if raw.get("router_hints") is None else bool(raw.get("router_hints"))),
         filler_min_ms=_float("filler_min_ms", 1500.0),
         filler_source=_str("filler_source", "template"),
         enabled_tools=(
@@ -3155,7 +3202,8 @@ class CameraAgentRuntime:
                 num_thread=cfg.llm_num_threads, num_ctx=cfg.llm_num_ctx,
                 think=_think, keep_alive=cfg.llm_keep_alive,
             )
-        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token)
+        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token,
+                                 voice=cfg.piper_voice)
 
         self.caption_client = KaicAdapterClient(
             kaic_url=cfg.kaic_url,
@@ -5121,7 +5169,7 @@ class CameraAgentRuntime:
             # weight load. (KEEP_ALIVE=-1 keeps the cache resident.)
             await self.ollama.chat(
                 messages=[
-                    {"role": "system", "content": self.build_system_prompt()},
+                    {"role": "system", "content": self.build_system_prompt(clock=False)},
                     {"role": "user", "content": "hello"},
                 ],
                 tools=self.tool_definitions,
@@ -5269,37 +5317,67 @@ class CameraAgentRuntime:
             + "\n".join(lines)
         )
 
-    def build_system_prompt(self) -> str:
-        """Compose the system prompt the LLM sees: the agent's identity + the
-        operator's base prompt + a per-camera roster + task guidance."""
-        roster = "\n".join(
+    IDENTITY_LINE = (
+        "You are the OpenNVR Agent, this system's camera agent. Speak in "
+        "the FIRST person — say 'I see…', 'I'm watching…', not in the "
+        "third person. If asked your name, say you're the OpenNVR Agent."
+    )
+
+    def _roster_lines(self) -> str:
+        return "\n".join(
             f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
         )
-        # Per-turn wall clock, in the container's local timezone (TZ is passed
-        # through by the compose files). Without this the model cannot turn
-        # "today" or "the last 30 minutes" into the ISO 8601 window that
-        # search_history / describe_window take — it would have to guess the
-        # date, and small models guess their training cutoff.
+
+    @staticmethod
+    def _clock_line() -> str:
+        """Per-turn wall clock, in the container's local timezone (TZ is
+        passed through by the compose files). Without this the model cannot
+        turn "today" or "the last 30 minutes" into the ISO 8601 window that
+        search_history / describe_window take — it would have to guess the
+        date, and small models guess their training cutoff."""
         from datetime import datetime as _dt
         _now = _dt.now().astimezone()
-        clock_line = (
+        return (
             f"The current date and time is "
             f"{_now.strftime('%A %Y-%m-%d %H:%M (UTC%z)')}. When a tool takes "
             f"an ISO 8601 time window, compute it from THIS clock and include "
             f"the timezone offset (e.g. {_now.strftime('%Y-%m-%dT%H:%M:00%z')})."
         )
+
+    def build_compose_prompt(self) -> str:
+        """The short system prompt for a routed turn (router.py, Tier 0):
+        the tool has already run; the model only says the answer."""
+        from router import compose_prompt
+
+        return compose_prompt(self.IDENTITY_LINE, self.cfg.system_prompt,
+                              self._roster_lines(), self._clock_line())
+
+    def build_system_prompt(self, *, clock: bool = True) -> str:
+        """Compose the system prompt the LLM sees: the agent's identity + the
+        operator's base prompt + a per-camera roster + task guidance.
+
+        ``clock=False`` leaves the per-turn clock OUT. Ollama's chat template
+        renders the tool schemas inside the system turn, AFTER this text, so
+        a clock anywhere in here sits before ~3.5k tokens of schemas and
+        changes every minute — the whole prefix re-prefilled per turn. The
+        JSON /converse path therefore carries the clock in the user turn
+        (see _user_turn); the streaming /ws path keeps it here because that
+        context is built once per session and stays byte-identical for the
+        session's length."""
+        roster = self._roster_lines()
+        clock_line = self._clock_line()
         # Which tools the LLM can actually call this turn — guidance below
         # must never route to a tool that isn't advertised (a small model
         # will either stall or 'improvise' with a live-scene tool instead).
         advertised = {
             t["function"]["name"] for t in (self.tool_definitions or ())
         }
+        # Nothing per-turn in here: everything below is byte-identical
+        # across turns, which is what lets Ollama keep its KV cache for the
+        # system text AND the tool schemas rendered after it.
         prompt = (
-            f"You are the OpenNVR Agent, this system's camera agent. Speak in "
-            f"the FIRST person — say 'I see…', 'I'm watching…', not in the "
-            f"third person. If asked your name, say you're the OpenNVR Agent.\n\n"
+            f"{self.IDENTITY_LINE}\n\n"
             f"{self.cfg.system_prompt.strip()}\n\n"
-            f"{clock_line}\n\n"
             f"Cameras available to you:\n{roster}\n\n"
             f"Always pass one of the camera_id values exactly as listed "
             f"when calling a tool.\n\n"
@@ -5381,6 +5459,11 @@ class CameraAgentRuntime:
                 "'Let me look at the gate camera between two and three.' Never guess "
                 "the answer in that sentence."
             )
+        # Last of the prose when it is here at all (see the docstring). Only
+        # Qwen3's ``/no_think`` switch may follow: a control token the model
+        # wants at the very end, constant across turns.
+        if clock:
+            prompt += "\n\n" + clock_line
         if self.cfg.llm_think is False:
             prompt += "\n\n/no_think"
         return prompt
@@ -7248,324 +7331,27 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float) -> 
                   "ms": int((time.perf_counter() - t0) * 1000)})
 
 
-# Words that mean "this is a question about a camera / the scene". If the
-# model answers an utterance containing any of these WITHOUT calling a tool,
-# we force a grounding detection (see _run_conversation_turn). Positive
-# matching (vs a chit-chat blocklist) avoids force-grounding closings like
-# "thanks, that's all" while still catching "is anyone there?".
-_CAMERA_WORDS: tuple[str, ...] = (
-    "see", "look", "watch", "watching", "camera", "cam",
-    "anyone", "anybody", "someone", "somebody", "nobody",
-    "person", "people", "man", "woman", "kid", "child", "face",
-    "door", "porch", "outside", "yard", "driveway", "garage", "street",
-    # scene locations
-    "gate", "window", "fence", "entrance", "hallway", "room", "kitchen",
-    "lot", "lobby", "stairs", "balcony",
-    "happening", "detect", "count", "package", "parcel", "delivery",
-    "dog", "dogs", "cat", "cats", "animal", "car", "cars", "truck", "trucks",
-    "vehicle", "bike", "people", "persons",
-    # visual-attribute verbs ("what is he wearing/doing?") — these are why a
-    # caption/VQA question still triggers grounding instead of a fabrication
-    "wearing", "wear", "dressed", "holding", "carrying", "doing",
-    "visible", "present", "moving", "movement", "motion",
-)
-_CAMERA_RE = re.compile(r"\b(" + "|".join(_CAMERA_WORDS) + r")\b", re.IGNORECASE)
+def _user_turn(runtime: "CameraAgentRuntime", user_text: str, *,
+               hint: str | None = None) -> str:
+    """The user message as the model sees it: the per-turn clock, the
+    router's hint when there is one (router.py, Tier 1), then the user's
+    own words.
 
-
-def _looks_like_camera_question(text: str) -> bool:
-    """True if the utterance is about a camera / the scene. Used only to
-    decide whether to force a grounding detection when the model failed to
-    call a tool itself — so a weak model can't fabricate "I see a dog"."""
-    return bool(_CAMERA_RE.search(text or ""))
-
-
-# Presence/count questions about concrete objects ("is anyone there?",
-# "how many cars?", "any people?") must be answered by the object DETECTOR
-# (yolov8), NOT a scene caption — BLIP describes the scene ("a table with a
-# laptop") but can't reliably answer "is there a person?". Open "what's
-# there / describe it" questions, by contrast, are best served by the BLIP
-# caption. _pick_forced_tool routes the forced-grounding call accordingly.
-_DETECTION_WORDS: tuple[str, ...] = (
-    "person", "people", "anyone", "anybody", "someone", "somebody",
-    "nobody", "man", "woman", "kid", "child", "face", "count", "many",
-    "car", "cars", "truck", "vehicle", "bike", "bicycle", "motorcycle",
-    "dog", "cat", "animal", "package", "parcel", "delivery",
-)
-_DETECTION_RE = re.compile(r"\b(" + "|".join(_DETECTION_WORDS) + r")\b", re.IGNORECASE)
-
-# Attribute / activity / appearance questions ("what is he WEARING?", "what's
-# he DOING?", "DESCRIBE the scene", "what's HAPPENING?") want a scene
-# description (BLIP caption, or a VQA model), NOT the object detector — even
-# though they usually also contain an object noun like "man" that would
-# otherwise match _DETECTION_RE. These take precedence (test-report S-4/L-3/V-3).
-_DESCRIBE_WORDS: tuple[str, ...] = (
-    "describe", "description", "detail", "details", "wearing", "wear", "dressed",
-    "doing", "holding", "carrying", "looks like", "look like", "looking",
-    "appearance", "happening", "going on", "scene", "activity", "colour", "color",
-)
-_DESCRIBE_RE = re.compile(r"\b(" + "|".join(_DESCRIBE_WORDS) + r")\b", re.IGNORECASE)
-
-# Presence / count phrasing ("how many…", "are there any…", "is there a…",
-# "count…") → the detector, even when the object noun is a plural the detection
-# vocab doesn't list ("dogs"), or absent entirely ("are there any?").
-_COUNT_RE = re.compile(
-    r"\b(how many|how much|are there|is there|number of|count|anyone|anybody|"
-    r"\bany\b)\b", re.IGNORECASE)
-
-
-def _pick_forced_tool(text: str) -> str:
-    """Choose the forced-grounding tool by question type. Description/attribute/
-    activity questions → ``describe_camera`` (BLIP caption / VQA, which falls
-    back to the detector if no caption adapter is registered). Object presence/
-    count questions → ``detect_objects`` (yolov8). Describe takes precedence so
-    'what is the man wearing?' isn't routed to the detector just because it
-    contains 'man'."""
-    t = text or ""
-    if _DESCRIBE_RE.search(t):
-        return "describe_camera"
-    if _COUNT_RE.search(t) or _DETECTION_RE.search(t):
-        return "detect_objects"
-    return "describe_camera"
-
-
-# Past-tense / history phrasing. These questions are about what HAPPENED, not
-# what the current frame shows — so forced grounding must route them to the
-# HISTORY tools, never the live detector. The field bug this fixes: "did you
-# see a person today?" contains "person", _pick_forced_tool sent it to
-# detect_objects, and the user was told about a potted plant currently in view.
-_PAST_RE = re.compile(
-    r"\b(did|didn't|was|were|has|have|had)\b.{0,60}?"
-    r"\b(come|came|been|seen|see|visit|visited|enter|entered|arrive|arrived|"
-    r"pass|passed|show(?:ed)?\s+up|stop(?:ped)?\s+by|there)\b"
-    r"|\b(earlier|yesterday|last\s+night|this\s+morning|this\s+afternoon|"
-    r"this\s+evening|today|tonight|ago|so\s+far)\b"
-    r"|\b(last|past)\s+\d+\s*(minutes?|mins?|hours?|hrs?)\b"
-    r"|\b(in|over|during)\s+the\s+(last|past)\b"
-    r"|\b(recording|recordings|footage|history)\b",
-    re.IGNORECASE,
-)
-
-# "last/past 30 minutes", "last 2 hours" → a relative look-back in seconds.
-_WINDOW_RE = re.compile(
-    r"\b(?:last|past)\s+(\d+)\s*(minutes?|mins?|min|hours?|hrs?|hr)\b"
-    r"|\b(\d+)\s*(minutes?|mins?|min|hours?|hrs?|hr)\s+ago\b",
-    re.IGNORECASE,
-)
-
-# Detection noun → the events-store label search_history stores visits under.
-# Person-ish nouns collapse to "person"; unknown nouns fall back to "person"
-# (the store's own default) rather than guessing a label it never indexes.
-_HISTORY_LABELS: dict[str, str] = {
-    "car": "car", "cars": "car", "vehicle": "car", "truck": "truck",
-    "bike": "bicycle", "bicycle": "bicycle", "motorcycle": "motorcycle",
-    "dog": "dog", "cat": "cat",
-    # Speech-to-text hears "car" as "card" often enough that "did you see
-    # any blue card" is a real utterance; nobody asks the history for
-    # playing cards.
-    "card": "car", "cards": "car",
-}
-
-# What a visit was DESCRIBED as — the claim vocabulary the platform's
-# descriptor enricher writes (colour, vehicle type, what someone carries;
-# server/services/descriptor_enrichment.py KIND_QUESTIONS) plus the
-# clothing colour of a person. A word here in a past-tense question is
-# passed to search_history as ``attr``, so "did you see a BLUE car" asks
-# the store for blue cars — it used to ask for every car and the answer
-# listed twenty-five of them, colour unmentioned.
-_ATTR_WORDS: frozenset[str] = frozenset({
-    # colours (vehicle colour / clothing colour — the store resolves which)
-    "white", "black", "silver", "grey", "gray", "red", "blue", "green",
-    "yellow", "orange", "brown", "beige", "gold", "maroon", "purple", "pink",
-    # vehicle types that are not Tier-0 labels
-    "van", "suv", "pickup", "taxi", "lorry", "tractor", "ambulance",
-    "hatchback", "sedan", "minivan", "scooter",
-    # what a person carries
-    "backpack", "rucksack", "bag", "handbag", "suitcase", "luggage",
-    "box", "parcel", "package", "umbrella", "trolley", "basket",
-})
-_ATTR_ALIASES: dict[str, str] = {"gray": "grey", "lorry": "truck", "rucksack": "backpack",
-                                 "handbag": "bag", "luggage": "suitcase", "package": "parcel"}
-
-
-def _attr_words(text: str) -> list[str]:
-    """The description words in an utterance, in order, canonical, unique.
-    A colour or a type is kept even when it is also the object's label
-    word ("truck" is a label; "lorry" is a claim)."""
-    out: list[str] = []
-    for w in re.findall(r"[a-z]+", (text or "").lower()):
-        if w in _ATTR_WORDS:
-            w = _ATTR_ALIASES.get(w, w)
-            if w not in out:
-                out.append(w)
-    return out
-
-
-def _is_past_question(text: str) -> bool:
-    """True when the utterance asks about history, not the current scene.
-
-    An absolute clock range ("from 2pm to 3pm") counts as history even
-    without past-tense wording — background-task queries are phrased that
-    way ("check the red truck on all cameras from 2pm to 3pm")."""
-    t = text or ""
-    return bool(_PAST_RE.search(t) or _CLOCK_RANGE_RE.search(t))
-
-
-# Absolute clock ranges: "from 2pm to 3pm", "between 1 and 2pm",
-# "13:00-14:00", "2 pm till 3 pm". The first time may omit its am/pm and
-# inherit it from the second ("between 1 and 2pm" → 13:00-14:00).
-_CLOCK_RANGE_RE = re.compile(
-    r"\b(?:from|between)?\s*"
-    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*"
-    r"(?:to|till|until|and|[-–])\s*"
-    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
-    re.IGNORECASE,
-)
-
-
-def _window_from_text(text: str, now=None
-                      ) -> tuple[str | None, str | None, int]:
-    """Best-effort time window from the utterance.
-
-    Returns ``(start_iso, end_iso, window_seconds)`` — ISO times (with tz
-    offset, as search_history requires) or None for an open bound, plus the
-    equivalent relative seconds for recent_events. All computed from the
-    LOCAL clock (the container's TZ), matching the clock line in the system
-    prompt."""
-    from datetime import datetime, timedelta
-
-    t = text or ""
-    now = now or datetime.now().astimezone()
-
-    def _hhmm(h, mnt, ampm):
-        h = int(h) % 24
-        if ampm:
-            h = h % 12 + (12 if ampm.lower() == "pm" else 0)
-        return now.replace(hour=h, minute=int(mnt or 0), second=0,
-                           microsecond=0)
-
-    # "from 2pm to 3pm" — an absolute range TODAY. The field bug this
-    # closes: these were the exact phrasings background tasks are given
-    # ("check the red truck on all cameras from 2pm to 3pm"), and the
-    # forced-grounding fallback used to drop the window entirely.
-    m = _CLOCK_RANGE_RE.search(t)
-    if m:
-        h1, m1, ap1, h2, m2, ap2 = m.groups()
-        start = _hhmm(h1, m1, ap1 or ap2)   # "between 1 and 2pm" → both pm
-        end = _hhmm(h2, m2, ap2)
-        if end <= start:                     # "11pm to 1am" → wraps midnight
-            end += timedelta(days=1)
-        return (start.isoformat(timespec="seconds"),
-                end.isoformat(timespec="seconds"),
-                max(60, int((now - start).total_seconds())))
-    m = _WINDOW_RE.search(t)
-    if m:
-        qty = int(m.group(1) or m.group(3))
-        unit = (m.group(2) or m.group(4) or "").lower()
-        secs = qty * (3600 if unit.startswith(("hour", "hr")) else 60)
-        return ((now - timedelta(seconds=secs)).isoformat(timespec="seconds"),
-                None, secs)
-    lowered = t.lower()
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if "yesterday" in lowered or "last night" in lowered:
-        start = midnight - timedelta(days=1)
-        return (start.isoformat(timespec="seconds"),
-                midnight.isoformat(timespec="seconds"),
-                int((now - start).total_seconds()))
-    if "today" in lowered or "this morning" in lowered or "tonight" in lowered \
-            or "this afternoon" in lowered or "this evening" in lowered:
-        return (midnight.isoformat(timespec="seconds"), None,
-                int((now - midnight).total_seconds()))
-    # No parseable window: open start for search_history; recent_events gets
-    # a generous hour so "did anyone come?" still looks back meaningfully.
-    return None, None, 3600
-
-
-def _pick_forced_call(
-    text: str, cam: str, advertised: set[str], now=None
-) -> tuple[str, dict[str, Any]]:
-    """Choose the forced-grounding (tool, arguments) — history-aware.
-
-    Past-tense questions go to search_history (durable events store) when it
-    is advertised, else recent_events (in-memory ring) — never to a live
-    detector, which can only describe the CURRENT frame. Present-tense
-    questions keep the _pick_forced_tool routing. Only advertised tools are
-    ever picked, so forced grounding can't call something the operator's
-    enabled_tools hides from the model."""
-    if _is_past_question(text):
-        start_iso, end_iso, window_secs = _window_from_text(text, now=now)
-        if "search_history" in advertised:
-            args: dict[str, Any] = {"camera_id": cam}
-            m = _DETECTION_RE.search(text or "")
-            noun = (m.group(0).lower() if m else "")
-            if not noun:
-                # No detection noun — maybe a label word the detection
-                # vocabulary does not carry (a speech-to-text "card").
-                noun = next((w for w in re.findall(r"[a-z]+", (text or "").lower())
-                             if w in _HISTORY_LABELS), "")
-            args["label"] = _HISTORY_LABELS.get(noun, "person")
-            # The description survives: "blue car" is not "car".
-            attrs = [a for a in _attr_words(text) if a != args["label"]]
-            if attrs:
-                args["attr"] = attrs
-            if start_iso:
-                args["start_time"] = start_iso
-            if end_iso:
-                args["end_time"] = end_iso
-            return "search_history", args
-        if "recent_events" in advertised:
-            return "recent_events", {
-                "camera_id": cam, "window_seconds": window_secs,
-            }
-        # No history tool advertised: fall through to the live routing —
-        # a wrong-tense answer beats no grounding at all, and the reply
-        # honestly describes what the tool actually looked at.
-    name = _pick_forced_tool(text)
-    if name not in advertised and "describe_camera" in advertised:
-        name = "describe_camera"
-    return name, {"camera_id": cam}
-
-
-# Questions about the camera ROSTER / system config ("how many cameras are
-# configured?", "which cameras do you have?", "list the cameras") are about
-# the SYSTEM, not what's visible — the model answers them correctly from its
-# prompt context, so forced grounding must NOT override them with an
-# (irrelevant) scene detection. Distinguished from scene questions by
-# "camera/cam" being the noun being counted/listed, not an object inside a
-# camera's view ("how many PEOPLE on the camera" stays a scene question).
-_CONFIG_RE = re.compile(
-    r"\b(how many|number of|which|what|list(?:\s+\w+){0,3})\s+(cameras?|cams?)\b"
-    r"|\b(cameras?|cams?)\s+(are|do you|configured|connected|available|set up|online|exist)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_config_question(text: str) -> bool:
-    """True for questions about the camera roster/config (how many/which
-    cameras exist) rather than what's visible in one. Forced grounding skips
-    these so a correct context answer isn't clobbered by a scene detection."""
-    return bool(_CONFIG_RE.search(text or ""))
-
-
-def _pick_camera(text: str, cameras: list[str], preferred: str | None = None) -> str:
-    """Best-effort: which camera did the user mean? An explicit name in the
-    utterance wins; otherwise fall back to the UI-selected ``preferred``
-    camera, then to the first configured camera."""
-    t = text.lower().replace("-", " ")
-    compact = t.replace(" ", "")
-    for cam in cameras:
-        if cam.lower() in compact:  # "cam1", "camera1"
-            return cam
-    words = {"one": "1", "two": "2", "three": "3", "four": "4",
-             "first": "1", "second": "2", "third": "3"}
-    for word, n in words.items():
-        if re.search(rf"\b{word}\b", t) and f"cam{n}" in cameras:
-            return f"cam{n}"
-    for n in ("1", "2", "3", "4"):
-        if re.search(rf"\b{n}\b", t) and f"cam{n}" in cameras:
-            return f"cam{n}"
-    if preferred and preferred in cameras:
-        return preferred
-    return cameras[0]
+    The clock is NOT a system message after the history. Ollama's chat
+    path collects every system-role message into the one leading system
+    block (template.go ``collate``), which the Qwen and Llama templates
+    render BEFORE the tool schemas — so a "trailing" system clock still
+    lands ahead of ~3.5k cached tokens and re-prefills the prefix every
+    minute. Several OpenAI-compatible servers (Gemma, Mistral templates)
+    reject a system turn after the first outright. The user turn is the
+    one message that is rendered last, wherever it is sent; the clock
+    rides in it. History keeps the user's bare words (what the UI shows),
+    so only that short tail re-prefills, never the system + tools.
+    """
+    head = f"[{runtime._clock_line()}]"
+    if hint:
+        head += f"\n\n[{hint}]"
+    return f"{head}\n\n{user_text}"
 
 
 class LLMTurnError(RuntimeError):
@@ -7649,8 +7435,13 @@ async def _run_conversation_turn(
     if _is_config_question(user_text):
         return _roster_answer(runtime.visible_cameras())
 
+    # No clock in the system prompt: Ollama renders the tool schemas right
+    # after it, and a line that changes every minute in front of ~3.5k
+    # tokens of schemas re-prefilled the whole prefix on every turn — the
+    # 17 s "iter 1" of the field trace. The clock rides in the USER turn
+    # (see _user_turn), the last thing in the prompt.
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": runtime.build_system_prompt()}
+        {"role": "system", "content": runtime.build_system_prompt(clock=False)}
     ]
     tools = tool_definitions if tool_definitions is not None else runtime.tool_definitions
     cameras = [cam.camera_id for cam in runtime.visible_cameras()]
@@ -7666,7 +7457,12 @@ async def _run_conversation_turn(
             ),
         })
     messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    messages.append({"role": "user", "content": _user_turn(runtime, user_text)})
+    # The question itself, for tools that decide by it (face matching only
+    # when somebody asked WHO — tools.search_history). Task-local: a
+    # background task's or a scheduled report's turn does not overwrite
+    # the one a person is waiting on.
+    runtime.tools.current_question = user_text
 
     # Per-turn pipeline trace: ordered (step, detail, ms) of everything this
     # turn executed — LLM iterations, every tool, forced groundings — so the
@@ -7706,96 +7502,156 @@ async def _run_conversation_turn(
     #                        the model returns empty content on the compose turn
     #                        (small/thinking models sometimes do), so the user
     #                        gets the real detection/caption instead of "Sorry".
-    for iteration in range(max_iterations):
+    # ── The router: decide before the model does (router.py) ─────────
+    # Tier 0 — every slot resolves: run the tool now and ask the model only
+    # to SAY the answer, with a ~200-token compose prompt and no tools.
+    # That skips the tool-calling iteration entirely (the 17 s "iter 1"
+    # of the field trace). Tier 1 — a likely tool but a missing slot: the
+    # full prompt goes out UNCHANGED (the prefix cache holds) with one
+    # line in the user turn. Tier 2 — the loop below, as is.
+    import router as _router
+
+    _advertised = {t["function"]["name"] for t in (tools or ())}
+    decision = _router.decide(
+        user_text, cameras=cameras, advertised=_advertised,
+        preferred=preferred_camera,
+        roles={c.camera_id: c.role for c in runtime.visible_cameras()},
+        tier0=bool(getattr(runtime.cfg, "router_tier0", True)),
+        hints=bool(getattr(runtime.cfg, "router_hints", True)),
+    )
+    trace.append({"step": "route", "detail": f"tier{decision.tier}"
+                  + (f" {decision.tool}" if decision.tool else "")
+                  + (f" hint={decision.hint}" if decision.hint else ""), "ms": 0})
+    routed = decision.routed
+    if routed:
+        call = {"id": "route-0", "type": "function",
+                "function": {"name": decision.tool, "arguments": dict(decision.args)}}
+        _think_aloud(call, "")
+        name, result = await _invoke_tool(runtime, call)
+        logger.info("converse: ROUTED %s %s -> %s", name, decision.args, result[:120])
+        grounded = True
+        tools_called += 1
+        last_tool_result = result or last_tool_result
         _llm_t0 = time.perf_counter()
         response = await _chat_or_explain(
             runtime,
-            messages=messages,
-            tools=tools,
+            messages=[
+                {"role": "system", "content": runtime.build_compose_prompt()},
+                *history,
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": "", "tool_calls": [call]},
+                {"role": "tool", "tool_call_id": "route-0", "name": name, "content": result},
+            ],
+            tools=None,
             temperature=runtime.cfg.llm_temperature,
             max_tokens=runtime.cfg.llm_max_tokens,
         )
-        trace.append({"step": "llm", "detail": f"iter {iteration + 1}",
+        # Its own step name: fillers.py takes the median of "llm" to size
+        # the thinking-aloud wait, and a 1 s compose must not make a 17 s
+        # tool-calling iteration look short.
+        trace.append({"step": "compose", "detail": "tier0",
                       "ms": int((time.perf_counter() - _llm_t0) * 1000)})
-        message = response.get("message") or {}
-        tool_calls = message.get("tool_calls") or []
-        content = (message.get("content") or "").strip()
-        logger.info(
-            "converse: LLM iter %d content=%r tool_calls=%d",
-            iteration, content[:120], len(tool_calls),
-        )
+        final = ((response.get("message") or {}).get("content") or "").strip()
+    elif decision.hint:
+        # In the user turn, next to the clock — the one message rendered
+        # last. Not a system message: Ollama would hoist it into the
+        # leading system block, ahead of the cached tool schemas.
+        assert messages[-1]["role"] == "user"
+        messages[-1] = {"role": "user", "content": _user_turn(
+            runtime, user_text,
+            hint=f"This question most likely needs the {decision.hint} tool.")}
 
-        if tool_calls:
-            grounded = True
-            messages.append({
-                "role": "assistant", "content": content, "tool_calls": tool_calls,
-            })
-            for call in tool_calls:
-                _think_aloud(call, content)
+    if not routed:
+        for iteration in range(max_iterations):
+            _llm_t0 = time.perf_counter()
+            response = await _chat_or_explain(
+                runtime,
+                messages=messages,
+                tools=tools,
+                temperature=runtime.cfg.llm_temperature,
+                max_tokens=runtime.cfg.llm_max_tokens,
+            )
+            trace.append({"step": "llm", "detail": f"iter {iteration + 1}",
+                          "ms": int((time.perf_counter() - _llm_t0) * 1000)})
+            message = response.get("message") or {}
+            tool_calls = message.get("tool_calls") or []
+            content = (message.get("content") or "").strip()
+            logger.info(
+                "converse: LLM iter %d content=%r tool_calls=%d",
+                iteration, content[:120], len(tool_calls),
+            )
+
+            if tool_calls:
+                grounded = True
+                messages.append({
+                    "role": "assistant", "content": content, "tool_calls": tool_calls,
+                })
+                for call in tool_calls:
+                    _think_aloud(call, content)
+                    name, result = await _invoke_tool(runtime, call)
+                    logger.info("converse: tool %s -> %s", name, result[:120])
+                    tools_called += 1
+                    last_tool_result = result or last_tool_result
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.get("id", ""),
+                        "name": name,
+                        "content": result,
+                    })
+                continue
+
+            # No tool call. If the model tried to answer a camera question
+            # without looking — judged from EITHER the user's question or the
+            # model's own reply mentioning a camera/scene — force a grounding
+            # detection and re-ask. Checking the reply too catches cases where
+            # STT garbled the camera word (e.g. "what's on hammer 2") but the
+            # model still fabricated "camera 2 is ...".
+            if (
+                not grounded and not forced and cameras
+                and not _is_config_question(user_text)
+                and (
+                    _looks_like_camera_question(user_text)
+                    or _looks_like_camera_question(content)
+                )
+            ):
+                forced = True
+                grounded = True
+                cam = _pick_camera(user_text, cameras, preferred_camera)
+                # Route to the detector for presence/count questions, to the
+                # BLIP caption for open "what's there?" questions, and — for
+                # PAST-TENSE questions — to the history tools (search_history /
+                # recent_events), never a live look. Small models often refuse
+                # or fabricate instead of calling a tool, so this forced path is
+                # what most camera questions actually hit — picking the RIGHT
+                # tool here is what makes "is there a person?" get a detector
+                # answer and "did you see a person today?" get the NVR's memory
+                # instead of whatever happens to be in the current frame.
+                tool_name, tool_args = _pick_forced_call(
+                    user_text, cam,
+                    {t["function"]["name"] for t in (tools or ())},
+                )
+                call = {
+                    "id": "forced-0", "type": "function",
+                    "function": {"name": tool_name, "arguments": tool_args},
+                }
+                _think_aloud(call, "")
                 name, result = await _invoke_tool(runtime, call)
-                logger.info("converse: tool %s -> %s", name, result[:120])
+                logger.info("converse: FORCED grounding (%s) on %s -> %s",
+                            tool_name, cam, result[:120])
                 tools_called += 1
                 last_tool_result = result or last_tool_result
+                messages.append({"role": "assistant", "content": "", "tool_calls": [call]})
                 messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.get("id", ""),
-                    "name": name,
-                    "content": result,
+                    "role": "tool", "tool_call_id": "forced-0",
+                    "name": name, "content": result,
                 })
-            continue
+                continue
 
-        # No tool call. If the model tried to answer a camera question
-        # without looking — judged from EITHER the user's question or the
-        # model's own reply mentioning a camera/scene — force a grounding
-        # detection and re-ask. Checking the reply too catches cases where
-        # STT garbled the camera word (e.g. "what's on hammer 2") but the
-        # model still fabricated "camera 2 is ...".
-        if (
-            not grounded and not forced and cameras
-            and not _is_config_question(user_text)
-            and (
-                _looks_like_camera_question(user_text)
-                or _looks_like_camera_question(content)
-            )
-        ):
-            forced = True
-            grounded = True
-            cam = _pick_camera(user_text, cameras, preferred_camera)
-            # Route to the detector for presence/count questions, to the
-            # BLIP caption for open "what's there?" questions, and — for
-            # PAST-TENSE questions — to the history tools (search_history /
-            # recent_events), never a live look. Small models often refuse
-            # or fabricate instead of calling a tool, so this forced path is
-            # what most camera questions actually hit — picking the RIGHT
-            # tool here is what makes "is there a person?" get a detector
-            # answer and "did you see a person today?" get the NVR's memory
-            # instead of whatever happens to be in the current frame.
-            tool_name, tool_args = _pick_forced_call(
-                user_text, cam,
-                {t["function"]["name"] for t in (tools or ())},
-            )
-            call = {
-                "id": "forced-0", "type": "function",
-                "function": {"name": tool_name, "arguments": tool_args},
-            }
-            _think_aloud(call, "")
-            name, result = await _invoke_tool(runtime, call)
-            logger.info("converse: FORCED grounding (%s) on %s -> %s",
-                        tool_name, cam, result[:120])
-            tools_called += 1
-            last_tool_result = result or last_tool_result
-            messages.append({"role": "assistant", "content": "", "tool_calls": [call]})
-            messages.append({
-                "role": "tool", "tool_call_id": "forced-0",
-                "name": name, "content": result,
-            })
-            continue
-
-        # Accept the reply (genuine chit-chat, or already grounded).
-        final = content
-        break
-    else:
-        logger.warning("converse: tool loop exhausted")
+            # Accept the reply (genuine chit-chat, or already grounded).
+            final = content
+            break
+        else:
+            logger.warning("converse: tool loop exhausted")
 
     # Prefer the model's composed reply (stripped of <think> reasoning + ids).
     # If it's empty after stripping (a thinking model burned its budget on

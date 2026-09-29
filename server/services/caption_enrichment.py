@@ -132,7 +132,8 @@ async def _resolve_caption_adapter() -> str | None:
 
 
 async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
-                        event_id: int | None = None) -> str | None:
+                        event_id: int | None = None, *,
+                        priority: str = "live") -> str | None:
     """One caption attempt through KAI-C. None on any failure."""
     from services.adapter_contract import build_infer_payload
 
@@ -149,11 +150,17 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
     from services.enrichment_gate import infer_through_gate
 
     body = await infer_through_gate(adapter, payload, kind="caption", log=logger,
-                                    caller="caption enrichment")
+                                    caller="caption enrichment", priority=priority)
     if body is DROPPED:
         return DROPPED
     if body is None:
-        return None
+        return None                   # the call failed: nobody has looked yet
+    # From here the adapter ANSWERED. "" means it had nothing usable to
+    # say — that is "looked and found nothing", recorded on the row, and
+    # distinct from None above, which must be retried. A 200 with no
+    # result object in it (an error body, a model mid-reload) is the
+    # adapter NOT answering, not an empty answer: None, so the visit is
+    # not branded "looked at" by a minute of malformed replies.
     result = (body or {}).get("result")
     if not isinstance(result, dict):
         return None
@@ -164,7 +171,7 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         value = result.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return None
+    return ""
 
 
 def wants_caption(label: str | None, evidence_path: str | None,
@@ -215,14 +222,47 @@ def _note_unassigned(camera_id: int | None) -> None:
         )
 
 
+def _mark_attempted(event_id: int) -> None:
+    """The call was made and yielded no caption. Not a failure worth a
+    log line each time, but worth a mark: "looked and found nothing" is
+    a different row from "never looked" — the same distinction the
+    descriptor enricher keeps in ran_tasks."""
+    from core.database import SessionLocal
+    from models import TimelineEvent
+
+    db = SessionLocal()
+    try:
+        row = db.get(TimelineEvent, int(event_id))
+        if row is None:
+            return
+        seen = dict(row.payload or {})
+        ran = sorted({*(seen.get("enriched_by") or []), CAPTION_SKILL})
+        seen["enriched_by"] = ran
+        row.payload = seen
+        db.commit()
+    except Exception:                              # noqa: BLE001
+        logger.debug("caption enrichment: could not mark %s attempted", event_id,
+                     exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def enrich_event_caption(event_id: int,
-                               evidence_jpeg: bytes | None = None) -> str | None:
+                               evidence_jpeg: bytes | None = None, *,
+                               priority: str = "live") -> str | None:
     """Background task: describe the visit's best frame, once.
 
     Returns ``"dropped"`` when the call never reached the adapter (the
     gate refused it) — the backfill holds its cursor on that — and None
     otherwise, whether a caption was written or there was nothing to
     write.
+
+    ``priority="requested"`` is the on-demand lane: somebody asked a
+    question this visit could answer. It ignores the site-wide
+    EVENTS_CAPTION_ENRICHMENT switch — that switch says whether EVERY
+    visit is described unasked, and this one was asked for — and gets
+    the governor's requested priority.
 
     Three phases, and the split is not stylistic — ``plate_enrichment``
     learned it the hard way. READ what is needed with a short session,
@@ -234,7 +274,7 @@ async def enrich_event_caption(event_id: int,
     """
     from core.config import settings
 
-    if not getattr(settings, "events_caption_enrichment", True):
+    if priority != "requested" and not getattr(settings, "events_caption_enrichment", True):
         return
 
     # ── Phase 1: read, briefly ──────────────────────────────────────
@@ -251,10 +291,20 @@ async def enrich_event_caption(event_id: int,
             return
         # Already described (a re-run, or an app got there first): leave
         # it. This task never overwrites someone else's words — the
-        # endpoint exists for a deliberate re-caption.
+        # endpoint exists for a deliberate re-caption. The ROW existing is
+        # not that: the descriptor enricher creates a caption-less
+        # EventText for its claims, and a visit with a colour and no
+        # sentence is exactly one the lane must be able to caption.
         from models import EventText
 
-        if db.get(EventText, row.id) is not None:
+        existing = db.get(EventText, row.id)
+        if existing is not None and (existing.caption or "").strip():
+            return
+        # Looked, and the captioner had nothing to say (an empty answer,
+        # a frame it could not read): recorded on the row like the
+        # descriptor enricher's ran_tasks, so the requested lane and the
+        # catch-up do not ask about the same visit forever.
+        if CAPTION_SKILL in ((row.payload or {}).get("enriched_by") or []):
             return
         evidence_path = row.evidence_path
         # Same derivation plate_enrichment uses (f"cam{camera_id}") — the
@@ -282,11 +332,18 @@ async def enrich_event_caption(event_id: int,
     adapter = await _resolve_caption_adapter()
     if adapter is None:
         return
-    caption = await _caption_jpeg(jpeg, adapter, camera_handle, event_id=event_id)
+    caption = await _caption_jpeg(jpeg, adapter, camera_handle, event_id=event_id,
+                                  priority=priority)
     if caption is DROPPED:
         return "dropped"
-    if not caption:
+    if caption is None:
+        # Timed out, unreachable, a non-200: the adapter never answered.
+        # NOT recorded — a transient failure must not read as "looked and
+        # found nothing" and hide the visit from every later pass.
         return
+    if not caption:
+        _mark_attempted(event_id)
+        return "done"                 # looked; nothing to say — a result
 
     # ── Phase 3: reopen and write ───────────────────────────────────
     from datetime import UTC, datetime
@@ -311,6 +368,7 @@ async def enrich_event_caption(event_id: int,
         existing.source = adapter[:60]
         existing.updated_at = datetime.now(UTC)
         db.commit()
+        return "done"
     except Exception:                              # noqa: BLE001
         logger.exception("caption enrichment: write failed for event %s", event_id)
         db.rollback()

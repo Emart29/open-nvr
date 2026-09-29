@@ -47,6 +47,12 @@ WORKDIR /app
 #   * a retry loop re-runs the whole install up to 5× so a transient read
 #     timeout self-recovers instead of failing the build.
 #   * --timeout 300 tolerates slow reads before giving up.
+# pipecat is PINNED to the version examples/camera-agent/uv.lock tests
+# against, not a range. The range (>=1.8.1,<2.0) resolved to 1.12 the day
+# it appeared on PyPI, which no longer depends on nltk — and the punkt
+# download below, which 1.8.1's sentence aggregation needs, failed the
+# whole image build. An image must install what the lock says; bumping
+# pipecat is a change to the lock first, then here.
 RUN --mount=type=cache,target=/root/.cache/pip \
     for i in 1 2 3 4 5; do \
         echo "pip install attempt $i/5..."; \
@@ -100,6 +106,7 @@ COPY examples/camera-agent/services.py        ./services.py
 COPY examples/camera-agent/tools.py           ./tools.py
 COPY examples/camera-agent/turns.py           ./turns.py
 COPY examples/camera-agent/fillers.py         ./fillers.py
+COPY examples/camera-agent/router.py          ./router.py
 COPY examples/camera-agent/monitor_host.py    ./monitor_host.py
 COPY examples/camera-agent/system_check.py    ./system_check.py
 # The count/crossing conversational monitors instantiate the SAME SDK rule

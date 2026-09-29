@@ -466,6 +466,11 @@ class WhisperClient(_ReusableClientMixin):
             # no segments"). The hallucination-token filter in
             # services.py handles the 'You'/'Thank you' noise case.
             "vad_filter": False,
+            # Greedy. The adapter's default beam of 5 costs 30-50% more CPU
+            # and buys nothing on a clean, VAD-trimmed utterance of a few
+            # seconds; STT is on the voice critical path (14 s of the 71 s
+            # field turn). Beam search is for offline transcription.
+            "beam_size": 1,
         }
         resp = await self._client().post(self._url, json=body, headers=headers)
         resp.raise_for_status()
@@ -701,10 +706,14 @@ class PiperClient(_ReusableClientMixin):
         url: str,
         token: str,
         timeout_seconds: float = 120.0,
+        voice: str | None = None,
     ) -> None:
         self._url = url.rstrip("/") + "/infer"
         self._token = token
         self._timeout = timeout_seconds
+        # Asked for per request; None leaves the adapter's default. See
+        # AppConfig.piper_voice for why the default tier is "medium".
+        self._voice = voice or None
 
     async def synthesize(self, text: str) -> bytes:
         # Only send Authorization when a token is configured. Native
@@ -737,6 +746,8 @@ class PiperClient(_ReusableClientMixin):
             "text": text,
             "inline": True,
         }
+        if self._voice:
+            body["voice"] = self._voice
         client = self._client()
         resp = await client.post(self._url, json=body, headers=headers)
         resp.raise_for_status()

@@ -24,6 +24,8 @@ metadata + the event ring.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import re
 import base64
 import logging
 import math
@@ -247,7 +249,12 @@ def build_tool_definitions(
                         "camera_id": _camera_prop,
                         "identify_faces": {
                             "type": "boolean",
-                            "description": "For person searches: face-match the kept photos (default true).",
+                            "description": (
+                                "For person searches: face-match the kept photos. Set true when "
+                                "the question asks WHO came or names someone ('was Priya here', "
+                                "'who came to the door'); leave it out otherwise — a recognition "
+                                "call per photo is the wrong price for 'did anyone come'. Left "
+                                "out, the agent decides from the question itself."),
                         },
                         "plate": {
                             "type": "string",
@@ -408,6 +415,69 @@ def build_tool_definitions(
 # ── Tool handlers ──────────────────────────────────────────────────
 
 
+#: The question the current turn is answering, for tools that decide by
+#: it (face matching only when somebody asked WHO). A context variable,
+#: not a slot on the tools object: turns are not serialised — a background
+#: task or a scheduled report runs its own turn while a person's is in
+#: flight — and each asyncio task sees the value ITS turn set. ``None``
+#: means nobody told this task (the streaming /ws path calls tool handlers
+#: straight from the pipeline), and the tool falls back to matching, as
+#: it always did before the question could decide.
+_question: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "camera_agent_question", default=None)
+
+_WHO_RE = re.compile(r"\b(who|whom|whose|recogni[sz]e|name)\b")
+#: A capitalised word mid-sentence — "was Priya here" from an STT that
+#: capitalises names; the words below have that shape and are not names.
+_NAME_RE = re.compile(r"(?<=[a-z0-9,] )([A-Z][a-z]{2,})\b")
+_NOT_NAMES = frozenset({
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+    "camera", "cameras", "cam", "front", "back", "side", "door", "gate", "garage",
+    "driveway", "yard", "porch", "street", "kitchen", "office", "lobby",
+    "please", "okay", "thanks", "hey", "there", "what", "who", "how", "when",
+    "where", "which", "yes", "the", "any", "some", "today", "tonight",
+})
+#: "a Car", "the Door", "my Garage": a determiner precedes a noun, not a name.
+_DETERMINERS = frozenset({"a", "an", "the", "this", "that", "my", "your", "our",
+                          "any", "some", "no", "every", "each"})
+
+
+def asked_who(text: str | None) -> bool | None:
+    """Did the question ask WHO — the word, or a name? ``None`` when there
+    is no question to read (see ``_question``)."""
+    if text is None:
+        return None
+    if _WHO_RE.search(text.lower()):
+        return True
+    for m in _NAME_RE.finditer(text):
+        word = m.group(1)
+        if word.lower() in _NOT_NAMES:
+            continue
+        before = text[:m.start()].rstrip().split()
+        if before and before[-1].lower().strip(",") in _DETERMINERS:
+            continue
+        return True
+    return False
+
+
+def _as_bool(value: Any) -> bool | None:
+    """A tool argument a small model may hand over as the STRING "false".
+    ``None`` = not given, or not readable as a boolean."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "1", "yes", "y", "on"):
+            return True
+        if v in ("false", "0", "no", "n", "off", ""):
+            return False
+    return None
+
+
 class CameraTools:
     """Holds references to the context + KAI-C clients and exposes
     one coroutine per tool. Pipecat's LLM service calls these via
@@ -482,6 +552,7 @@ class CameraTools:
         # historical, and each carries its own timestamp caption so the UI
         # can never present a photo from 16:25 as the current view.
         self.last_evidence_frames: list[dict] = []
+        #: The utterance the current turn is answering (set by the turn).
         # Why the last describe fell back from the VLM ("" = it didn't) —
         # surfaced by the system self-check so degradation is visible.
         self.last_vision_error: str | None = None
@@ -1224,6 +1295,15 @@ class CameraTools:
 
     # ── search_history (canonical event store — RFC-0001 C1) ──────
 
+    @property
+    def current_question(self) -> str | None:
+        """The question this task's turn is answering (see ``_question``)."""
+        return _question.get()
+
+    @current_question.setter
+    def current_question(self, text: str | None) -> None:
+        _question.set(text)
+
     async def search_history(self, args: dict[str, Any]) -> str:
         """Answer "who/what came between X and Y?" from the events store.
 
@@ -1289,11 +1369,16 @@ class CameraTools:
                 # "No blue cars" and "nobody ever looked at what colour
                 # they were" are opposite answers behind an identical
                 # empty list, and only one of them is an answer.
+                # ...unless core is describing them right now because
+                # this very question asked: then "not yet" is the answer.
+                pending_note = self._pending_note(events)
                 return (f"No {label} visits described as "
-                        f"{' and '.join(attrs)}{window}. Note that only "
-                        "visits a skill has described can match that — if "
-                        "nothing here runs colour or type descriptions, "
-                        "this is not the same as there having been none."
+                        f"{' and '.join(attrs)}{window}."
+                        + (pending_note or
+                           " Note that only visits a skill has described can "
+                           "match that — if nothing here runs colour or type "
+                           "descriptions, this is not the same as there having "
+                           "been none.")
                         + self._in_progress_note(label, camera_arg, attrs))
             return (f"No {label} visits remembered{window}."
                     + self._in_progress_note(label, camera_arg))
@@ -1315,19 +1400,61 @@ class CameraTools:
                    + "; ".join(clauses) + ".")
 
         # Hand the remembered photos to the UI. The answer names times and
-        # says "(photo kept)" — the photo is right there in the store and was
-        # already being fetched to face-match, so showing it costs one small
-        # extra read and turns "I saw someone at 16:25" into something the
-        # operator can actually check.
-        await self._attach_evidence_frames(events)
-        summary += live_note
+        # says "(photo kept)" — the photo is right there in the store, and
+        # turns "I saw someone at 16:25" into something the operator can
+        # check. Fetched ONCE and in parallel, shared with face-matching:
+        # the two used to fetch every crop twice, one visit at a time —
+        # 12 s of a 71 s field turn on a busy box.
+        # Face-match when asked WHO. The model may say so explicitly; when
+        # it says nothing (small models routinely omit optional booleans)
+        # the question itself decides — "was Priya here" must not turn
+        # into a list of times with no name because a flag went missing.
+        flag = _as_bool(args.get("identify_faces"))
+        if flag is None:
+            who = asked_who(self.current_question)
+            flag = True if who is None else who    # no question to read: match, as before
+        identify = label == "person" and flag
+        crops = await self._fetch_evidence(
+            events, cap=max(self.EVIDENCE_FRAMES_CAP, self.FACE_ID_CAP if identify else 0))
+        self._attach_evidence_frames(events, crops)
+        summary += live_note + self._pending_note(events)
 
-        # Face-match the evidence for person questions (best-effort, capped).
-        if label == "person" and bool(args.get("identify_faces", True)):
-            names = await self._identify_visit_faces(events)
+        # Face-match only when the question asked WHO — a recognition call
+        # per photo is the wrong price for "did anyone come".
+        if identify:
+            names = await self._identify_visit_faces(events, crops)
             if names:
                 summary += " Recognised: " + ", ".join(sorted(names)) + "."
         return summary
+
+    def _pending_note(self, events=None) -> str:
+        """"Not yet" as a sentence. Core's `pending` (on the rows the SDK
+        returned, or on the client for an older SDK) says how many
+        matching visits nobody has described yet and that they are being
+        described now; the agent says it in the answer so "no blue car"
+        is never said about visits nobody has looked at. Empty when
+        nothing is pending."""
+        pending = getattr(events, "pending", None)
+        if pending is None:
+            pending = getattr(self._events, "last_pending", None)
+        if not isinstance(pending, dict):
+            return ""
+        missing = int(pending.get("missing") or 0)
+        queued = int(pending.get("requested") or 0) + int(pending.get("already_queued") or 0)
+        if missing <= 0 or queued <= 0:
+            return ""
+        eta = float(pending.get("eta_s") or 0)
+        if eta >= 90:
+            when = f"about {max(1, round(eta / 60))} minutes"
+        elif eta > 0:
+            when = f"about {max(5, int(round(eta / 5.0) * 5))} seconds"
+        else:
+            when = "shortly"
+        more = f" (the newest {queued} first)" if missing > queued else ""
+        plural = missing != 1
+        return (f" {missing} visit{'s' if plural else ''} in that window "
+                f"{'have' if plural else 'has'} not been described yet — "
+                f"I'm describing them now{more}, {when}. Ask me again then.")
 
     def _events_supports(self, param: str) -> bool:
         """Does the installed app SDK's events client accept ``param``?
@@ -1404,8 +1531,43 @@ class CameraTools:
         return (f" Separately, right now a {label} IS on {where} — "
                 f"that visit is still in progress and enters history when it ends.")
 
-    async def _attach_evidence_frames(self, events, cap: int = 3) -> None:
-        """Publish up to ``cap`` remembered best-frames onto this turn.
+    #: How many remembered photos an answer shows, and how many it
+    #: face-matches when asked who. Both bound one turn's evidence work.
+    EVIDENCE_FRAMES_CAP = 3
+    FACE_ID_CAP = 4
+    #: Extra crops fetched so a failed read does not reduce the count.
+    EVIDENCE_SLACK = 2
+
+    async def _fetch_evidence(self, events, cap: int) -> dict[int, bytes]:
+        """The kept crops of the first ``cap`` visits that have one, fetched
+        concurrently. One fetch per visit per turn, shared by the frames
+        shown and the faces matched. Fetches a little past ``cap`` so one
+        bad read (a 404, an oversize file) does not cost a photo: the
+        callers take the first ``cap`` that came back, in order."""
+        if self._events is None or cap <= 0:
+            return {}
+        wanted = [e for e in events if getattr(e, "has_evidence", False)][:cap + self.EVIDENCE_SLACK]
+        if not wanted:
+            return {}
+
+        async def one(e):
+            try:
+                return e.id, await self._events.evidence(e.id)
+            except Exception:
+                # A photo we cannot fetch costs a frame or a NAME, not the
+                # answer. One bad read once turned "I remember 3 visits at
+                # 15:12, 15:40 and 16:25" into no answer at all.
+                logger.warning("search_history: evidence fetch failed for #%s", e.id)
+                return e.id, None
+
+        out: dict[int, bytes] = {}
+        for eid, crop in await asyncio.gather(*(one(e) for e in wanted)):
+            if crop and len(crop) <= 2_000_000:          # same cap as live frames
+                out[eid] = crop
+        return out
+
+    def _attach_evidence_frames(self, events, crops: dict[int, bytes]) -> None:
+        """Publish up to EVIDENCE_FRAMES_CAP remembered best-frames onto this turn.
 
         Each carries its own timestamp caption. That is not decoration: every
         frame the UI has ever rendered in a chat bubble was the LIVE view, so
@@ -1413,19 +1575,11 @@ class CameraTools:
         afternoon would read as "here is your camera now" — the wrong thing to
         get wrong in a security product.
         """
-        if self._events is None:
-            return
         for e in events:
-            if len(self.last_evidence_frames) >= cap:
+            if len(self.last_evidence_frames) >= self.EVIDENCE_FRAMES_CAP:
                 break
-            if not getattr(e, "has_evidence", False):
-                continue
-            try:
-                crop = await self._events.evidence(e.id)
-            except Exception:
-                logger.warning("search_history: evidence fetch failed for #%s", e.id)
-                continue
-            if not crop or len(crop) > 2_000_000:      # same cap as live frames
+            crop = crops.get(e.id)
+            if not crop:
                 continue
             self.last_evidence_frames.append({
                 "camera_id": str(e.camera_id),
@@ -1433,36 +1587,27 @@ class CameraTools:
                 "jpeg_b64": base64.b64encode(crop).decode("ascii"),
             })
 
-    async def _identify_visit_faces(self, events, cap: int = 4) -> set:
-        names: set = set()
-        checked = 0
-        for e in events:
-            if checked >= cap:
-                break
-            if not e.has_evidence:
-                continue
-            try:
-                crop = await self._events.evidence(e.id)
-            except Exception:
-                # A photo we cannot fetch costs a NAME, not the answer. This
-                # was unguarded, so one bad read turned "I remember 3 visits
-                # at 15:12, 15:40 and 16:25" into no answer at all.
-                logger.warning("search_history: evidence fetch failed for #%s", e.id)
-                continue
-            if not crop:
-                continue
-            checked += 1
+    async def _identify_visit_faces(self, events, crops: dict[int, bytes]) -> set:
+        """Names recognised on up to FACE_ID_CAP of the fetched crops — the
+        recognitions run concurrently, and one failing does not cost the
+        others their name."""
+        picked = [crops[e.id] for e in events if crops.get(e.id)][:self.FACE_ID_CAP]
+        if not picked or self._recognise is None:
+            return set()
+
+        async def one(crop):
             try:
                 response = await self._recognise.infer(
-                    frame_jpeg=crop, extra={"task": "face_recognition"}
-                )
+                    frame_jpeg=crop, extra={"task": "face_recognition"})
             except Exception:
                 logger.warning("search_history: recognition adapter unavailable")
-                break
-            result = response.get("result") or {}
+                return None
+            result = (response or {}).get("result") or {}
             if result.get("recognized"):
-                names.add(str(result.get("name") or result.get("person_id") or "someone"))
-        return names
+                return str(result.get("name") or result.get("person_id") or "someone")
+            return None
+
+        return {n for n in await asyncio.gather(*(one(c) for c in picked)) if n}
 
     @staticmethod
     def _clock_phrase(iso: str | None) -> str:
