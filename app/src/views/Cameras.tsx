@@ -516,11 +516,6 @@ export function Cameras() {
               </span>
             )}
             {canManageCameras && (
-              <Button variant="outline" onClick={() => navigate('/onvif-tools')} title="Discover ONVIF cameras on the network, read profiles, PTZ and clock">
-                ONVIF Tools
-              </Button>
-            )}
-            {canManageCameras && (
               <Button variant="primary" onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm() }}>
                 {t('camera.add')}
               </Button>

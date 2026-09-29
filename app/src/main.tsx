@@ -111,7 +111,6 @@ const AIAdapters = lazy(reloadOnStale(() => import('./views/AIAdapters').then((m
 const AppCatalog = lazy(reloadOnStale(() => import('./views/AppCatalog').then((m) => ({ default: m.AppCatalog }))))
 const AppView = lazy(reloadOnStale(() => import('./views/AppView').then((m) => ({ default: m.AppView }))))
 const Cloud = lazy(reloadOnStale(() => import('./views/Cloud').then((m) => ({ default: m.Cloud }))))
-const OnvifTools = lazy(reloadOnStale(() => import('./views/OnvifTools').then((m) => ({ default: m.OnvifTools }))))
 const Register = lazy(reloadOnStale(() => import('./views/Register').then((m) => ({ default: m.Register }))))
 const FirstTimeSetup = lazy(reloadOnStale(() => import('./views/FirstTimeSetup').then((m) => ({ default: m.FirstTimeSetup }))))
 
@@ -208,7 +207,6 @@ const router = createBrowserRouter([
           // renders this same view. /alarms stays valid for old links.
           { path: 'alarms', element: <Navigate to="/alerts-incidents" replace /> },
           { path: 'integrations', element: <Integrations /> },
-          { path: 'onvif-tools', element: <OnvifTools /> },
           { path: 'cloud', element: <Cloud /> },
           { path: 'support', element: <Support /> },
           { path: 'settings/*', element: <Settings /> },

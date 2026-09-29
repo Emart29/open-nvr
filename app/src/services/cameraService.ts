@@ -114,34 +114,6 @@ export const cameraService = {
     ip: string,
     params: { username: string; password: string; port?: number }
   ) => api.post(`/api/v1/connect`, '', { params: { ip, ...params } }),
-  onvifProfiles: (
-    ip: string,
-    params: { username: string; password: string; port?: number }
-  ) => api.get(`/api/v1/camera/${encodeURIComponent(ip)}/profiles`, { params }),
-  onvifStreamUri: (
-    ip: string,
-    params: { username: string; password: string; profileToken: string; port?: number }
-  ) => api.get(`/api/v1/camera/${encodeURIComponent(ip)}/stream-uri`, { params }),
-  onvifPtzMove: (
-    ip: string,
-    params: { username: string; password: string; profileToken: string; x?: number; y?: number; z?: number; port?: number }
-  ) => api.post(`/api/v1/camera/${encodeURIComponent(ip)}/ptz/move`, '', { params }),
-  onvifPtzStop: (
-    ip: string,
-    params: { username: string; password: string; profileToken: string; port?: number }
-  ) => api.post(`/api/v1/camera/${encodeURIComponent(ip)}/ptz/stop`, '', { params }),
-  onvifPreset: (
-    ip: string,
-    params: { username: string; password: string; profileToken: string; action: 'setPreset' | 'getPresets' | 'gotoPreset'; name?: string; presetToken?: string; port?: number }
-  ) => api.post(`/api/v1/camera/${encodeURIComponent(ip)}/ptz/preset`, '', { params }),
-  onvifGetTime: (
-    ip: string,
-    params: { port?: number }
-  ) => api.get(`/api/v1/camera/${encodeURIComponent(ip)}/time`, { params }),
-  onvifSyncTime: (
-    ip: string,
-    params: { username: string; password: string; port?: number }
-  ) => api.post(`/api/v1/camera/${encodeURIComponent(ip)}/time/sync`, '', { params }),
 
   // Camera Settings (device driver — Phase 0: read-only)
   getCameraCapabilities: (cameraId: number) => api.get(`/api/v1/cameras/${cameraId}/capabilities`),
