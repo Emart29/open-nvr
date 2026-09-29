@@ -261,6 +261,10 @@ def reduce_metrics(samples: list[Sample]) -> dict[str, Any]:
     mainstream = _by_camera(samples, "tier0_mainstream_fallback")
     visits_ok = _by_camera(samples, "tier0_visits_posted_total")
     visits_drop = _by_camera(samples, "tier0_visits_dropped_total")
+    # Decoded frames detection never reached because it was still busy
+    # (#507). This is the capacity signal now: before, the same condition
+    # dropped the RTSP session and showed up as restarts.
+    frames_drop = _by_camera(samples, "tier0_frames_dropped_total")
     capped = _by_camera(samples, "tier0_regions_capped_total")
     # The motion gate's own verdict on the scene. A camera whose scene never
     # calibrates (dashcam, a road that never empties) is LATCHED OPEN: the
@@ -302,6 +306,7 @@ def reduce_metrics(samples: list[Sample]) -> dict[str, Any]:
             "skipped_total": int(skipped_by_cam.get(cam, 0)),
             "visits_posted": int(visits_ok.get(cam, 0)),
             "visits_dropped": int(visits_drop.get(cam, 0)),
+            "frames_dropped": int(frames_drop.get(cam, 0)),
             "mainstream_fallback": bool(mainstream.get(cam, 0) >= 1.0),
             "motion_latched_open": bool(latched.get(cam, 0) >= 1.0),
             "motion_forced_exits": int(forced_exits.get(cam, 0)),
@@ -317,6 +322,7 @@ def reduce_metrics(samples: list[Sample]) -> dict[str, Any]:
         "min_fps_ratio": round(ratios[worst_cam], 3) if worst_cam else None,
         "worst_camera": worst_cam,
         "restarts_total": int(_sum(samples, "tier0_worker_restarts_total")),
+        "frames_dropped_total": int(_sum(samples, "tier0_frames_dropped_total")),
     }
 
     # Coarse mode inference (best-effort UI label, not a control signal):

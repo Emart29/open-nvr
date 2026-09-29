@@ -313,11 +313,16 @@ class RegionBudgetController:
     Tier-0's cost is dominated by inference, and the region budget is what
     multiplies it: ``max_regions`` crops per frame. On hardware where a single
     inference is slower than the whole frame budget, the worker simply falls
-    further behind every frame — and it has no way to notice. The consequence
-    is not just late detections: the worker stops draining ffmpeg's stdout,
-    ffmpeg blocks on the full pipe, MediaMTX drops the reader, and the session
-    dies. The camera then looks flaky ("Failed reading RTSP data: End of file")
-    when the real cause is us.
+    further behind every frame — and it has no way to notice. Until #507 the
+    consequence was not just late detections: the worker stopped draining
+    ffmpeg's stdout, ffmpeg blocked on the full pipe, MediaMTX dropped the
+    reader, and the session died — a camera that looked flaky ("Failed
+    reading RTSP data: End of file") when the real cause was us. The decoder
+    is drained on its own thread now (frame_source._FrameSlot): a slow
+    detector drops frames, counted in ``tier0_frames_dropped_total``, and
+    never the session. What this controller buys is detecting on MORE of the
+    frames the camera decodes, and not spending CPU on regions the box
+    cannot afford.
 
     Measured on a live 1080p camera with the shipped defaults (8 regions,
     640px input, 2 fps): 3.07s of inference against a 500ms budget — six times

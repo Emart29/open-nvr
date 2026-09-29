@@ -175,13 +175,14 @@ Real-world limitations the example does NOT yet handle:
   (`VADUserTurnStartStrategy(enable_interruptions=False)`) because the
   demo HTML client doesn't send cancel frames when you start talking
   again. Wait for the agent to finish before asking the next thing.
-* **Turn-taking is semantic.** Pipecat 1.8's user aggregator runs
-  Silero VAD to open a turn and **Smart Turn v3** (the bundled,
+* **Turn-taking is semantic.** Pipecat's user aggregator runs
+  Silero VAD to open a turn and **Smart Turn v3.2** (the bundled,
   CPU-only end-of-turn model) to close it, so a pause mid-sentence
   no longer ends your question the way the old 0.7 s silence timer
   did. Tune `vad_*` / `turn_*` in `config.yml` if your speakers pause
-  longer; the model, the VAD weights and NLTK's tokenizer are all in
-  the image — nothing is downloaded at runtime.
+  longer; the model and the VAD weights are in the image and the
+  sentence splitter needs no data files — nothing is downloaded at
+  runtime.
 * **Browser demo is minimal.** ~200 lines of vanilla JS. Audio
   worklets, jitter buffering, transcript display — none of it.
   The intent is to demonstrate the agent shape; production UIs

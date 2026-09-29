@@ -51,9 +51,68 @@ enricher picks the change up on its next visit.
 5. **Back-fill history.** The enrichers run on *new* visits only. Every visit
    recorded before is a row with no words and no vector, so the first search
    an operator runs — against yesterday — returns nothing. Set
-   `EVENTS_ENRICHMENT_BACKFILL=true`; the sweep starts three minutes after
-   boot, walks history newest-first, hands each qualifying visit to the same
-   enricher, and stops when it is done. It is a one-off; turn it off after.
+   `EVENTS_ENRICHMENT_BACKFILL=true`; the sweep walks history newest-first
+   when the box is idle (see *When the box cannot keep up*), hands each
+   qualifying visit to the same enricher, and — once history is done —
+   keeps catching up on live visits the gate dropped under load. Leave it
+   on on a box that drops; turn it off on one that never does.
+
+## When the box cannot keep up
+
+Enrichment never slows recording or detection. When it cannot keep up,
+it yields — it does not queue without bound (#583: a CPU captioner that
+takes seconds per image was outrun by one busy camera, every call timed
+out on core's side while the model finished anyway, and the box lost two
+cores for zero captions saved).
+
+**Admission, per adapter.** Each adapter takes `scheduling.max_inflight`
+calls at once (its line in `server/config/adapters_index.yml`); up to
+`EVENTS_ENRICHMENT_QUEUE_DEPTH` (8) more visits may wait for a slot, and
+the next is **dropped** — described later by the backfill — rather than
+queued. `EVENTS_ENRICHMENT_TIMEOUT_S` (90) is a hung-adapter guard, not
+load control; `EVENTS_ENRICHMENT_BREAKER_TIMEOUTS` (5) timeouts in a row
+pause that adapter for 60 s, doubling to 10 min, and raise a system event.
+A timeout is logged as what it is ("still answering after 90 s"), not
+"failed".
+
+**The governor.** Can the box afford enrichment *right now*? Read from the
+host monitor's CPU sample and each adapter's average call time:
+
+| State | When | What runs |
+|---|---|---|
+| **NORMAL** | CPU under `EVENTS_ENRICHMENT_GOVERNOR_CPU_PERCENT` (65) and no adapter over `EVENTS_ENRICHMENT_SLOW_CALL_S` (20) per call | everything; the backfill after `EVENTS_ENRICHMENT_BACKFILL_IDLE_S` (120) of quiet, optionally only inside `EVENTS_ENRICHMENT_BACKFILL_WINDOW` (`HH:MM-HH:MM`) |
+| **LIVE-ONLY** | over either line | captions and embeddings only when a slot is free; colour/type questions keep a short line (the filters' claims outrank the sentence); backfill held |
+| **PAUSED** | the monitor's own `cpu_high` alert, or an open breaker | nothing; visits stay for later |
+
+Each change is one `enrichment_throttled` system event with the reason.
+Busy is load, not clock: busy hours throttle themselves.
+
+## On demand: "not yet" is not "no"
+
+A search whose question needs a caption or a claim the matching visits
+lack — "blue car on the gate camera between two and four" — answers from
+what exists and **queues the rest for description now**, newest first,
+up to `EVENTS_ENRICHMENT_REQUEST_CAP` (50) per question; narrow the window
+past that. This runs even with the two description flags **off**: the
+operator asked. The answer carries `pending` — how many are missing, how
+many this call queued, and roughly how long — and the Search page shows
+it with a *Check again* button; the agent says "N visits in that window
+have not been described yet — about T; ask me again then." The App SDK
+returns it on the rows (`SearchResult.pending`, `EventsClient.last_pending`).
+`describe=false` on `GET /api/v1/search` queues nothing. A visit the
+captioner looked at and had nothing to say about is marked (`enriched_by`)
+so nobody asks about it forever; a call that *failed* is not.
+
+## CPU installs
+
+Without a CUDA GPU the installer defaults `EVENTS_CAPTION_ENRICHMENT` and
+`EVENTS_DESCRIPTOR_ENRICHMENT` to **false** and asks. Both together cost
+one captioner call plus two VQA questions per finished visit. To keep them
+on on CPU (or an M-series Mac), use `CAPTION_ADAPTER=moondream` — the
+0.5B in-container build, ~10× faster than `ollamavlm` on CPU — and a light
+camera; never `ollamavlm` there. Nothing recorded while they are off is
+lost: the on-demand lane describes what a question needs, and the backfill
+honours the same flags when you turn them back on.
 
 ## Checking it worked
 

@@ -168,7 +168,7 @@ and (b) doesn't react to room noise.
   browser and POSTs it to `/converse`. Turn-taking there is the browser's
   own *energy* detector described below — there is no speech model on the
   client. Smart Turn is **not** in this loop.
-* The **streaming pipeline** (`/ws`, Pipecat 1.8) is where Silero VAD +
+* The **streaming pipeline** (`/ws`, Pipecat 1.12) is where Silero VAD +
   **Smart Turn v3** live: semantic end-of-turn, and — for clients that opt
   in — model-backed interruptions (`MinWordsUserTurnStartStrategy`: a reply
   is only cut when the interrupter has actually said a few words). The demo
@@ -231,9 +231,9 @@ Two layers handle the demo page:
 
 ## Turn detection on CPU (Smart Turn v3)
 
-Since Pipecat 1.8 the agent closes a turn with **Smart Turn v3** — a small
-semantic end-of-turn model bundled in the wheel and run on CPU with
-onnxruntime — instead of a silence timer. What it costs, measured on a
+Since Pipecat 1.8 the agent closes a turn with **Smart Turn v3** (the
+v3.2 weights bundled in the wheel) — a small semantic end-of-turn model
+run on CPU with onnxruntime — instead of a silence timer. What it costs, measured on a
 4-core ARM VM with no GPU (`tests/test_turn_hardware.py` covers the sizing;
 the numbers come from `LocalSmartTurnAnalyzerV3._predict_endpoint` on 8 s
 of audio):

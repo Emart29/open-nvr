@@ -151,6 +151,65 @@ def test_camera_worker_publishes_results(monkeypatch):
     assert sink.events[-1][1] >= 1                   # a track was published
 
 
+class _GappySource:
+    """Emits seq 0,1,5,6 then 0,1: the source's drain overwrote 2-4 while
+    detection was busy (#507), and the second 0 is a restart, not a gap."""
+
+    def __init__(self):
+        self.width, self.height = W, H
+
+    def stream(self):
+        for i in (0, 1, 5, 6, 0, 1):
+            yield Frame(bytes(frame_size_bytes(W, H)), W, H, i, float(i))
+
+
+def test_dropped_frames_are_counted_from_seq_gaps_and_warned_about(monkeypatch, caplog):
+    import logging
+
+    import detect_pipeline.motion as motion_mod
+    import detect_pipeline.service as svc
+    from detect_pipeline.metrics import metrics
+
+    real_detect = motion_mod.MotionDetector.detect
+
+    def fake_detect(self, luma):
+        real_detect(self, luma)
+        self.calibrating = False
+        return [(80, 60, 160, 200)]
+
+    monkeypatch.setattr(motion_mod.MotionDetector, "detect", fake_detect)
+    monkeypatch.setattr(svc, "DROP_REPORT_WINDOW_S", 0.0)   # report every frame
+    before = metrics.value("tier0_frames_dropped_total", {"camera": "cam-gappy"})
+    restarts_before = metrics.value("tier0_worker_restarts_total", {"camera": "cam-gappy"})
+    sink = _FakeSink()
+    worker = CameraWorker(_spec("cam-gappy"), sink, detector=_MotionAllDetector(),
+                          frame_source=_GappySource())
+    with caplog.at_level(logging.WARNING, logger="detect_pipeline.service"):
+        worker.start()
+        for _ in range(100):
+            if len(sink.events) >= 6:
+                break
+            time.sleep(0.02)
+        worker.stop()
+    assert metrics.value("tier0_frames_dropped_total", {"camera": "cam-gappy"}) - before == 3
+    assert metrics.value("tier0_worker_restarts_total", {"camera": "cam-gappy"}) - restarts_before == 1, (
+        "seq back to 0 is a restart, never a drop")
+    assert "exceeds this box's capacity" in caplog.text
+    assert "3 of 4 decoded frames" in caplog.text
+
+
+def test_the_capacity_warning_is_a_share_of_what_was_decoded():
+    """25% of decoded frames — dropped / (dropped + detected), as the
+    knob's comment and the changelog say — not dropped / detected, which
+    fired at a 20% share."""
+    from detect_pipeline.service import DROP_WARN_SHARE
+    assert DROP_WARN_SHARE == 0.25
+    dropped, detected = 21, 79                       # 21% of 100 decoded
+    assert not (dropped >= (dropped + detected) * DROP_WARN_SHARE)
+    dropped, detected = 25, 75                       # exactly a quarter
+    assert dropped >= (dropped + detected) * DROP_WARN_SHARE
+
+
 class _RestartingFramesSource:
     """Emits seq 0,1,2 then 0,1 — the second 0 is an ffmpeg-restart signal."""
 

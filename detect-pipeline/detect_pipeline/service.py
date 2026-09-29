@@ -44,6 +44,7 @@ from .metrics import (
     record_mainstream_fallback,
     record_published,
     record_sink_error,
+    record_frames_dropped,
     record_worker_restart,
     record_worker_state,
     record_worker_straggler,
@@ -213,6 +214,14 @@ class ResultSink(Protocol):
     def publish(self, camera_id: str, result: FrameResult, frame) -> bool:
         """Return True iff an event was actually published (not a no-op frame)."""
         ...
+
+
+#: How often a worker reports frames the drain dropped while detection was
+#: busy, and the share of decoded frames (dropped / (dropped + detected))
+#: from which that report is a WARNING: a camera the box cannot serve is a
+#: named warning, not a quiet success (#507).
+DROP_REPORT_WINDOW_S = 60.0
+DROP_WARN_SHARE = 0.25
 
 
 class Worker(Protocol):
@@ -664,6 +673,12 @@ class CameraWorker:
         prev_seq: int | None = None
         win_t0 = time.monotonic()
         win_n = 0
+        # Dropped-frame reporting window: frames the drain overwrote while
+        # detection was busy (#507), reported once per window as a WARNING
+        # when they are DROP_WARN_SHARE or more of what the camera decoded.
+        drop_t0 = time.monotonic()
+        drop_n = 0
+        drop_seen = 0
         try:
             for frame in src.stream():
                 if self._stop.is_set():
@@ -684,15 +699,39 @@ class CameraWorker:
                         )
                     else:
                         record_worker_restart(self.spec.camera_id)
+                elif prev_seq is not None and seq is not None and seq > prev_seq + 1:
+                    # The source's drain thread read these while detection
+                    # was still busy with the previous frame, and overwrote
+                    # them: the newest frame won, these did not run. Exact
+                    # accounting from the seq gap; a restart (seq back to 0)
+                    # is handled above and never reads as a drop.
+                    gap = seq - prev_seq - 1
+                    record_frames_dropped(self.spec.camera_id, gap)
+                    drop_n += gap
                 prev_seq = seq
+                drop_seen += 1
+                now = time.monotonic()
+                if now - drop_t0 >= DROP_REPORT_WINDOW_S:
+                    if drop_n and drop_n >= (drop_n + drop_seen) * DROP_WARN_SHARE:
+                        log.warning(
+                            "tier0 %s: detection exceeds this box's capacity — "
+                            "%d of %d decoded frames in the last %.0fs were never "
+                            "detected on (detection ran on %d); the stream is "
+                            "intact, the frames are not. Fewer regions, a smaller "
+                            "input, a lower fps or more CPU.",
+                            self.spec.camera_id, drop_n, drop_n + drop_seen,
+                            now - drop_t0, drop_seen,
+                        )
+                    drop_t0, drop_n, drop_seen = now, 0, 0
                 t0 = time.monotonic()
                 result = pipe.process_frame(frame)
                 frame_latency = time.monotonic() - t0
                 # Spend fewer detector crops when we cannot finish a frame in
-                # its budget. Falling behind does not just delay detections —
-                # the worker stops draining ffmpeg's stdout, ffmpeg blocks on
-                # the full pipe, and MediaMTX drops the session, which surfaces
-                # as a "flaky camera" that is really us.
+                # its budget. Since #507 falling behind no longer stalls the
+                # decoder — the source's drain thread keeps ffmpeg moving and
+                # drops what detection did not reach — so this is about not
+                # wasting CPU on regions the box cannot afford, and about
+                # detecting on more of the frames it decodes.
                 delta = budget.observe(frame_latency, len(result.regions))
                 if delta:
                     pipe.max_regions = budget.current

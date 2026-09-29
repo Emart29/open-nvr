@@ -774,6 +774,7 @@ type Tier0MetricsResp = {
     min_fps_ratio: number | null
     worst_camera: string | null
     restarts_total: number
+    frames_dropped_total?: number
   }
   detector?: {
     latency_avg_ms: number | null
@@ -805,6 +806,7 @@ type Tier0MetricsResp = {
     tracks_active: number
     visits_posted: number
     visits_dropped: number
+    frames_dropped?: number
     mainstream_fallback: boolean
     motion_latched_open?: boolean
     motion_forced_exits?: number
@@ -1001,7 +1003,7 @@ function ComputeGatedPanel() {
         <PromotionCard d={d} />
         {/* Operator health — is it running, and is the box keeping up with the cameras? */}
         {d.health && (d.health.workers_total > 0 || d.health.restarts_total > 0) && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <StatTile label="Workers up" value={`${d.health.workers_up} / ${d.health.workers_total}`}
               sub="analyze-enabled cameras" warn={d.health.workers_up < d.health.workers_total} />
             <StatTile label="Keeping up"
@@ -1010,6 +1012,11 @@ function ComputeGatedPanel() {
               warn={d.health.min_fps_ratio != null && d.health.min_fps_ratio < 0.9} />
             <StatTile label="Restarts" value={fmt.number(d.health.restarts_total ?? 0)}
               sub="camera feed restarts" warn={(d.health.restarts_total ?? 0) > 0} />
+            {/* Decoded frames detection never reached (#507): the box cannot
+                serve that camera at its detector budget. Used to surface as
+                restarts, because the session died instead. */}
+            <StatTile label="Frames dropped" value={fmt.number(d.health.frames_dropped_total ?? 0)}
+              sub="decoded, never detected on" warn={(d.health.frames_dropped_total ?? 0) > 0} />
           </div>
         )}
 
