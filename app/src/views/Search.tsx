@@ -41,6 +41,7 @@ import {
   Search as SearchIcon, Sparkles, Tag, Type, UserRound, X,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { PageTitleBar, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
 import SearchAnswer, { type SearchAnswerData } from '../components/SearchAnswer'
 import { AuthedImage } from '../components/AuthedImage'
 import { JourneyPanel } from '../components/JourneyPanel'
@@ -758,20 +759,14 @@ export function Search() {
     // 5rem = the 3rem top bar + the shell's p-4.
     <section className="flex h-[calc(100vh-5rem)] min-h-[480px] flex-col gap-2">
       <div className="shrink-0 border border-[var(--border)] bg-[var(--panel-2)]">
-        {/* The page's one line of purpose, so it reads first: larger and
-            brighter than a widget header, above a field that stays quiet. */}
-        <div className="flex items-center gap-2.5 px-3 py-2 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
-          <SearchIcon size={16} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
-          <h1 className="text-[15px] font-bold text-[var(--text)] whitespace-nowrap">{t('search.title')}</h1>
-          <p className="min-w-0 truncate text-sm font-medium text-[var(--text)]">{t('search.description')}</p>
-        </div>
+        <PageTitleBar icon={<SearchIcon size={16} />} title={t('search.title')} description={t('search.description')} />
 
         {/* ── The box ── */}
         {/* Title and field in one panel: the title is the panel's header, the
             field its body, so the two no longer read as the same control. The
             submit sits inside the field's end as a quiet Enter key — the box is
             the control, not a button beside it. */}
-        <div className="space-y-2 p-2.5">
+        <div className={`space-y-2 ${TITLE_PANEL_BODY_CLASS}`}>
           <form
             className="flex items-stretch"
             onSubmit={(e) => { e.preventDefault(); run(draft.trim()) }}

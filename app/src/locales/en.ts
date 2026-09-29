@@ -356,6 +356,7 @@ export const translations: TranslationCatalog = {
   'camera.canView': 'Can view',
   'camera.canManage': 'Can manage',
   'camera.camerasNoun': 'cameras',
+  'camera.cameraNoun': 'camera',
   'camera.delete': 'Delete camera',
   'camera.prev': 'Prev',
   'camera.next': 'Next',

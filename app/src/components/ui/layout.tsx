@@ -14,6 +14,40 @@ import { EmptyState, ErrorCard, Skeleton } from './index'
 import { useTranslation } from '../../i18n'
 import { extractApiError } from '../../lib/apiError'
 
+/* --------------------------- PageTitleBar -------------------------- */
+
+/**
+ * The title strip at the top of a page's first panel: accent icon, bold
+ * title, the page's one line of purpose, optional actions on the right.
+ * One fixed height with or without actions, so every page that uses it
+ * starts at the same line — hand-built copies drifted by a few pixels each.
+ * Sits inside a bordered panel; it draws only the divider beneath itself.
+ */
+export function PageTitleBar({ icon, title, description, actions }: {
+  icon: ReactNode
+  title: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+}) {
+  return (
+    <div className="h-11 flex items-center gap-2.5 px-3 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+      <span className="shrink-0 flex text-[var(--accent)]" aria-hidden="true">{icon}</span>
+      <h1 className="text-[15px] font-bold text-[var(--text)] whitespace-nowrap">{title}</h1>
+      {description && (
+        <p className="hidden md:block min-w-0 truncate text-sm font-medium text-[var(--text)]">{description}</p>
+      )}
+      {actions && <div className="ml-auto flex shrink-0 items-center gap-3">{actions}</div>}
+    </div>
+  )
+}
+
+/** The quiet accent action a PageTitleBar carries (e.g. "+ Add camera"). */
+export const TITLE_ACTION_CLASS =
+  'inline-flex h-7 items-center gap-1.5 border border-[var(--accent)] px-2.5 text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:border-[var(--border)] disabled:text-[var(--text-dim)] disabled:hover:bg-transparent'
+
+/** The body row under a PageTitleBar: same padding on every page. */
+export const TITLE_PANEL_BODY_CLASS = 'px-3 py-2.5'
+
 /* ------------------------------ Panel ------------------------------ */
 
 /**
