@@ -1641,6 +1641,8 @@ def test_a_question_that_needs_a_description_queues_it_and_says_so(client, db, m
     assert pending["needs"]["caption"] is True and "colour" in pending["needs"]["kinds"]
     assert pending["eta_s"] > 0 and pending["request_id"]
 
+    page2 = client.get("/api/v1/search", params={"q": "red car", "skip": 1}).json()
+    assert page2["pending"] is None, "paging through the same question re-scans nothing"
     again = client.get("/api/v1/search", params={"q": "red car"}).json()["pending"]
     assert again["requested"] == 0 and again["already_queued"] == 3
 

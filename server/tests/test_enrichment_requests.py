@@ -63,8 +63,8 @@ def _fresh():
 
 
 def _visit(db, *, label="car", minutes_ago=5, caption=None, claims=(), evidence="e.jpg",
-           camera_id=1, looked=()):
-    t = WALL - timedelta(minutes=minutes_ago)
+           camera_id=1, looked=(), now=None):
+    t = (now or WALL) - timedelta(minutes=minutes_ago)
     row = TimelineEvent(camera_id=camera_id, source="tier0", event_type="track", label=label,
                         started_at=t, ended_at=t + timedelta(seconds=20), evidence_path=evidence,
                         payload={"enriched_by": list(looked)} if looked else None)
@@ -156,11 +156,11 @@ def enrichers(monkeypatch):
         seen["caption"].append((int(event_id), priority))
         if int(event_id) in seen["drop"]:
             seen["drop"].discard(int(event_id)); return "dropped"
-        return None
+        return "done"
 
     async def _desc(event_id, *a, priority="live", **k):
         seen["descriptors"].append((int(event_id), priority))
-        return None
+        return "done"
 
     import services.caption_enrichment as cap_mod
     import services.descriptor_enrichment as desc_mod
@@ -364,6 +364,45 @@ def test_a_cancelled_request_releases_its_calls_and_visits(enrichers, bus):
             await task
         mp.undo()
     _run(go())
-    assert er._pending_calls == 8, "the cancelled call is no longer ahead of anyone"
+    assert er._pending_calls == 0, "none of a cancelled request's calls is ahead of anyone"
     assert er.queue_depth() == 0, "nothing stays 'in flight' for a request that is gone"
     assert bus and bus[-1]["payload"]["request_id"]
+    assert bus[-1]["payload"]["cancelled"] is True, "announced, but not as done"
+
+
+def test_an_early_return_is_not_described(enrichers, bus, monkeypatch):
+    """Row gone, no adapter, unreadable frame: the enricher returns None
+    and nobody looked. The DONE announcement must not call that
+    described — a listener would stop asking."""
+    async def _gone(event_id, *a, **k):
+        return None
+    import services.caption_enrichment as cap_mod
+    monkeypatch.setattr(cap_mod, "enrich_event_caption", _gone)
+
+    async def go():
+        er.request([1, 2], caption=True)
+        await er.process_one_request(er._q().get_nowait())
+    _run(go())
+    assert bus[-1]["payload"]["described"] == 0 and bus[-1]["payload"]["dropped"] == 0
+
+
+def test_a_visit_the_live_path_still_owns_is_not_missing(db):
+    """Seconds old: its ingest-time caption and VQA are at the gate or on
+    the wire. Queuing it here too runs the inference twice."""
+    now = datetime.now(UTC)            # not WALL: that is stamped at import, minutes ago
+    _visit(db, minutes_ago=1, now=now)
+    _visit(db, minutes_ago=5, now=now)
+    out = er.missing_for(db, filters=FILTERS, labels=None, camera_ids=None,
+                         want_caption=True, want_kinds=set())
+    assert out["total"] == 1
+
+
+def test_missing_for_never_trips_the_ingest_unassigned_counter(db):
+    """wants_caption counts an unassigned camera toward the ingest path's
+    'N qualifying visits skipped' warning. A search is not an ingest."""
+    from services import caption_enrichment as cap
+    _visit(db, camera_id=2); _visit(db, camera_id=2)
+    before = cap._unassigned_skipped
+    out = er.missing_for(db, filters=FILTERS, labels=None, camera_ids=None,
+                         want_caption=True, want_kinds={"colour"})
+    assert out["total"] == 0 and cap._unassigned_skipped == before

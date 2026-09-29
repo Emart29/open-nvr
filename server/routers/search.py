@@ -456,8 +456,11 @@ async def search(
     # need a caption; a chip needs a claim of its kind; a need the box
     # cannot meet at all (state missing) is not requested — the `needs`
     # list already says why.
+    # First page only: paging through the same question, and the UI's
+    # per-keystroke refetch, must not re-scan the window and re-queue on
+    # every call; page 1 is where the question is asked.
     pending: dict | None = None
-    if describe and (words or attrs):
+    if describe and (words or attrs) and skip == 0:
         from services.enrichment_requests import kinds_for_attrs, pending_for
 
         # Every kind the question leans on; pending_for keeps only those
