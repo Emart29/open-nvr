@@ -52,9 +52,10 @@ def _fresh_enrichment_gates():
     try:
         from services.enrichment_gate import _reset_for_tests
         from services.enrichment_governor import _reset_for_tests as _reset_gov
+        from services.enrichment_requests import _reset_for_tests as _reset_req
     except Exception:  # noqa: BLE001 — a test that never imports services
         yield
         return
-    _reset_for_tests(); _reset_gov()
+    _reset_for_tests(); _reset_gov(); _reset_req()
     yield
-    _reset_for_tests(); _reset_gov()
+    _reset_for_tests(); _reset_gov(); _reset_req()

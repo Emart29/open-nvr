@@ -43,18 +43,21 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_active_user
 from core.database import get_db
-from models import (AppAlert, Camera, CameraZone, TimelineEvent, User,
-                    VisitDescriptor)
+from core.permissions import user_has_permission
+from models import AppAlert, Camera, CameraZone, TimelineEvent, User, VisitDescriptor
 
 # The internal door is defined once, next to the pipeline's write routes;
 # the metrics scrape is the same door and should not grow a second lock.
 from routers.internal_camera_agent import _platform_only, _require_internal_key
 from services import search_metrics as metrics
-from core.permissions import user_has_permission
 from services.camera_scope import scope_query, visible_camera_ids
 from services.search_query import ParsedQuery, parse_query
-from services.search_service import (anchor_for, count_search_events,
-                                     search_page, summarise_hits)
+from services.search_service import (
+    anchor_for,
+    count_search_events,
+    search_page,
+    summarise_hits,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +321,8 @@ def _known_people(db: Session, scope: set[int] | None) -> list[str]:
 
 async def _needs_for(db: Session, scope: set[int] | None, *, parsed: ParsedQuery,
                      labels, words: str, attrs, wants_plate: bool, plate: str):
-    """Resolve the question's needs against this box — see
+    """Resolve the question's needs against this box, and return the
+    box's abilities alongside (the requested lane reads them) — see
     ``services.search_intent``. Best-effort: an unreachable registry
     means every need reads as not-on-this-box, which is the honest
     answer at that moment, and never an error."""
@@ -357,7 +361,7 @@ async def _needs_for(db: Session, scope: set[int] | None, *, parsed: ParsedQuery
     return resolve_needs(
         words=(words or "").split(), labels=labels, attrs=attrs,
         wants_plate=wants_plate, plate=plate, box=box,
-    )
+    ), box
 
 
 @router.get("/search")
@@ -386,12 +390,25 @@ async def search(
                     "are the whole query (how a UI driving from edited chips "
                     "clears a filter the sentence implied).",
     ),
+    describe: bool = Query(
+        True,
+        description="When the question needs a caption or a claim the matching "
+                    "visits do not have yet, queue them for description (up to "
+                    "EVENTS_ENRICHMENT_REQUEST_CAP, newest first) and report it "
+                    "under `pending`. false = answer from what exists and queue "
+                    "nothing.",
+    ),
     skip: int = Query(0, ge=0, le=100_000),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Search visits. Returns the interpretation, the page, and the total.
+
+    And, when the question leans on a description the matching visits
+    do not have yet, ``pending``: how many are missing it, how many this
+    call queued to be described now, and roughly how long — so an empty
+    page can say "not yet" instead of "no", and the caller can ask again.
 
     Scoping is the store's own: a caller sees results only from cameras
     they can view, and the camera vocabulary the parser matches names
@@ -432,8 +449,34 @@ async def search(
         from_=start, to=end, plate=plate_q or None, source=source, scope=scope,
         zone_id=zone_id, has_plate=wants_plate,
     )
-    needs = await _needs_for(db, scope, parsed=parsed, labels=labels, words=words,
-                             attrs=attrs, wants_plate=wants_plate, plate=plate_q or "")
+    needs, box = await _needs_for(db, scope, parsed=parsed, labels=labels, words=words,
+                                  attrs=attrs, wants_plate=wants_plate, plate=plate_q or "")
+    # What the question needs that the matching visits may not have, and
+    # the request to produce it (services/enrichment_requests). Words
+    # need a caption; a chip needs a claim of its kind; a need the box
+    # cannot meet at all (state missing) is not requested — the `needs`
+    # list already says why.
+    # First page only: paging through the same question, and the UI's
+    # per-keystroke refetch, must not re-scan the window and re-queue on
+    # every call; page 1 is where the question is asked.
+    pending: dict | None = None
+    if describe and (words or attrs) and skip == 0:
+        from services.enrichment_requests import kinds_for_attrs, pending_for
+
+        # Every kind the question leans on; pending_for keeps only those
+        # a healthy skill on this box offers, so a need the box cannot
+        # meet queues nothing (the `needs` list already says why).
+        want_kinds = {k for k in (kinds_for_attrs(attrs) | {n.kind for n in needs})
+                      if k != "face_id"}
+        try:
+            pending = await pending_for(
+                db, filters=filters, labels=labels, camera_ids=cams,
+                want_caption=bool(words), want_kinds=want_kinds,
+                # The plan was already read for `needs`; do not read it twice.
+                offers=(bool(box.captions), set(box.offered_kinds) - {"face_id"}))
+        except Exception:  # noqa: BLE001 — a hint must never 500 a search
+            logger.debug("search: pending-enrichment lookup failed", exc_info=True)
+            pending = None
     shape = metrics.query_shape(
         labels=labels, camera_ids=cams, text=words or "", attrs=attrs,
         plate=plate_q or "", from_=start, to=end,
@@ -567,6 +610,9 @@ async def search(
     return {
         "query": q,
         "interpretation": interpretation,
+        # What is not described yet and what this call queued (None when
+        # the question needed nothing a description would add).
+        "pending": pending,
         "results": [
             {
                 "id": h.event.id,

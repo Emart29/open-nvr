@@ -376,7 +376,7 @@ def _asked_questions(label: str, *, people: bool, monkeypatch,
 
     asked: list[str] = []
 
-    async def _ask(jpeg, adapter, question, handle, event_id):
+    async def _ask(jpeg, adapter, question, handle, event_id, **kw):
         asked.append(question)
         return answer    # None by default: nothing stored, we count questions
 
@@ -550,7 +550,7 @@ def test_questions_that_were_answered_are_still_recorded_as_ran(monkeypatch):
     out: dict = {}
     _asked_questions("truck", people=False, monkeypatch=monkeypatch,
                      answer="the answer is blue", out=out)
-    assert out["result"] is None
+    assert out["result"] == "done", "looked: what the requested lane counts as described"
     assert "vqa" in out["enriched_by"]
 
 

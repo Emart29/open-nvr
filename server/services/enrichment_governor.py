@@ -270,18 +270,34 @@ def _reset_for_tests() -> None:
 
 # ── what the enrichers ask ────────────────────────────────────────
 
-async def admit_live(gate: gate_mod.AdapterGate, kind: Kind) -> bool:
-    """The live path's one question: may this call go to the adapter?
+Priority = Literal["live", "requested"]
+
+
+async def admit_live(gate: gate_mod.AdapterGate, kind: Kind,
+                     priority: Priority = "live") -> bool:
+    """The enrichers' one question: may this call go to the adapter?
 
     ``True`` means a slot is held (release it). ``False`` is a drop —
     counted on the gate like any other, and the visit stays for the
-    backfill."""
+    backfill.
+
+    ``priority="requested"`` is a visit somebody ASKED about (the
+    requested lane, ``enrichment_requests``): in LIVE-ONLY it keeps the
+    full wait line rather than the live path's short one, because a
+    person is waiting on it and the catch-up will not reach it sooner.
+    PAUSED still refuses it — the box is losing, and a question does not
+    change that; the lane's worker waits and retries."""
     state = governor().evaluate()
     if state is State.PAUSED:
+        if priority == "requested":
+            # Not a drop: the lane's worker holds and asks again. Counting
+            # it on the gate would let a flapping PAUSE bury the real
+            # breaker drops under retries of work that was never lost.
+            return False
         gate.dropped_open += 1
         gate._note_drop(f"governor paused: {governor().reason}")
         return False
-    if state is State.LIVE_ONLY:
+    if state is State.LIVE_ONLY and priority == "live":
         # Under budget, the filters' claims outrank the sentence.
         return await gate.admit(max_waiting=(gate.queue_depth // 2) if kind == "vqa" else 0)
     return await gate.admit()

@@ -249,3 +249,167 @@ def test_a_refused_connection_is_still_unreachable(monkeypatch, caplog):
     assert "unreachable" in line, line
     assert "ConnectError" in line, "name the exception — '()' told nobody anything"
     assert "timed out" not in line
+
+
+# ── "looked and found nothing" is recorded, and the requested lane ────
+
+def _caption_harness(monkeypatch, *, caption_result, flag: bool = True,
+                     priorities=("live", "live"), existing_text: dict | None = None):
+    """The real enrich_event_caption over one visit, with the adapter
+    call stubbed. Returns (calls, row_payload, results, caption_on_row);
+    ``existing_text`` seeds an EventText row (the descriptor enricher's
+    caption-less one, say) before the runs."""
+    import asyncio
+    import pathlib
+    import tempfile
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import core.database
+    from core.config import settings
+    from core.database import Base
+    from models import Camera, Role, TimelineEvent, User
+    from services import caption_enrichment as mod
+    from services import evidence_store
+
+    engine = create_engine("sqlite:///:memory:", future=True,
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, future=True)
+    db = Session()
+    db.add(Role(id=1, name="admin", description="t")); db.commit()
+    db.add(User(id=1, username="o", email="o@x.test", hashed_password="x",
+                is_active=True, role_id=1)); db.commit()
+    db.add(Camera(id=1, name="c", ip_address="10.0.0.1", rtsp_url="rtsp://x/1", owner_id=1))
+    db.commit()
+    now = datetime.now(UTC)
+    db.add(TimelineEvent(id=1, camera_id=1, source="tier0", event_type="track", label="car",
+                         started_at=now, ended_at=now + timedelta(seconds=5),
+                         evidence_path="e.jpg"))
+    db.commit()
+    if existing_text is not None:
+        from models import EventText
+        db.add(EventText(event_id=1, **existing_text)); db.commit()
+
+    class _Shared:
+        def __init__(self, s):
+            self._s = s
+
+        def __getattr__(self, n):
+            return getattr(self._s, n)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(core.database, "SessionLocal", lambda: _Shared(db))
+    monkeypatch.setattr(settings, "events_caption_enrichment", flag, raising=False)
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "e.jpg"
+    tmp.write_bytes(b"\xff\xd8jpeg")
+    monkeypatch.setattr(evidence_store, "resolve_evidence", lambda _p: tmp)
+
+    async def _adapter():
+        return "moondream-vlm"
+
+    calls = []
+
+    async def _cap(jpeg, adapter, handle, event_id=None, *, priority="live"):
+        calls.append(priority)
+        return caption_result
+
+    monkeypatch.setattr(mod, "_resolve_caption_adapter", _adapter)
+    monkeypatch.setattr(mod, "_caption_jpeg", _cap)
+    loop = asyncio.new_event_loop()
+    try:
+        results = [loop.run_until_complete(mod.enrich_event_caption(1, priority=p))
+                   for p in priorities]
+        db.expire_all()
+        payload = dict(db.get(TimelineEvent, 1).payload or {})
+        from models import EventText
+        text = db.get(EventText, 1)
+        caption_on_row = text.caption if text is not None else None
+    finally:
+        loop.close(); db.close(); engine.dispose()
+    return calls, payload, results, caption_on_row
+
+
+def test_an_empty_answer_is_recorded_so_nobody_asks_forever(monkeypatch):
+    """The call was made and the captioner had nothing to say. Without a
+    mark the requested lane and the catch-up would offer this visit
+    again on every pass — 'looked and found nothing' must be a row."""
+    calls, payload, results, _ = _caption_harness(monkeypatch, caption_result="")
+    assert calls == ["live"], "the second run short-circuited on the mark"
+    assert "image_captioning" in payload.get("enriched_by", [])
+    assert results == ["done", None], "looked once (a result); short-circuited once"
+
+
+def test_a_failed_call_is_not_an_attempt(monkeypatch):
+    """A timeout, a refused connection, a 503: the adapter never answered.
+    Marking that would hide the visit from every later pass over a
+    transient failure — it is asked again."""
+    calls, payload, results, _ = _caption_harness(monkeypatch, caption_result=None)
+    assert calls == ["live", "live"]
+    assert "image_captioning" not in payload.get("enriched_by", [])
+
+
+def test_the_adapter_answering_with_nothing_usable_is_an_empty_answer(monkeypatch):
+    """_caption_jpeg: a 200 with no caption in it is "", a failure is None."""
+    import asyncio
+
+    from services import caption_enrichment as cap
+    from services import enrichment_gate as eg
+
+    async def answered(*a, **k):
+        return {"result": {"caption": "   "}}
+
+    async def failed(*a, **k):
+        return None
+
+    monkeypatch.setattr(eg, "infer_through_gate", answered)
+    assert asyncio.run(cap._caption_jpeg(b"j", "m", "cam1")) == ""
+    monkeypatch.setattr(eg, "infer_through_gate", failed)
+    assert asyncio.run(cap._caption_jpeg(b"j", "m", "cam1")) is None
+
+    async def malformed(*a, **k):
+        return {"error": "model loading"}          # a 200 with no result in it
+
+    monkeypatch.setattr(eg, "infer_through_gate", malformed)
+    assert asyncio.run(cap._caption_jpeg(b"j", "m", "cam1")) is None, (
+        "not an answer: a minute of these must not brand visits 'looked at'")
+
+
+def test_a_visit_with_claims_but_no_caption_still_gets_one(monkeypatch):
+    """The descriptor enricher creates a caption-less EventText for its
+    claims. That row is not 'already described' — before this, every
+    such visit was re-queued by the lane forever and captioned never."""
+    calls, _, results, caption = _caption_harness(
+        monkeypatch, caption_result="a red car", existing_text={"attributes": "red"})
+    assert calls == ["live"] and results == ["done", None]
+    assert caption == "a red car"
+
+
+def test_someone_elses_caption_is_never_overwritten(monkeypatch):
+    calls, _, results, caption = _caption_harness(
+        monkeypatch, caption_result="a red car",
+        existing_text={"caption": "delivery van at the gate", "source": "an-app"})
+    assert calls == [] and results == [None, None]
+    assert caption == "delivery van at the gate"
+
+
+def test_a_dropped_call_is_not_recorded_as_attempted(monkeypatch):
+    from services.enrichment_gate import DROPPED
+    calls, payload, results, _ = _caption_harness(monkeypatch, caption_result=DROPPED)
+    assert calls == ["live", "live"], "nobody looked; it is asked again"
+    assert "image_captioning" not in payload.get("enriched_by", [])
+    assert results == ["dropped", "dropped"]
+
+
+def test_the_requested_lane_ignores_the_site_wide_switch(monkeypatch):
+    """EVENTS_CAPTION_ENRICHMENT=false says 'do not describe every visit
+    unasked'. A visit somebody ASKED about is not that."""
+    calls, _, results, _ = _caption_harness(monkeypatch, caption_result="a car", flag=False,
+                                         priorities=("live", "requested"))
+    assert calls == ["requested"], "live returned at the switch; requested went out"
+    assert results == [None, "done"]
