@@ -17,11 +17,12 @@ VAD, turn-taking, and pipeline coordination; the OpenNVR adapter
 clients in ``adapter_clients.py`` own the wire format. These classes
 are just the glue.
 
-Pipecat's service APIs evolve between minor versions. This file
-targets ``pipecat-ai >=0.0.55,<1.0``. If you upgrade Pipecat and see
-import errors at boot, check the new service base classes in
-``pipecat.services`` and adjust the imports below — the body of each
-``run_*`` method should still be portable since it's just an
+Pipecat's service APIs evolve between minor versions. This file is
+written against the version pinned in ``pyproject.toml`` (1.x: the
+``pipecat.services.*_service`` base classes, the universal
+``LLMContext``). If you bump Pipecat and see import errors at boot,
+check the new base classes and adjust the imports below — the body of
+each ``run_*`` method should still be portable since it's just an
 ``async def`` calling our adapter clients.
 """
 from __future__ import annotations
@@ -105,6 +106,13 @@ class OpenNvrWhisperSTT(SegmentedSTTService):
     v3 to stop — see ``build_pipeline_task``) decide, and the
     ``max_duration_secs`` of the turn analyzer bounds a runaway
     utterance. The pre-1.x force-stop timers that lived here are gone.
+
+    Since pipecat 1.10 the base is queue-based: ``run_stt`` runs in a
+    background task while audio and other frames keep flowing through
+    the pipeline, so a two-second Whisper call on CPU no longer stalls
+    the turn machinery behind it; and each segment is padded with
+    ``trailing_silence_secs`` of silence so the model hears the end of
+    speech (``stt_trailing_silence_secs`` in config).
     """
 
     def __init__(
@@ -112,8 +120,9 @@ class OpenNvrWhisperSTT(SegmentedSTTService):
         *,
         client: WhisperClient,
         sample_rate: int = 16000,
+        trailing_silence_secs: float = 0.5,
     ) -> None:
-        super().__init__(sample_rate=sample_rate)
+        super().__init__(sample_rate=sample_rate, trailing_silence_secs=trailing_silence_secs)
         self._client = client
 
     # Whisper hallucinates short tokens when fed near-silence or very short

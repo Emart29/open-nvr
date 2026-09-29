@@ -8,6 +8,18 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The camera-agent moved to Pipecat 1.12** (from 1.8.1, pinned in
+  `pyproject.toml`, `uv.lock` and the Dockerfile alike — a test fails
+  when they disagree). What it brings: Whisper transcription runs off
+  the pipeline's path (audio and turn-taking keep flowing during a
+  two-second CPU transcription), each utterance is padded with
+  `stt_trailing_silence_secs` (0.5 s) so the last word is not clipped,
+  the TTS sentence splitter needs no NLTK data (the image downloads
+  nothing at build or run time), and the websocket transport fixes of
+  1.10/1.11 (speech dropped on a TTS pause over 200 ms; frames treated
+  as unsent on empty serializer output). The image now installs exactly
+  what `uv.lock` says, hashes verified — the hand-kept list had shipped
+  numpy 2 / opencv 5 against a lock that said 1.26 / 4.11.
 - **Disabling an app in the catalog now stops it.** `enabled` gated one
   route (invoking an app's actions) and nothing the app itself could
   feel: a disabled app kept its cameras, kept pulling their streams and

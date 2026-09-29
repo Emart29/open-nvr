@@ -27,57 +27,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Pipecat is PINNED to the exact version pyproject.toml and uv.lock carry
-# — never a range. Its API has shifted between minor versions (the 1.x
-# line moved turn-taking into the user aggregator and the serializer/
-# transport modules; camera_agent.py, services.py and serializer.py are
-# written against 1.8), and a range resolves to whatever PyPI has on
-# build day: ">=1.8.1,<2.0" became 1.12, which no longer depends on nltk,
-# and the punkt download below failed the whole image build while the
-# tests, run against the lock, stayed green. An image must install what
-# the lock says. Bumping pipecat is a change to pyproject.toml + `uv lock`
-# FIRST (then re-run tests/test_pipeline_e2e.py and the demo page), then
-# this line. websockets is bounded here for the same reason it is in
-# pyproject.toml: the live-overlay path depends on it directly.
-# Resilient install for slow / flaky PyPI links (pipecat's silero extra pulls
-# torch — a large download). Three layers of resilience:
+# The image installs EXACTLY what uv.lock says — the dependency set the
+# tests run against — never a hand-kept list of ranges. The hand list
+# once broke this build the day a new pipecat appeared on PyPI while the
+# tests, on the lock, stayed green; and even when it built, the image
+# shipped numpy 2 / opencv 5 / fastapi 0.141 against a lock that said
+# numpy 1.26 / opencv 4.11 / fastapi 0.115. Pipecat's API shifts between
+# minors (camera_agent.py, services.py and serializer.py are written
+# against the version pinned in pyproject.toml); bumping it is `uv lock`
+# first, then the full test suite (tests/test_pipeline_e2e.py included)
+# and the demo page — this file needs no edit. tests/test_image_pins.py
+# guards the shape. The App SDK is left out of the export (it is
+# installed from the in-repo tree below, like the detector examples do);
+# its own dependencies are in the lock and land here.
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /bin/uv
+COPY examples/camera-agent/pyproject.toml examples/camera-agent/uv.lock /src/examples/camera-agent/
+COPY sdk/opennvr-app-sdk/pyproject.toml /src/sdk/opennvr-app-sdk/pyproject.toml
+# --locked: the lock must match pyproject.toml or the build fails HERE —
+# a bumped pin without `uv lock` is a build error, not an old pipecat in
+# the image. Hashes stay in: pip verifies every wheel against the lock.
+RUN cd /src/examples/camera-agent \
+    && uv export --locked --no-dev --no-emit-project \
+        --no-emit-package opennvr-app-sdk --extra device \
+        -o /src/requirements.txt \
+    && grep -c "==" /src/requirements.txt
+# Resilient install for slow / flaky PyPI links (a large download). Three
+# layers of resilience:
 #   * --mount=type=cache keeps the pip wheel cache across build attempts, so a
 #     re-run after a network stall only re-fetches what's still missing (this is
 #     why --no-cache-dir is intentionally dropped).
 #   * a retry loop re-runs the whole install up to 5× so a transient read
 #     timeout self-recovers instead of failing the build.
 #   * --timeout 300 tolerates slow reads before giving up.
-# pipecat is PINNED to the version examples/camera-agent/uv.lock tests
-# against, not a range. The range (>=1.8.1,<2.0) resolved to 1.12 the day
-# it appeared on PyPI, which no longer depends on nltk — and the punkt
-# download below, which 1.8.1's sentence aggregation needs, failed the
-# whole image build. An image must install what the lock says; bumping
-# pipecat is a change to the lock first, then here.
 RUN --mount=type=cache,target=/root/.cache/pip \
     for i in 1 2 3 4 5; do \
         echo "pip install attempt $i/5..."; \
-        pip install --timeout 300 --retries 10 \
-            "pipecat-ai[silero,websocket]==1.8.1" \
-            "httpx>=0.27,<1.0" \
-            "fastapi>=0.110,<1.0" \
-            "uvicorn>=0.27,<1.0" \
-            "PyYAML>=6.0,<7.0" \
-            "nats-py>=2.6" \
-            "websockets>=12,<18" \
-            "Pillow>=10.0" \
-            "opencv-python-headless>=4.8" \
+        pip install --timeout 300 --retries 10 --require-hashes -r /src/requirements.txt \
         && break; \
         if [ "$i" = 5 ]; then echo "pip install failed after 5 attempts" >&2; exit 1; fi; \
         echo "attempt $i failed; retrying in 15s..."; sleep 15; \
     done
 
-# Pipecat's TTS sentence aggregation uses NLTK's punkt_tab tokenizer and
-# downloads it on first use — which a sovereign, offline site cannot do,
-# and which would otherwise delay the first spoken reply. Bundle it at
-# build time; NLTK_DATA points the runtime at it. Smart Turn v3 and the
-# Silero VAD ship inside the pipecat wheel already (no download).
-ENV NLTK_DATA=/opt/nltk_data
-RUN python -m nltk.downloader -d /opt/nltk_data punkt_tab
+# Nothing is downloaded at runtime: since pipecat 1.11 the TTS sentence
+# aggregation is self-contained (sentencex rules — no NLTK, no punkt
+# download, no tokenizer warm-up before the first spoken reply), and
+# Smart Turn v3.2 and the Silero VAD ship inside the pipecat wheel. A
+# sovereign, offline site needs exactly this image and nothing else.
 
 # CPU fit. The only heavy math in THIS container is Smart Turn v3's
 # end-of-turn verdict (once per pause: an 8 s log-mel in numpy + a small

@@ -162,10 +162,14 @@ jobs:
   # ── Example apps ─────────────────────────────────────────────────
   # Each example has its own pyproject.toml + test suite. Matrix over
   # them so a broken example surfaces with the example name in the
-  # job title, not buried inside one combined job.
-  # Examples don't ship a uv.lock (they're copy-as-template), so
-  # `uv sync` resolves fresh against the pyproject. Dev extras live
+  # job title, not buried inside one combined job. Dev extras live
   # under [project.optional-dependencies] dev, hence `--extra dev`.
+  # Every example commits a uv.lock; camera-agent's is checked with
+  # --locked because its image installs exactly what that lock says
+  # (examples/camera-agent/Dockerfile) — a lock that drifted from its
+  # pyproject.toml must fail here, not be quietly re-resolved on the
+  # runner and then baked into an image nothing tested. The other
+  # examples' locks are stale today; re-lock them before widening this.
   examples:
     name: example/${{ matrix.example }} (pytest)
     runs-on: ubuntu-latest
@@ -195,7 +199,7 @@ jobs:
           enable-cache: true
       - name: Sync dependencies
         working-directory: examples/${{ matrix.example }}
-        run: uv sync --extra dev
+        run: uv sync --extra dev ${{ matrix.example == 'camera-agent' && '--locked' || '' }}
       - name: Run pytest
         working-directory: examples/${{ matrix.example }}
         run: uv run pytest -q
