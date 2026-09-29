@@ -83,3 +83,35 @@ Full examples:
 [`05_domain_event_subscriber.py`](https://github.com/open-nvr/open-nvr/blob/main/sdk/opennvr-app-sdk/cookbook/05_domain_event_subscriber.py),
 [`12_domain_event_publisher.py`](https://github.com/open-nvr/open-nvr/blob/main/sdk/opennvr-app-sdk/cookbook/12_domain_event_publisher.py),
 [`11_tier0.py`](https://github.com/open-nvr/open-nvr/blob/main/sdk/opennvr-app-sdk/cookbook/11_tier0.py).
+
+## Asking the store, and "not yet"
+
+`EventsClient.search(label=…, attrs=["blue"], start=…, end=…)` returns the
+visits the store can vouch for, newest first — `[]` for a genuinely empty
+window, `None` when the question could not be asked (say those apart to
+the user: "nothing came" and "I couldn't check" are different answers).
+
+Search matches what a skill **said** about a visit — `attrs=["blue"]` —
+not only what the detector classified. Those claims are written after the
+fact, by enrichers that run when the box can afford them; so some of the
+visits your window matches may not carry the claim *yet*. Core answers
+from what exists and queues the rest for description now, and the list it
+returns says so:
+
+```python
+visits = await events.search(label="car", attrs=["blue"], start=since)
+if visits is None:
+    return "I couldn't check the history."
+if visits.pending and visits.pending["missing"]:
+    p = visits.pending
+    note = (f" {p['missing']} visits in that window haven't been described"
+            f" yet — about {round(p['eta_s'])} s; ask me again then.")
+```
+
+`visits` is still a list (an app built against the list contract keeps
+working); `.pending` is `None` when nothing was needed, and the same block
+is mirrored on `events.last_pending` for code that holds the client rather
+than the rows. The `enrichment_request_done` system alert on the bus
+announces when the request finished, if you would rather re-ask than wait.
+Operators bound the work with `EVENTS_ENRICHMENT_REQUEST_CAP`; see
+[`docs/ENRICHMENT.md`](https://github.com/open-nvr/open-nvr/blob/main/docs/ENRICHMENT.md).

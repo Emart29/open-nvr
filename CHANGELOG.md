@@ -8,6 +8,47 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Enrichment never slows the box (#583).** A CPU captioner taking
+  seconds per image was outrun by one busy camera; core timed out at
+  15 s, released its slot and kept feeding the model, and the box lost
+  ~2 cores for zero captions saved. Now: honest logs (a timeout says
+  "still answering", not "failed"); a per-adapter gate sized by the
+  registry's `max_inflight` with a short wait line, a **drop** past it
+  (`EVENTS_ENRICHMENT_QUEUE_DEPTH`, `_TIMEOUT_S`, `_BREAKER_TIMEOUTS`) and
+  a breaker that pauses a stalled adapter; a **governor** that reads CPU
+  and adapter latency and steps NORMAL → LIVE-ONLY → PAUSED
+  (`EVENTS_ENRICHMENT_GOVERNOR_CPU_PERCENT`, `_SLOW_CALL_S`,
+  `_BACKFILL_IDLE_S`, `_BACKFILL_WINDOW`), each change an
+  `enrichment_throttled` system event; the backfill runs only when idle
+  and, once history is done, catches up on what the gate dropped. Without
+  a CUDA GPU the installer now defaults both description flags **off**
+  and asks; on CPU and Apple Silicon it suggests `CAPTION_ADAPTER=moondream`
+  (native 0.5B), never `ollamavlm`. `docs/ENRICHMENT.md` covers it.
+- **Search says "not yet", not "no".** A question that needs a caption or
+  a claim the matching visits lack answers from what exists and queues
+  the rest for description now (`EVENTS_ENRICHMENT_REQUEST_CAP`, 50 per
+  question) — even with the description flags off, since the operator
+  asked. `GET /api/v1/search` gains `describe` and a `pending` block; the
+  Search page shows it with *Check again*; the agent says it in words;
+  the App SDK returns it on the rows (`SearchResult.pending`). A caption
+  the model answered with nothing is marked so nobody re-asks forever; a
+  failed call is not.
+- **The camera-agent's voice turn on CPU: four rules** (a 71 s field
+  trace). The prompt's static prefix is byte-identical across turns —
+  the clock rides in the user turn, since Ollama hoists every system
+  message ahead of the tool schemas and re-prefilled ~3.5k tokens a
+  minute; Whisper decodes greedy (`beam_size` 1); the Piper voice is a
+  medium tier (`PIPER_VOICE`, `en_US-lessac-medium`, sent per request;
+  `PIPER_THREADS`, `WHISPER_CPU_THREADS` reach the adapters); each
+  photo is fetched once and face matching runs only when the question
+  asks who.
+- **The camera-agent routes simple questions before the model sees
+  them** (`router.py`; `router_tier0`, `router_hints`). Every slot
+  resolves — camera, tool, object, window; one question; no side effect;
+  not about who — and the tool runs at once with the model asked only to
+  say the answer (~200-token prompt, no tools); a near-miss gets a
+  one-line hint in the user turn; everything else is the loop as before.
+  The trace starts with `route: tierN`.
 - **The camera-agent moved to Pipecat 1.12** (from 1.8.1, pinned in
   `pyproject.toml`, `uv.lock` and the Dockerfile alike — a test fails
   when they disagree). What it brings: Whisper transcription runs off
@@ -51,6 +92,11 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A test-harness race, not a product bug, went red on `main`.** The
+  shared server test fixture handed every thread one SQLite connection
+  (`StaticPool`); a `session.close()` from the MQTT bridge's thread could
+  roll back a test's not-yet-committed delete. The fixture is a file
+  with per-thread connections now, like production.
 - **A slow core signed the camera agent's operators out mid-session**
   (#540). The agent validates every request by asking core `GET
   /api/v1/auth/me`, and a timeout on that call was swallowed into the
