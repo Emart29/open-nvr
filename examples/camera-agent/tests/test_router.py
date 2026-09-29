@@ -77,6 +77,54 @@ def test_all_cameras_is_a_camera():
     assert d.routed and d.args["camera_id"] == "all"
     h = _t0("did anyone come to any of the cameras today")
     assert h.routed and h.tool == "search_history" and "camera_id" not in h.args
+    r = _t0("did anyone come by on any camera in the last hour",
+            advertised={"recent_events", "detect_objects"})
+    assert r.routed and r.tool == "recent_events" and r.args["camera_id"] == "__any__", (
+        "recent_events takes '__any__', not 'all' — 'all' was an ERROR string to compose from")
+
+
+# ── which camera the words name ───────────────────────────────────────
+
+def test_a_camera_id_is_matched_as_a_word_anywhere_in_the_sentence():
+    cams = ["garage", "front_door", "cam1", "cam2"]
+    assert router._names_camera("is anyone in the garage", cams) == "garage"
+    assert router._names_camera("what do you see at the front door", cams) == "front_door"
+    assert router._names_camera("is anyone on cam 2 right now", cams) == "cam2"
+    assert router._names_camera("the second camera please", cams) == "cam2"
+    assert router._names_camera("are the garages full", cams) is None, "not inside a word"
+    assert router._names_camera("did anyone come in the last 2 hours", cams) is None, (
+        "a bare digit is not a camera")
+
+
+def test_the_longest_role_wins():
+    roles = {"cam1": "Door", "cam2": "Back door"}
+    assert router._names_camera("is anyone at the back door", CAMS, roles) == "cam2"
+    assert router._names_camera("is anyone at the door", CAMS, roles) == "cam1"
+
+
+def test_forced_grounding_picks_cameras_the_same_way():
+    """_pick_camera is the always-answers version of _names_camera: the
+    same words, then the UI's camera, then the first — never a digit."""
+    assert router._pick_camera("did anyone stop by in the last 2 hours", CAMS, "cam1") == "cam1"
+    assert router._pick_camera("is anyone on cam2", CAMS, "cam1") == "cam2"
+
+
+def test_a_noun_after_an_article_is_not_a_name():
+    d = _t0("Is there a Car on cam1")
+    assert d.routed and d.tool == "detect_objects", d
+    d = _t0("is anyone at the Front door on cam1", cameras=["cam1"])
+    assert d.routed, d
+    assert not _t0("was Priya at camera 1 this morning").routed
+
+
+def test_router_owns_the_question_shapes_and_camera_agent_borrows_them():
+    """camera_agent.py is __main__ in the container; a router that imported
+    it would execute the whole file again on the first routed turn."""
+    import camera_agent
+    assert "camera_agent" not in open(router.__file__).read().split("logger = ")[0].replace(
+        "camera_agent.py", ""), "router.py must not import camera_agent"
+    assert camera_agent._pick_forced_call is router._pick_forced_call
+    assert camera_agent._pick_camera is router._pick_camera
 
 
 def test_the_camera_the_ui_is_on_or_the_only_camera_counts_as_named():
@@ -169,6 +217,26 @@ def test_no_resemblance_or_a_tie_means_no_hint():
     assert router.hint_tier1("tell me a joke about penguins", advertised=ALL) is None
     assert router.hint_tier1("", advertised=ALL) is None
     assert router.hint_tier1("is anybody at the door", advertised={"create_alarm"}) is None
+
+
+def test_contractions_fold_onto_the_exemplars():
+    h = router.hint_tier1("what's happening", advertised=ALL)
+    assert h is not None and h.hint == "describe_camera"
+
+
+def test_a_past_question_is_never_hinted_to_a_live_tool():
+    h = router.hint_tier1("was anyone at the door earlier", advertised=ALL)
+    assert h is None or h.hint in ("search_history", "recent_events"), h
+
+
+def test_no_hint_where_tier0_said_the_model_must_decide():
+    """A standing request or a WHO question resembles a live phrasing
+    word for word; a detector hint there IS the wrong-tool iteration."""
+    d = router.decide("watch the door and tell me if anyone comes", cameras=CAMS,
+                      advertised=ALL, now=NOW)
+    assert d.tier == 2 and d.hint is None and "side effect" in d.reason
+    d = router.decide("who is at the door", cameras=CAMS, advertised=ALL, now=NOW)
+    assert d.tier == 2 and d.hint is None and "who" in d.reason
 
 
 # ── the one call the turn makes ───────────────────────────────────────

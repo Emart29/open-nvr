@@ -95,6 +95,36 @@ from context import (
 from frame_sources import build_frame_source, discover_local_cameras
 from monitor_host import MonitorHost
 from tools import CameraTools, build_tool_definitions
+# The question-shape helpers (what a camera question looks like, which
+# camera it names, which tool answers it) live in router.py and are
+# imported HERE — never the other way round: this file is __main__ in
+# the container, and a module that imports camera_agent executes it a
+# second time. They keep their names in this namespace for the tests
+# and the forced-grounding path.
+from router import (  # noqa: F401 — re-exported
+    _CAMERA_WORDS,
+    _CAMERA_RE,
+    _looks_like_camera_question,
+    _DETECTION_WORDS,
+    _DETECTION_RE,
+    _DESCRIBE_WORDS,
+    _DESCRIBE_RE,
+    _COUNT_RE,
+    _pick_forced_tool,
+    _PAST_RE,
+    _WINDOW_RE,
+    _HISTORY_LABELS,
+    _ATTR_WORDS,
+    _ATTR_ALIASES,
+    _attr_words,
+    _is_past_question,
+    _CLOCK_RANGE_RE,
+    _window_from_text,
+    _pick_forced_call,
+    _CONFIG_RE,
+    _is_config_question,
+    _pick_camera,
+)
 
 logger = logging.getLogger("camera-agent")
 
@@ -7301,307 +7331,11 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float) -> 
                   "ms": int((time.perf_counter() - t0) * 1000)})
 
 
-# Words that mean "this is a question about a camera / the scene". If the
-# model answers an utterance containing any of these WITHOUT calling a tool,
-# we force a grounding detection (see _run_conversation_turn). Positive
-# matching (vs a chit-chat blocklist) avoids force-grounding closings like
-# "thanks, that's all" while still catching "is anyone there?".
-_CAMERA_WORDS: tuple[str, ...] = (
-    "see", "look", "watch", "watching", "camera", "cam",
-    "anyone", "anybody", "someone", "somebody", "nobody",
-    "person", "people", "man", "woman", "kid", "child", "face",
-    "door", "porch", "outside", "yard", "driveway", "garage", "street",
-    # scene locations
-    "gate", "window", "fence", "entrance", "hallway", "room", "kitchen",
-    "lot", "lobby", "stairs", "balcony",
-    "happening", "detect", "count", "package", "parcel", "delivery",
-    "dog", "dogs", "cat", "cats", "animal", "car", "cars", "truck", "trucks",
-    "vehicle", "bike", "people", "persons",
-    # visual-attribute verbs ("what is he wearing/doing?") — these are why a
-    # caption/VQA question still triggers grounding instead of a fabrication
-    "wearing", "wear", "dressed", "holding", "carrying", "doing",
-    "visible", "present", "moving", "movement", "motion",
-)
-_CAMERA_RE = re.compile(r"\b(" + "|".join(_CAMERA_WORDS) + r")\b", re.IGNORECASE)
-
-
-def _looks_like_camera_question(text: str) -> bool:
-    """True if the utterance is about a camera / the scene. Used only to
-    decide whether to force a grounding detection when the model failed to
-    call a tool itself — so a weak model can't fabricate "I see a dog"."""
-    return bool(_CAMERA_RE.search(text or ""))
-
-
-# Presence/count questions about concrete objects ("is anyone there?",
-# "how many cars?", "any people?") must be answered by the object DETECTOR
-# (yolov8), NOT a scene caption — BLIP describes the scene ("a table with a
-# laptop") but can't reliably answer "is there a person?". Open "what's
-# there / describe it" questions, by contrast, are best served by the BLIP
-# caption. _pick_forced_tool routes the forced-grounding call accordingly.
-_DETECTION_WORDS: tuple[str, ...] = (
-    "person", "people", "anyone", "anybody", "someone", "somebody",
-    "nobody", "man", "woman", "kid", "child", "face", "count", "many",
-    "car", "cars", "truck", "vehicle", "bike", "bicycle", "motorcycle",
-    "dog", "cat", "animal", "package", "parcel", "delivery",
-)
-_DETECTION_RE = re.compile(r"\b(" + "|".join(_DETECTION_WORDS) + r")\b", re.IGNORECASE)
-
-# Attribute / activity / appearance questions ("what is he WEARING?", "what's
-# he DOING?", "DESCRIBE the scene", "what's HAPPENING?") want a scene
-# description (BLIP caption, or a VQA model), NOT the object detector — even
-# though they usually also contain an object noun like "man" that would
-# otherwise match _DETECTION_RE. These take precedence (test-report S-4/L-3/V-3).
-_DESCRIBE_WORDS: tuple[str, ...] = (
-    "describe", "description", "detail", "details", "wearing", "wear", "dressed",
-    "doing", "holding", "carrying", "looks like", "look like", "looking",
-    "appearance", "happening", "going on", "scene", "activity", "colour", "color",
-)
-_DESCRIBE_RE = re.compile(r"\b(" + "|".join(_DESCRIBE_WORDS) + r")\b", re.IGNORECASE)
-
-# Presence / count phrasing ("how many…", "are there any…", "is there a…",
-# "count…") → the detector, even when the object noun is a plural the detection
-# vocab doesn't list ("dogs"), or absent entirely ("are there any?").
-_COUNT_RE = re.compile(
-    r"\b(how many|how much|are there|is there|number of|count|anyone|anybody|"
-    r"\bany\b)\b", re.IGNORECASE)
-
-
-def _pick_forced_tool(text: str) -> str:
-    """Choose the forced-grounding tool by question type. Description/attribute/
-    activity questions → ``describe_camera`` (BLIP caption / VQA, which falls
-    back to the detector if no caption adapter is registered). Object presence/
-    count questions → ``detect_objects`` (yolov8). Describe takes precedence so
-    'what is the man wearing?' isn't routed to the detector just because it
-    contains 'man'."""
-    t = text or ""
-    if _DESCRIBE_RE.search(t):
-        return "describe_camera"
-    if _COUNT_RE.search(t) or _DETECTION_RE.search(t):
-        return "detect_objects"
-    return "describe_camera"
-
-
-# Past-tense / history phrasing. These questions are about what HAPPENED, not
-# what the current frame shows — so forced grounding must route them to the
-# HISTORY tools, never the live detector. The field bug this fixes: "did you
-# see a person today?" contains "person", _pick_forced_tool sent it to
-# detect_objects, and the user was told about a potted plant currently in view.
-_PAST_RE = re.compile(
-    r"\b(did|didn't|was|were|has|have|had)\b.{0,60}?"
-    r"\b(come|came|been|seen|see|visit|visited|enter|entered|arrive|arrived|"
-    r"pass|passed|show(?:ed)?\s+up|stop(?:ped)?\s+by|there)\b"
-    r"|\b(earlier|yesterday|last\s+night|this\s+morning|this\s+afternoon|"
-    r"this\s+evening|today|tonight|ago|so\s+far)\b"
-    r"|\b(last|past)\s+\d+\s*(minutes?|mins?|hours?|hrs?)\b"
-    r"|\b(in|over|during)\s+the\s+(last|past)\b"
-    r"|\b(recording|recordings|footage|history)\b",
-    re.IGNORECASE,
-)
-
-# "last/past 30 minutes", "last 2 hours" → a relative look-back in seconds.
-_WINDOW_RE = re.compile(
-    r"\b(?:last|past)\s+(\d+)\s*(minutes?|mins?|min|hours?|hrs?|hr)\b"
-    r"|\b(\d+)\s*(minutes?|mins?|min|hours?|hrs?|hr)\s+ago\b",
-    re.IGNORECASE,
-)
-
-# Detection noun → the events-store label search_history stores visits under.
-# Person-ish nouns collapse to "person"; unknown nouns fall back to "person"
-# (the store's own default) rather than guessing a label it never indexes.
-_HISTORY_LABELS: dict[str, str] = {
-    "car": "car", "cars": "car", "vehicle": "car", "truck": "truck",
-    "bike": "bicycle", "bicycle": "bicycle", "motorcycle": "motorcycle",
-    "dog": "dog", "cat": "cat",
-    # Speech-to-text hears "car" as "card" often enough that "did you see
-    # any blue card" is a real utterance; nobody asks the history for
-    # playing cards.
-    "card": "car", "cards": "car",
-}
-
-# What a visit was DESCRIBED as — the claim vocabulary the platform's
-# descriptor enricher writes (colour, vehicle type, what someone carries;
-# server/services/descriptor_enrichment.py KIND_QUESTIONS) plus the
-# clothing colour of a person. A word here in a past-tense question is
-# passed to search_history as ``attr``, so "did you see a BLUE car" asks
-# the store for blue cars — it used to ask for every car and the answer
-# listed twenty-five of them, colour unmentioned.
-_ATTR_WORDS: frozenset[str] = frozenset({
-    # colours (vehicle colour / clothing colour — the store resolves which)
-    "white", "black", "silver", "grey", "gray", "red", "blue", "green",
-    "yellow", "orange", "brown", "beige", "gold", "maroon", "purple", "pink",
-    # vehicle types that are not Tier-0 labels
-    "van", "suv", "pickup", "taxi", "lorry", "tractor", "ambulance",
-    "hatchback", "sedan", "minivan", "scooter",
-    # what a person carries
-    "backpack", "rucksack", "bag", "handbag", "suitcase", "luggage",
-    "box", "parcel", "package", "umbrella", "trolley", "basket",
-})
-_ATTR_ALIASES: dict[str, str] = {"gray": "grey", "lorry": "truck", "rucksack": "backpack",
-                                 "handbag": "bag", "luggage": "suitcase", "package": "parcel"}
-
-
-def _attr_words(text: str) -> list[str]:
-    """The description words in an utterance, in order, canonical, unique.
-    A colour or a type is kept even when it is also the object's label
-    word ("truck" is a label; "lorry" is a claim)."""
-    out: list[str] = []
-    for w in re.findall(r"[a-z]+", (text or "").lower()):
-        if w in _ATTR_WORDS:
-            w = _ATTR_ALIASES.get(w, w)
-            if w not in out:
-                out.append(w)
-    return out
-
-
-def _is_past_question(text: str) -> bool:
-    """True when the utterance asks about history, not the current scene.
-
-    An absolute clock range ("from 2pm to 3pm") counts as history even
-    without past-tense wording — background-task queries are phrased that
-    way ("check the red truck on all cameras from 2pm to 3pm")."""
-    t = text or ""
-    return bool(_PAST_RE.search(t) or _CLOCK_RANGE_RE.search(t))
-
-
-# Absolute clock ranges: "from 2pm to 3pm", "between 1 and 2pm",
-# "13:00-14:00", "2 pm till 3 pm". The first time may omit its am/pm and
-# inherit it from the second ("between 1 and 2pm" → 13:00-14:00).
-_CLOCK_RANGE_RE = re.compile(
-    r"\b(?:from|between)?\s*"
-    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*"
-    r"(?:to|till|until|and|[-–])\s*"
-    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
-    re.IGNORECASE,
-)
-
-
-def _window_from_text(text: str, now=None
-                      ) -> tuple[str | None, str | None, int]:
-    """Best-effort time window from the utterance.
-
-    Returns ``(start_iso, end_iso, window_seconds)`` — ISO times (with tz
-    offset, as search_history requires) or None for an open bound, plus the
-    equivalent relative seconds for recent_events. All computed from the
-    LOCAL clock (the container's TZ), matching the clock line in the system
-    prompt."""
-    from datetime import datetime, timedelta
-
-    t = text or ""
-    now = now or datetime.now().astimezone()
-
-    def _hhmm(h, mnt, ampm):
-        h = int(h) % 24
-        if ampm:
-            h = h % 12 + (12 if ampm.lower() == "pm" else 0)
-        return now.replace(hour=h, minute=int(mnt or 0), second=0,
-                           microsecond=0)
-
-    # "from 2pm to 3pm" — an absolute range TODAY. The field bug this
-    # closes: these were the exact phrasings background tasks are given
-    # ("check the red truck on all cameras from 2pm to 3pm"), and the
-    # forced-grounding fallback used to drop the window entirely.
-    m = _CLOCK_RANGE_RE.search(t)
-    if m:
-        h1, m1, ap1, h2, m2, ap2 = m.groups()
-        start = _hhmm(h1, m1, ap1 or ap2)   # "between 1 and 2pm" → both pm
-        end = _hhmm(h2, m2, ap2)
-        if end <= start:                     # "11pm to 1am" → wraps midnight
-            end += timedelta(days=1)
-        return (start.isoformat(timespec="seconds"),
-                end.isoformat(timespec="seconds"),
-                max(60, int((now - start).total_seconds())))
-    m = _WINDOW_RE.search(t)
-    if m:
-        qty = int(m.group(1) or m.group(3))
-        unit = (m.group(2) or m.group(4) or "").lower()
-        secs = qty * (3600 if unit.startswith(("hour", "hr")) else 60)
-        return ((now - timedelta(seconds=secs)).isoformat(timespec="seconds"),
-                None, secs)
-    lowered = t.lower()
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if "yesterday" in lowered or "last night" in lowered:
-        start = midnight - timedelta(days=1)
-        return (start.isoformat(timespec="seconds"),
-                midnight.isoformat(timespec="seconds"),
-                int((now - start).total_seconds()))
-    if "today" in lowered or "this morning" in lowered or "tonight" in lowered \
-            or "this afternoon" in lowered or "this evening" in lowered:
-        return (midnight.isoformat(timespec="seconds"), None,
-                int((now - midnight).total_seconds()))
-    # No parseable window: open start for search_history; recent_events gets
-    # a generous hour so "did anyone come?" still looks back meaningfully.
-    return None, None, 3600
-
-
-def _pick_forced_call(
-    text: str, cam: str, advertised: set[str], now=None
-) -> tuple[str, dict[str, Any]]:
-    """Choose the forced-grounding (tool, arguments) — history-aware.
-
-    Past-tense questions go to search_history (durable events store) when it
-    is advertised, else recent_events (in-memory ring) — never to a live
-    detector, which can only describe the CURRENT frame. Present-tense
-    questions keep the _pick_forced_tool routing. Only advertised tools are
-    ever picked, so forced grounding can't call something the operator's
-    enabled_tools hides from the model."""
-    if _is_past_question(text):
-        start_iso, end_iso, window_secs = _window_from_text(text, now=now)
-        if "search_history" in advertised:
-            args: dict[str, Any] = {"camera_id": cam}
-            m = _DETECTION_RE.search(text or "")
-            noun = (m.group(0).lower() if m else "")
-            if not noun:
-                # No detection noun — maybe a label word the detection
-                # vocabulary does not carry (a speech-to-text "card").
-                noun = next((w for w in re.findall(r"[a-z]+", (text or "").lower())
-                             if w in _HISTORY_LABELS), "")
-            args["label"] = _HISTORY_LABELS.get(noun, "person")
-            # The description survives: "blue car" is not "car".
-            attrs = [a for a in _attr_words(text) if a != args["label"]]
-            if attrs:
-                args["attr"] = attrs
-            if start_iso:
-                args["start_time"] = start_iso
-            if end_iso:
-                args["end_time"] = end_iso
-            return "search_history", args
-        if "recent_events" in advertised:
-            return "recent_events", {
-                "camera_id": cam, "window_seconds": window_secs,
-            }
-        # No history tool advertised: fall through to the live routing —
-        # a wrong-tense answer beats no grounding at all, and the reply
-        # honestly describes what the tool actually looked at.
-    name = _pick_forced_tool(text)
-    if name not in advertised and "describe_camera" in advertised:
-        name = "describe_camera"
-    return name, {"camera_id": cam}
-
-
-# Questions about the camera ROSTER / system config ("how many cameras are
-# configured?", "which cameras do you have?", "list the cameras") are about
-# the SYSTEM, not what's visible — the model answers them correctly from its
-# prompt context, so forced grounding must NOT override them with an
-# (irrelevant) scene detection. Distinguished from scene questions by
-# "camera/cam" being the noun being counted/listed, not an object inside a
-# camera's view ("how many PEOPLE on the camera" stays a scene question).
-_CONFIG_RE = re.compile(
-    r"\b(how many|number of|which|what|list(?:\s+\w+){0,3})\s+(cameras?|cams?)\b"
-    r"|\b(cameras?|cams?)\s+(are|do you|configured|connected|available|set up|online|exist)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_config_question(text: str) -> bool:
-    """True for questions about the camera roster/config (how many/which
-    cameras exist) rather than what's visible in one. Forced grounding skips
-    these so a correct context answer isn't clobbered by a scene detection."""
-    return bool(_CONFIG_RE.search(text or ""))
-
-
-def _user_turn(runtime: "CameraAgentRuntime", user_text: str) -> str:
-    """The user message as the model sees it: the per-turn clock, then the
-    user's own words.
+def _user_turn(runtime: "CameraAgentRuntime", user_text: str, *,
+               hint: str | None = None) -> str:
+    """The user message as the model sees it: the per-turn clock, the
+    router's hint when there is one (router.py, Tier 1), then the user's
+    own words.
 
     The clock is NOT a system message after the history. Ollama's chat
     path collects every system-role message into the one leading system
@@ -7614,29 +7348,10 @@ def _user_turn(runtime: "CameraAgentRuntime", user_text: str) -> str:
     rides in it. History keeps the user's bare words (what the UI shows),
     so only that short tail re-prefills, never the system + tools.
     """
-    return f"[{runtime._clock_line()}]\n\n{user_text}"
-
-
-def _pick_camera(text: str, cameras: list[str], preferred: str | None = None) -> str:
-    """Best-effort: which camera did the user mean? An explicit name in the
-    utterance wins; otherwise fall back to the UI-selected ``preferred``
-    camera, then to the first configured camera."""
-    t = text.lower().replace("-", " ")
-    compact = t.replace(" ", "")
-    for cam in cameras:
-        if cam.lower() in compact:  # "cam1", "camera1"
-            return cam
-    words = {"one": "1", "two": "2", "three": "3", "four": "4",
-             "first": "1", "second": "2", "third": "3"}
-    for word, n in words.items():
-        if re.search(rf"\b{word}\b", t) and f"cam{n}" in cameras:
-            return f"cam{n}"
-    for n in ("1", "2", "3", "4"):
-        if re.search(rf"\b{n}\b", t) and f"cam{n}" in cameras:
-            return f"cam{n}"
-    if preferred and preferred in cameras:
-        return preferred
-    return cameras[0]
+    head = f"[{runtime._clock_line()}]"
+    if hint:
+        head += f"\n\n[{hint}]"
+    return f"{head}\n\n{user_text}"
 
 
 class LLMTurnError(RuntimeError):
@@ -7793,7 +7508,7 @@ async def _run_conversation_turn(
     # That skips the tool-calling iteration entirely (the 17 s "iter 1"
     # of the field trace). Tier 1 — a likely tool but a missing slot: the
     # full prompt goes out UNCHANGED (the prefix cache holds) with one
-    # line appended to the user message. Tier 2 — the loop below, as is.
+    # line in the user turn. Tier 2 — the loop below, as is.
     import router as _router
 
     _advertised = {t["function"]["name"] for t in (tools or ())}
@@ -7838,13 +7553,13 @@ async def _run_conversation_turn(
                       "ms": int((time.perf_counter() - _llm_t0) * 1000)})
         final = ((response.get("message") or {}).get("content") or "").strip()
     elif decision.hint:
-        # Its own message, just before the user turn — the user's words stay
-        # exactly theirs, and everything before this point (the cached
-        # prefix) is untouched. Same shape as the "currently viewing" hint.
-        messages.insert(len(messages) - 1, {
-            "role": "system",
-            "content": f"This question most likely needs the {decision.hint} tool.",
-        })
+        # In the user turn, next to the clock — the one message rendered
+        # last. Not a system message: Ollama would hoist it into the
+        # leading system block, ahead of the cached tool schemas.
+        assert messages[-1]["role"] == "user"
+        messages[-1] = {"role": "user", "content": _user_turn(
+            runtime, user_text,
+            hint=f"This question most likely needs the {decision.hint} tool.")}
 
     if not routed:
         for iteration in range(max_iterations):
