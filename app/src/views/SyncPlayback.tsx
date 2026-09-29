@@ -536,63 +536,58 @@ export function SyncPlayback() {
   }
 
   return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:h-[calc(100vh-6rem)]">
-      {/* Stage: header + video grid + transport + timeline */}
+    <div className="flex flex-col gap-2 lg:flex-row lg:h-[calc(100vh-5rem)]">
+      {/* Stage: one panel in the dashboard widgets' grammar — slim header,
+          the wall on black split by hairlines, transport and timeline as
+          its footer. */}
       <div
         ref={stageRef}
-        className={`flex-1 min-w-0 flex flex-col gap-2 min-h-0 ${isFullscreen ? 'bg-[var(--bg)] p-3' : ''}`}
+        className="flex-1 min-w-0 flex flex-col min-h-0 border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden"
       >
-        <div className="shrink-0 flex items-center gap-3 flex-wrap">
-          <PageTitle />
-          {selectedDate && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-[var(--text-dim)]">
-              <CalendarDays size={14} className="text-[var(--accent)]" />
-              {formatDateLong(selectedDate, fmt)}
-            </span>
-          )}
-          <span className="text-sm text-[var(--text-dim)]">
+        <div className="h-8 shrink-0 flex items-center gap-2 px-2.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+          <MonitorPlay size={13} className="text-[var(--text-dim)] shrink-0" aria-hidden="true" />
+          <h1 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text)] whitespace-nowrap">{t('playback.pageTitle')}</h1>
+          <span className="text-[11px] text-[var(--text-dim)] font-mono tabular-nums truncate min-w-0">
+            {selectedDate && `${formatDateLong(selectedDate, fmt)} · `}
             {selectedCams.length} {t('playback.cameraCount')}
+            {selectedDate && dayTotal.cams > 0 && (
+              <span title={`Recorded on this day across ${dayTotal.cams} camera${dayTotal.cams !== 1 ? 's' : ''}`}>
+                {` · ${formatDuration(dayTotal.seconds)} ${t('playback.recorded')}`}
+              </span>
+            )}
           </span>
-          {selectedDate && dayTotal.cams > 0 && (
-            <span
-              className="inline-flex items-center gap-1.5 text-sm text-[var(--text-dim)]"
-              title={`Recorded on this day across ${dayTotal.cams} camera${dayTotal.cams !== 1 ? 's' : ''}`}
-            >
-              <Film size={14} className="text-[var(--accent)]" />
-              {formatDuration(dayTotal.seconds)} {t('playback.recorded')}
-            </span>
-          )}
           {!mediamtxAvailable && (
-            <span className="text-sm text-[var(--warn)]">Playback server offline — playback unavailable</span>
+            <span className="text-[11px] text-[var(--warn)] truncate">Playback server offline — playback unavailable</span>
           )}
           {!isFullscreen && (
             <button
               onClick={togglePanel}
               title={panelOpen ? 'Hide calendar & camera panel' : 'Show calendar & camera panel'}
-              className="ml-auto p-1 text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]"
+              aria-label={panelOpen ? 'Hide calendar & camera panel' : 'Show calendar & camera panel'}
+              className="ml-auto p-0.5 text-[var(--text-dim)] hover:text-[var(--text)]"
             >
-              {panelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+              {panelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
             </button>
           )}
         </div>
 
         {/* Video grid */}
         <div
-          className="flex-1 min-h-0 grid gap-1"
+          className="flex-1 min-h-0 grid gap-px bg-[#1a1f29]"
           style={{
             gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
             gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
           }}
         >
           {overviewLoading ? (
-            <div className="border border-[var(--border)] bg-[var(--panel-2)] animate-pulse flex flex-col items-center justify-center gap-2 py-16 text-[var(--text-dim)]">
+            <div className="bg-black animate-pulse flex flex-col items-center justify-center gap-2 py-16 text-white/50">
               <Loader2 size={22} className="animate-spin text-[var(--accent)]" />
               <span className="text-sm">{t('playback.loadingRecordings')}</span>
             </div>
           ) : selectedCams.length === 0 ? (
-            <div className="border border-dashed border-[var(--border)] flex flex-col items-center justify-center gap-2 py-16 text-[var(--text-dim)]">
-              <Video size={28} className="opacity-50" />
-              <span className="text-sm">{t('playback.selectCameras')}</span>
+            <div className="bg-black flex flex-col items-center justify-center gap-2 py-16 text-white/45">
+              <Video size={20} />
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('playback.selectCameras')}</span>
             </div>
           ) : (
             selectedCams.map((cam) => (
@@ -615,7 +610,7 @@ export function SyncPlayback() {
         </div>
 
         {/* Transport controls */}
-        <div className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 bg-[var(--panel-2)] border border-[var(--border)] flex-wrap">
+        <div className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 border-t border-[var(--border)] flex-wrap">
           <IconBtn title={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
             {playing ? <Pause size={16} /> : <Play size={16} />}
           </IconBtn>
@@ -667,7 +662,7 @@ export function SyncPlayback() {
 
         {/* Multi-camera timeline */}
         {timelineRows.length > 0 && view.end > view.start && (
-          <div className="shrink-0 px-2 pt-0.5 pb-1 bg-[var(--panel-2)] border border-[var(--border)]">
+          <div className="shrink-0 px-2 pt-0.5 pb-1 border-t border-[var(--border)]">
             {segsLoading ? (
               <div className="h-16 flex items-center justify-center text-sm text-[var(--text-dim)]">
                 <Loader2 size={16} className="animate-spin mr-2 text-[var(--accent)]" /> Loading timeline…
@@ -697,12 +692,12 @@ export function SyncPlayback() {
         <div className="bg-[var(--panel-2)] border border-[var(--border)]">
           <button
             onClick={() => setCalOpen((o) => !o)}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm hover:bg-[var(--panel)]"
+            className="w-full h-8 flex items-center gap-2 px-2.5 bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))] hover:bg-[var(--panel)]"
             aria-expanded={calOpen}
           >
-            <CalendarDays size={15} className="text-[var(--accent)]" />
-            <span className="font-medium">{selectedDate ? formatDateLong(selectedDate, fmt) : t('playback.selectDate')}</span>
-            <ChevronDown size={15} className={`ml-auto transition-transform ${calOpen ? '' : '-rotate-90'}`} />
+            <CalendarDays size={13} className="text-[var(--text-dim)]" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] truncate">{selectedDate ? formatDateLong(selectedDate, fmt) : t('playback.selectDate')}</span>
+            <ChevronDown size={13} className={`ml-auto text-[var(--text-dim)] transition-transform ${calOpen ? '' : '-rotate-90'}`} />
           </button>
           {calOpen && (
             <div className="px-2.5 pb-2.5 border-t border-[var(--border)] pt-1.5">
@@ -713,10 +708,10 @@ export function SyncPlayback() {
 
         {/* Camera checklist */}
         <div className="bg-[var(--panel-2)] border border-[var(--border)] flex flex-col min-h-0 lg:flex-1">
-          <div className="shrink-0 flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--border)]">
-            <Video size={15} className="text-[var(--accent)]" />
-            <span className="text-sm font-medium">{t('playback.cameras')}</span>
-            <span className="ml-auto text-xs text-[var(--text-dim)]">
+          <div className="shrink-0 h-8 flex items-center gap-2 px-2.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+            <Video size={13} className="text-[var(--text-dim)]" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">{t('playback.cameras')}</span>
+            <span className="ml-auto text-[11px] font-mono tabular-nums text-[var(--text-dim)]">
               {selectedIds.length}/{MAX_TILES}
             </span>
           </div>
@@ -787,7 +782,7 @@ const CameraChecklist = memo(function CameraChecklist({
             onClick={() => !disabled && onToggle(cam.camera_id)}
             disabled={disabled}
             title={rec ? `${formatDuration(rec.total_duration)} recorded` : 'No recordings on this date'}
-            className={`group w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-left transition-colors border-l-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent)] ${
+            className={`group w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-colors border-l-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent)] ${
               cam.camera_id === activeId ? 'border-l-[var(--accent)] text-[var(--accent)]' : 'border-l-transparent'
             } ${checked ? 'bg-[var(--accent)]/10' : ''} ${
               disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-[var(--panel)]'
