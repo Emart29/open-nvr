@@ -38,7 +38,10 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from sqlalchemy import func
 
 from models import EventText, TimelineEvent, VisitDescriptor
 
@@ -69,6 +72,16 @@ def request_cap() -> int:
 #: The count reported is over this window — "at least N", never a
 #: table scan — and the cap decides how many of them one request takes.
 WINDOW = 200
+
+#: A visit younger than this is the LIVE path's, still: its caption and
+#: VQA tasks were spawned at ingest and may be at the gate or on the
+#: wire (admission wait plus the call's own deadline). Queuing it here
+#: too would run the same inference twice and let the second write race
+#: the first. Older than this and still undescribed, the live path is
+#: done with it — dropped, refused, or off — and the lane may have it.
+#: Short on purpose, unlike the catch-up's ten minutes: a person is
+#: waiting on this one.
+LIVE_GRACE_S = 120.0
 
 
 def missing_for(db, *, filters: dict[str, Any], labels: list[str] | None,
@@ -126,10 +139,12 @@ def missing_for(db, *, filters: dict[str, Any], labels: list[str] | None,
     if not interesting:
         return out
 
+    settled = datetime.now(UTC) - timedelta(seconds=LIVE_GRACE_S)
     q = (_events_query(db, **filters)
          .join(Camera, Camera.id == TimelineEvent.camera_id)
          .filter(TimelineEvent.evidence_path.isnot(None))
-         .filter(TimelineEvent.label.in_(sorted(interesting))))
+         .filter(TimelineEvent.label.in_(sorted(interesting)))
+         .filter(func.coalesce(TimelineEvent.observed_at, TimelineEvent.started_at) <= settled))
     if camera_ids:
         q = q.filter(TimelineEvent.camera_id.in_([int(c) for c in camera_ids]))
     rows = (q.with_entities(TimelineEvent, Camera)
@@ -154,15 +169,20 @@ def missing_for(db, *, filters: dict[str, Any], labels: list[str] | None,
         label = (row.label or "").lower()
         skills = camera_skills(camera)
         looked = set((row.payload or {}).get("enriched_by") or [])
+        # The assignment is checked HERE before the enricher's predicate
+        # is asked: wants_caption counts an unassigned camera toward the
+        # ingest path's "N qualifying visits skipped" warning, and this is
+        # a search, not an ingest — a page of results must not read as a
+        # thousand skipped visits in the log.
         need_caption = bool(
             want_caption and rid not in captioned and CAPTION_SKILL not in looked
+            and CAPTION_SKILL in skills
             and wants_caption(row.label, row.evidence_path, True, skills))
         askable = [k for k in want_kinds if k in LABEL_KINDS.get(label, ())]
         need_kinds = [
-            k for k in askable
-            if k not in claimed.get(rid, set()) and VQA_TASK not in looked
-            and wants_descriptors(row.label, row.evidence_path, True, skills, people)
-        ]
+            k for k in askable if k not in claimed.get(rid, set())
+        ] if (askable and VQA_TASK not in looked
+              and wants_descriptors(row.label, row.evidence_path, True, skills, people)) else []
         if not (need_caption or need_kinds):
             continue
         out["total"] += 1
@@ -382,7 +402,10 @@ async def _one(event_id: int, req: Request) -> None:
                     await asyncio.sleep(_DROP_RETRY_S)
             if res == "dropped":
                 req.dropped += 1
-            else:
+            elif res == "done":
+                # The enricher LOOKED (wrote, or marked "nothing to say").
+                # None is every early return — row gone, no adapter, an
+                # unreadable frame — and is not "described".
                 ran_any = True
         finally:
             # Whatever happened — done, given up, cancelled — this call is
@@ -395,9 +418,10 @@ async def _one(event_id: int, req: Request) -> None:
         req.described += 1
 
 
-async def _announce(req: Request) -> None:
+async def _announce(req: Request, *, cancelled: bool = False) -> None:
     payload = {"request_id": req.request_id, "visits": len(req.steps),
                "described": req.described, "dropped": req.dropped,
+               "cancelled": cancelled,
                "took_s": round(time.monotonic() - req.created_at, 1)}
     logger.info("enrichment requests: %s done — %s", req.request_id, payload)
     try:
@@ -410,18 +434,29 @@ async def _announce(req: Request) -> None:
 
 
 async def process_one_request(req: Request) -> None:
+    global _pending_calls
+    cancelled = False
     try:
         for event_id in req.event_ids:
             await _one(event_id, req)
+    except asyncio.CancelledError:
+        cancelled = True
+        raise
     finally:
         for event_id, st in req.steps.items():
-            # Cancelled mid-way: release what this request still held.
+            # Cancelled mid-way: release what this request still held —
+            # the visits, and the calls never made, which are no longer
+            # ahead of anyone's estimate.
             left = _inflight.get(event_id)
             if left:
+                unrun = left & st
+                _pending_calls = max(0, _pending_calls - _calls(unrun))
                 left -= st
                 if not left:
                     _inflight.pop(event_id, None)
-        await _announce(req)
+        # Announced either way — a listener waiting on this id must not
+        # wait forever — but an aborted request says so, not "done".
+        await _announce(req, cancelled=cancelled)
 
 
 async def run_requests_worker() -> None:

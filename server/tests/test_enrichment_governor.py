@@ -144,6 +144,17 @@ def test_paused_drops_without_touching_a_slot(signals):
     assert gate.inflight == 0 and gate.dropped_open == 1
 
 
+def test_paused_refuses_a_requested_call_without_counting_a_drop(signals):
+    """The lane's worker holds and asks again: the work is not lost, so
+    it is not a drop — a flapping PAUSE must not bury real breaker
+    drops under 600 retries of it."""
+    signals["cpu_high"] = True
+    gate = eg.gate_for("moondream-vlm")
+    for _ in range(4):
+        assert _run(gov.admit_live(gate, "caption", priority="requested")) is False
+    assert gate.inflight == 0 and gate.dropped_open == 0
+
+
 def test_live_only_gives_vqa_a_line_and_captions_none(signals):
     signals["cpu"] = 80
     gate = eg.AdapterGate("m", max_inflight=1, queue_depth=8, breaker_timeouts=5)

@@ -550,7 +550,7 @@ def test_questions_that_were_answered_are_still_recorded_as_ran(monkeypatch):
     out: dict = {}
     _asked_questions("truck", people=False, monkeypatch=monkeypatch,
                      answer="the answer is blue", out=out)
-    assert out["result"] is None
+    assert out["result"] == "done", "looked: what the requested lane counts as described"
     assert "vqa" in out["enriched_by"]
 
 

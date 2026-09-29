@@ -157,10 +157,13 @@ async def _caption_jpeg(jpeg: bytes, adapter: str, camera_handle: str,
         return None                   # the call failed: nobody has looked yet
     # From here the adapter ANSWERED. "" means it had nothing usable to
     # say — that is "looked and found nothing", recorded on the row, and
-    # distinct from None above, which must be retried.
+    # distinct from None above, which must be retried. A 200 with no
+    # result object in it (an error body, a model mid-reload) is the
+    # adapter NOT answering, not an empty answer: None, so the visit is
+    # not branded "looked at" by a minute of malformed replies.
     result = (body or {}).get("result")
     if not isinstance(result, dict):
-        return ""
+        return None
     # Adapters differ in where they put the sentence; accept the shapes
     # the two registered captioners actually use rather than insisting on
     # one and silently storing nothing for the other.
@@ -288,10 +291,14 @@ async def enrich_event_caption(event_id: int,
             return
         # Already described (a re-run, or an app got there first): leave
         # it. This task never overwrites someone else's words — the
-        # endpoint exists for a deliberate re-caption.
+        # endpoint exists for a deliberate re-caption. The ROW existing is
+        # not that: the descriptor enricher creates a caption-less
+        # EventText for its claims, and a visit with a colour and no
+        # sentence is exactly one the lane must be able to caption.
         from models import EventText
 
-        if db.get(EventText, row.id) is not None:
+        existing = db.get(EventText, row.id)
+        if existing is not None and (existing.caption or "").strip():
             return
         # Looked, and the captioner had nothing to say (an empty answer,
         # a frame it could not read): recorded on the row like the
@@ -336,7 +343,7 @@ async def enrich_event_caption(event_id: int,
         return
     if not caption:
         _mark_attempted(event_id)
-        return
+        return "done"                 # looked; nothing to say — a result
 
     # ── Phase 3: reopen and write ───────────────────────────────────
     from datetime import UTC, datetime
@@ -361,6 +368,7 @@ async def enrich_event_caption(event_id: int,
         existing.source = adapter[:60]
         existing.updated_at = datetime.now(UTC)
         db.commit()
+        return "done"
     except Exception:                              # noqa: BLE001
         logger.exception("caption enrichment: write failed for event %s", event_id)
         db.rollback()
