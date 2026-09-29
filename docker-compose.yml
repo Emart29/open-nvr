@@ -182,8 +182,9 @@ services:
       - MTX_AUTHJWTJWKS=http://${BACKEND_HOST:-opennvr_core}:${BACKEND_PORT:-8000}/.well-known/jwks.json
       - BACKEND_PORT=${BACKEND_PORT:-8000}
       # ICE candidate hosts advertised in the SDP answer (so the browser can
-      # reach UDP/8189). Set by start.sh from the detected topology; empty =
-      # mediamtx auto-detects (fine on single-NIC, breaks behind NAT/multi-NIC).
+      # reach UDP/8189). Set by start.sh from the detected topology. Empty =
+      # mediamtx sees only its bridge addresses, which a LAN browser can't
+      # reach; core pushes its own list at runtime (see opennvr_core below).
       - MTX_WEBRTCADDITIONALHOSTS=${MEDIAMTX_WEBRTC_HOSTS:-}
       # ICE media listen port. Overridable because some Windows hosts have
       # 8189 inside a WinNAT/Hyper-V reserved range (netsh interface ipv4
@@ -603,14 +604,18 @@ services:
       # Browser-facing URLs go through nginx (TLS, any LAN device).
       # MEDIAMTX_PUBLIC_URL is set by start.sh from the detected topology and
       # falls back to https://localhost. Same-origin with the UI (no mixed content).
+      # The web UI rebases these onto the origin it was opened on
+      # (app/src/lib/streamUrl.ts) and plays recordings through the API, so the
+      # fallback is harmless there; API clients (Home Assistant) need it set.
       - MEDIAMTX_EXTERNAL_BASE_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/webrtc
       - MEDIAMTX_EXTERNAL_HLS_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/hls
       - MEDIAMTX_EXTERNAL_PLAYBACK_URL=${MEDIAMTX_PUBLIC_URL:-https://localhost}/playback
-      # Seed for the ICE hosts MediaMTX advertises. The backend owns the
-      # authoritative list (DB-backed, learned from the address browsers
-      # actually reach) and re-pushes it on every MediaMTX start, so this is
-      # only a first-boot hint — unlike MTX_WEBRTCADDITIONALHOSTS on the
-      # mediamtx service, losing it no longer breaks live WebRTC.
+      # Seed for the ICE hosts MediaMTX advertises. The backend keeps the list
+      # in the DB and re-pushes it on every MediaMTX start, so a recreated
+      # container keeps it. It can also learn the address browsers reach, but
+      # not in this layout: nginx is on the bridge, so it only ever reports a
+      # container address. Without start.sh, set this in .env or live WebRTC
+      # from other machines fails (HLS still works).
       - MEDIAMTX_WEBRTC_HOSTS=${MEDIAMTX_WEBRTC_HOSTS:-}
       - KAI_C_URL=http://127.0.0.1:8100
       # Duplicate-sighting dedup for plate reads: a fragmented track

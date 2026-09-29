@@ -187,7 +187,7 @@ export function SyncPlaybackTile({
       }
 
       if (browserMp4Url) {
-        // H.265 path: server-remuxed hvc1 MP4 played natively. The remuxed
+        // Remux path (H.265, or PCM audio): server-remuxed MP4 played natively. The remuxed
         // file is the whole physical on-disk file, beginning fileOffsetSec
         // before the session anchor — map the window to the file so every
         // in-file seek is a native HTTP-Range seek.

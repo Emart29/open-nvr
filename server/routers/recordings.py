@@ -1246,12 +1246,10 @@ async def create_hls_session(
         f"{settings.api_prefix}/recordings/playback/hls/{session.session_id}/index.m3u8"
     )
 
-    # H.265 (hev1) recordings can't play through hls.js/MSE as recorded (browser
-    # rejects the hev1 tag + PCM audio). For those, the client should use the
-    # browser-remux endpoint instead of the HLS manifest.
-    from services.hevc_remux_service import is_browser_incompatible_video
-
-    needs_remux = is_browser_incompatible_video(session.video_codec)
+    # H.265 recordings, and H.264 ones carrying G.711/PCM audio, can't play
+    # through hls.js/MSE as recorded (the hev1 tag, the ipcm track). For those,
+    # the client uses the video-only browser-remux endpoint instead.
+    needs_remux = session.needs_remux
     browser_mp4_url = (
         f"{settings.api_prefix}/recordings/playback/hls/{session.session_id}/browser.mp4"
         if needs_remux
@@ -1440,13 +1438,15 @@ async def get_browser_playable_recording(
     session_id: str,
     request: Request = None,
 ):
-    """Serve an H.265 recording as a browser-playable ``hvc1`` video-only MP4.
+    """Serve a recording as a browser-playable, video-only MP4.
 
-    The MP4 is VIRTUAL: a small in-RAM index (built sub-second, headers-only
-    scan) maps every output byte to the original recording, and each HTTP
-    Range request is answered by streaming the mapped bytes straight from the
-    source file — no ffmpeg, no re-encode, no on-disk copy. H.264 recordings
-    never hit this route (they use the HLS byte-range path).
+    Used for H.265 (retagged ``hvc1``) and for H.264 recorded with G.711/PCM
+    audio, whose ``ipcm`` track MSE can't decode. The MP4 is VIRTUAL: a small
+    in-RAM index (built sub-second, headers-only scan) maps every output byte
+    to the original recording, and each HTTP Range request is answered by
+    streaming the mapped bytes straight from the source file — no ffmpeg, no
+    re-encode, no on-disk copy. Other H.264 recordings use the HLS byte-range
+    path.
     """
     from fastapi.responses import StreamingResponse
 
