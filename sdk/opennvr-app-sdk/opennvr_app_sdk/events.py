@@ -101,7 +101,19 @@ class EventsClient:
         Returns ``[]`` for a genuinely empty window and ``None`` on ANY
         failure (transport, auth, or a rejected query) — the caller must be
         able to say "nothing came" and "I couldn't check" differently; in a
-        security product those are different answers."""
+        security product those are different answers.
+
+        **"Not yet" is not "no".** When ``attrs`` asks for a claim ("blue")
+        that some matching visits do not carry yet, core answers from what
+        exists and queues the rest for description now. The returned list
+        is a :class:`SearchResult` whose ``.pending`` says so — ``None``
+        when nothing was needed, else ``{"missing": n, "requested": n,
+        "already_queued": n, "eta_s": s, "request_id": ...}`` — and the
+        same block is mirrored on ``self.last_pending`` (cleared at the
+        start of every call). Tell the user: "N visits in that window have
+        not been described yet — about T; ask again then." The
+        ``enrichment_request_done`` system alert on the bus announces the
+        request's completion."""
         params: dict[str, Any] = {"limit": limit}
         if label:
             params["label"] = label
