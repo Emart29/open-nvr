@@ -406,3 +406,28 @@ def test_config_question_short_circuits_before_llm():
     reply = asyncio.run(ca._run_conversation_turn(
         rt, [], "how many cameras are configured right now?"))
     assert "camera" in reply.lower()   # deterministic roster answer, no LLM spend
+
+
+def test_converse_routed_turn_makes_one_compose_call_and_no_tool_loop(harness):
+    """The router (router.py): the UI is on cam1, the question is a count.
+    Every slot resolves, so the tool runs first and the model is asked
+    only to say the answer — one LLM call, no tool schemas."""
+    client, state = harness
+    state["transcript"] = "how many people are there"
+    calls = []
+
+    async def chat(*, messages, tools=None, temperature=0.4, max_tokens=256, **kw):
+        calls.append({"tools": tools, "roles": [m.get("role") for m in messages]})
+        if any(m.get("role") == "tool" for m in messages):
+            return {"message": {"role": "assistant", "content": "One person is at the front door."}}
+        return {"message": {"role": "assistant", "content": "",
+                            "tool_calls": [{"id": "c1", "type": "function",
+                                            "function": {"name": "detect_objects",
+                                                         "arguments": {"camera_id": "cam2"}}}]}}
+    state["set_chat"](chat)
+    data = client.post("/converse?camera=cam1", content=_wav_blob()).json()
+    assert state["detect_args"] == {"camera_id": "cam1"}, "the router picked the camera the UI is on"
+    assert data["reply"] == "One person is at the front door."
+    assert len(calls) == 1, "one compose call; the tool-calling iteration was skipped"
+    assert calls[0]["tools"] is None and "tool" in calls[0]["roles"]
+    assert [t["step"] for t in data["trace"]][:3] == ["route", "detect_objects", "compose"]

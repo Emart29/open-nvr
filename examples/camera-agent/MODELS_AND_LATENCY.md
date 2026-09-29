@@ -63,6 +63,33 @@ sentence, so audio starts after the first sentence; the JSON `/converse`
 path returns one clip for the whole reply and is bounded by the rules
 above.
 
+## The router: decide before the model does (`router.py`)
+
+The question space is small — what is on a camera NOW, or what CAME BY
+in some window; one camera or all; one class of thing; one time phrase
+— and every one of those used to go to a 1.5B model with fifteen tool
+schemas and a request to compute an ISO window from the clock. The
+regexes that answer those questions already existed in the agent
+("forced grounding" ran them AFTER the model failed to call a tool).
+The router runs them FIRST, when they are sure.
+
+| Tier | When | What happens | LLM cost |
+|---|---|---|---|
+| **0** | every slot resolves: camera (named, "all", the one the UI is on, or the only one), tool, object, window; one question; no side effect; not about WHO | the tool runs at once; the model is asked only to **say** the answer, with a ~200-token compose prompt and **no tools** | one short call — the tool-calling iteration is skipped entirely |
+| **1** | the phrasing resembles one tool's but a slot is missing (two cameras, none named) | the full prompt goes out **unchanged** (the cached prefix holds) with one line in the user turn, next to the clock, naming the likely tool | as today, fewer wrong-tool iterations |
+| **2** | everything else — arm/watch/report/stop, "who came", two questions, a story | the loop, exactly as before | as today |
+
+The trace shows the tier (`route: tier0 detect_objects` → `detect_objects`
+→ `llm: compose`), and every turn logs `router: tier=… reason=…`, so the
+hit rate is readable from the logs and the exemplar phrasings in
+`router.py` can grow from real misses. Both tiers are switches in the
+config (`router_tier0`, `router_hints`).
+
+Tier 1 is lexical (content-word overlap with per-tool exemplars,
+synonyms folded), not an embedding model: the hint only steers a model
+that still sees the whole prompt, and a sentence-embedding model would
+add ~150 MB to the agent image for that.
+
 ## Running on limited hardware (no GPU, little RAM)
 
 A real CPU-only test (Win 11, 11.5 GiB) gave the numbers that drive this advice:

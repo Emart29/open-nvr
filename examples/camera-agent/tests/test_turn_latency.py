@@ -34,6 +34,11 @@ def test_the_turns_system_prompt_carries_no_clock_and_the_clock_rides_the_user_t
     NO clock, no system message follows the history, and the clock rides
     in the user turn: the one message rendered last."""
     rt = _runtime()
+    # The un-routed shape is under test; with one camera the router would
+    # take this turn (and its compose prompt, with no tools, may end with
+    # the clock — that is fine and is router.py's own test).
+    rt.cfg.router_tier0 = False
+    rt.cfg.router_hints = False
     marker = "The current date and time is"
     assert marker not in rt.build_system_prompt(clock=False)
     assert marker in rt.build_system_prompt(), "the streaming context still gets it in-prompt"
