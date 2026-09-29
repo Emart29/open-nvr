@@ -27,7 +27,7 @@ import { useFullscreen } from '../hooks/useFullscreen'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { usePermissions } from '../hooks/usePermissions'
 import { useCameraStatus } from '../hooks/useCameraStatus'
-import { Camera, Maximize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, Grid, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye } from 'lucide-react'
+import { Camera, CameraOff, Maximize, Minimize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, LayoutGrid, Menu as MenuIcon, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye, Tv } from 'lucide-react'
 import { 
   DndContext, 
   DragOverlay, 
@@ -44,10 +44,15 @@ import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { useTranslation } from '../i18n'
 import { useNavigate } from 'react-router-dom'
 import { useSnackbar } from '../components/Snackbar'
-import { Button } from '../components/ui'
 import { Modal } from '../components/Modal'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useCameras } from '../lib/queries'
+import { MiniSegment, STATE_INK, type CamState } from './dashboard/WidgetFrame'
+import { clsx } from 'clsx'
 import { PREDEFINED_LAYOUTS, type LayoutDefinition } from '../lib/liveLayouts'
+
+/** The dashboard wall's still-tile background, for tiles with no picture. */
+const NO_PICTURE_BG = 'repeating-linear-gradient(135deg, #07090d 0 10px, #0b0f16 10px 20px)'
 
 interface WindowSettings {
   layouts_enabled: Record<string, boolean>
@@ -296,7 +301,7 @@ export function LiveView() {
   // videos fill their tiles edge-to-edge (overlays sit on the feed, not on
   // pillarbox bars) and the toolbar below stays on screen.
   const [gridSize, setGridSize] = useState<{ w: number; h: number } | null>(null)
-  const GRID_GAP = 8 // matches the grid's Tailwind gap-2
+  const GRID_GAP = 1 // matches the grid's Tailwind gap-px
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -366,16 +371,22 @@ export function LiveView() {
   return (
     // Fixed viewport-height layout: header + grid + toolbar must all fit
     // without a page scrollbar. 3rem = app header, 2rem = main's p-4.
-    <section className="flex flex-col gap-2 h-[calc(100vh-5rem)]">
-      {/* Header doubles as the toolbar — one row of chrome instead of two */}
-      <header className="flex-shrink-0 flex items-center gap-2 bg-[var(--bg-2)] border border-[var(--border)] p-2 text-xs">
-        <h1 className="text-lg font-semibold whitespace-nowrap mr-2">{t('live.title')}</h1>
+    // One panel in the dashboard widgets' grammar: a slim header, then the
+    // wall owns every remaining pixel, tiles split by hairlines.
+    <section className="flex flex-col h-[calc(100vh-5rem)] border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden">
+      <header className="h-8 shrink-0 flex items-center gap-2 px-2.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+        <Tv size={13} className="text-[var(--text-dim)] shrink-0" aria-hidden="true" />
+        <h1 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text)] whitespace-nowrap">{t('live.title')}</h1>
+        <span className="hidden sm:inline text-[11px] text-[var(--text-dim)] font-mono tabular-nums truncate min-w-0">
+          {availableCameras.length} {t('dashboard.camerasPlural')} · {layoutDef.name}
+        </span>
         <ToolbarContents
           currentLayout={currentLayout}
           setCurrentLayout={setCurrentLayout}
           availableLayouts={availableLayouts}
           onOpenMenu={() => setMenuOpen(true)}
           onToggleFullscreen={toggleFs}
+          isFullscreen={isFullscreen}
           fillMode={fillMode}
           onToggleFillMode={toggleFillMode}
           showDetections={showDetections}
@@ -389,10 +400,10 @@ export function LiveView() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center">
+        <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-black">
         <div
           ref={gridRef}
-          className="grid gap-2 relative"
+          className="grid gap-px relative bg-[#1a1f29]"
           style={{
             gridTemplateColumns: `repeat(${layoutDef.gridCols}, minmax(0, 1fr))`,
             gridTemplateRows: `repeat(${layoutDef.gridRows}, minmax(0, 1fr))`,
@@ -449,13 +460,16 @@ export function LiveView() {
                 {fsToolbarVisible ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
               </button>
               {fsToolbarVisible && (
-                <div className="pointer-events-auto self-stretch flex items-center gap-2 bg-[var(--bg-2)] border border-[var(--border)] p-2 text-xs">
+                <div className="pointer-events-auto self-stretch h-8 flex items-center gap-2 px-2.5 bg-[var(--panel-2)] border-t border-[var(--border)]">
                   <ToolbarContents
                     currentLayout={currentLayout}
                     setCurrentLayout={setCurrentLayout}
                     availableLayouts={availableLayouts}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleFullscreen={toggleFs}
+                    isFullscreen={isFullscreen}
+                    showDetections={showDetections}
+                    onToggleDetections={toggleDetections}
                     dropUp
                     showFitToggle={false}
                   />
@@ -507,11 +521,9 @@ function DroppableTile({ tileId, children }: { tileId: string; children: React.R
   const { setNodeRef, isOver } = useDroppable({ id: tileId })
   
   return (
-    <div 
-      ref={setNodeRef} 
-      className={`h-full transition-all duration-150 ${isOver ? 'ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[var(--bg)]' : ''}`}
-    >
+    <div ref={setNodeRef} className="h-full relative">
       {children}
+      {isOver && <div className="pointer-events-none absolute inset-0 z-40 ring-2 ring-inset ring-[var(--accent)]" />}
     </div>
   )
 }
@@ -663,38 +675,42 @@ function Tile({
     setShowCameraDialog(false)
   }
   
-  return (
-    <div className="flex flex-col bg-[var(--bg-2)] border border-[var(--border)] relative overflow-hidden h-full">
-      {/* Video container — fills the grid cell. Width comes from the grid
-          column and height from the 1fr row, so the whole layout fits the
-          viewport; object-contain letter/pillarboxes the stream inside. */}
-      <div className="relative w-full flex-1 min-h-0 overflow-hidden">
-        {!cameraId && <div className="absolute right-2 top-2 z-20 text-[10px] uppercase tracking-wide bg-black/60 px-1 py-0.5">{t('live.noCamera')}</div>}
-        {!hasLink && cameraId && <div className="absolute right-2 top-2 z-20 text-[10px] uppercase tracking-wide bg-black/60 px-1 py-0.5">{t('live.noLink')}</div>}
+  // Label state, in the dashboard wall's terms: the list query refreshes on
+  // its own, so REC and the dot follow the recorder without a remount.
+  const cams = useCameras()
+  const listed = cams.data?.cameras?.find((c) => c.id === cameraId)
+  const rec = listed?.recording_state
+  const state: CamState =
+    effectiveConnectivity === 'offline' ? 'offline'
+      : connectivity === 'online' || (listed?.live_online ?? assignedCamera?.live_online) === true ? 'online'
+        : 'degraded'
 
-        {/* Absolute so the <video>'s intrinsic size (e.g. a 1:1 stream) can't
-            stretch this box — the player sizes itself to the stream's DISPLAY
-            aspect inside it and letter/pillarboxes against the panel bg. */}
-        <div className="absolute inset-0">
-          {hasLink ? (
-            <VideoPlayer
-              key={`${cameraId}-${streamVersion}`}
-              ref={playerRef}
-              mode="live"
-              whepUrl={urls?.whep}
-              hlsUrl={urls?.hls}
-              mediamtxToken={urls?.token}
-              onAuthExpired={handleAuthExpired}
-              title={displayName}
-              preferredStreamType="webrtc"
-              autoPlay
-              muted
-              onSnapshot={handleSnapshot}
-              displayAspectOverride={assignedCamera?.display_aspect_ratio}
-              cameraId={cameraId}
-              showDetections={showDetections}
-              onTogglePtz={() => setPtzOpen((s) => !s)}
-              ptzActive={ptzOpen}
+  return (
+    <div className="relative h-full overflow-hidden bg-black">
+      {/* Absolute so the <video>'s intrinsic size (e.g. a 1:1 stream) can't
+          stretch this box — the player sizes itself to the stream's DISPLAY
+          aspect inside it and letterboxes against black. */}
+      <div className="absolute inset-0">
+        {hasLink ? (
+          <VideoPlayer
+            key={`${cameraId}-${streamVersion}`}
+            ref={playerRef}
+            mode="live"
+            chrome="controls"
+            whepUrl={urls?.whep}
+            hlsUrl={urls?.hls}
+            mediamtxToken={urls?.token}
+            onAuthExpired={handleAuthExpired}
+            title={displayName}
+            preferredStreamType="webrtc"
+            autoPlay
+            muted
+            onSnapshot={handleSnapshot}
+            displayAspectOverride={assignedCamera?.display_aspect_ratio}
+            cameraId={cameraId}
+            showDetections={showDetections}
+            onTogglePtz={() => setPtzOpen((s) => !s)}
+            ptzActive={ptzOpen}
               overlay={ptzOpen && cameraId ? (
                 /* Mini PTZ pad — rendered inside the player so it survives
                    the player element going fullscreen; sits above the
@@ -713,44 +729,67 @@ function Tile({
                   </div>
                 </div>
               ) : null}
-              className="w-full h-full"
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-xs text-[var(--text-dim)] gap-3">
-              {cameraId ? (
-                <span>{t('live.noStream')}</span>
-              ) : canManage ? (
-                <>
-                  <button
-                    className="w-16 h-16 rounded-full bg-[var(--panel)] border-2 border-dashed border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors flex items-center justify-center group"
-                    onClick={() => setShowCameraDialog(true)}
-                    title={t('live.addCamera')}
-                  >
-                    <Plus size={28} className="text-[var(--text-dim)] group-hover:text-[var(--accent)]" />
-                  </button>
-                  <span className="text-[var(--text-dim)]">{t('live.clickToAdd')}</span>
-                </>
-              ) : (
-                <span className="text-[var(--text-dim)]">{t('live.noAssigned')}</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Offline overlay — from the camera list on first paint, then from
-            backend camera_status events. Clears itself (and the player
-            restarts via the key above) when the camera comes back; no user
-            interaction needed. */}
-        {cameraId && effectiveConnectivity === 'offline' && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/70 text-center">
-            <AlertCircle size={24} className="text-[var(--on-video-warn)]" />
-            <div className="text-xs uppercase tracking-wide text-[var(--on-video-warn)]">{t('live.cameraOffline')}</div>
-            <div className="text-[11px] text-[var(--on-video-dim)]">{t('live.waitingReconnect')}</div>
+            className="w-full h-full !bg-black"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-white/45" style={{ background: NO_PICTURE_BG }}>
+            {cameraId ? (
+              <>
+                <CameraOff size={18} />
+                <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.noStream')}</span>
+              </>
+            ) : canManage ? (
+              <>
+                <button
+                  className="w-9 h-9 border border-dashed border-white/20 hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors flex items-center justify-center group"
+                  onClick={() => setShowCameraDialog(true)}
+                  title={t('live.addCamera')}
+                >
+                  <Plus size={16} className="text-white/50 group-hover:text-[var(--accent)]" />
+                </button>
+                <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.clickToAdd')}</span>
+              </>
+            ) : (
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.noAssigned')}</span>
+            )}
           </div>
         )}
-
-
       </div>
+
+      {/* Offline overlay — from the camera list on first paint, then from
+          backend camera_status events. Clears itself (and the player
+          restarts via the key above) when the camera comes back; no user
+          interaction needed. */}
+      {cameraId && effectiveConnectivity === 'offline' && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 text-white/45 text-center" style={{ background: NO_PICTURE_BG }}>
+          <AlertCircle size={18} className="text-[var(--on-video-warn)]" />
+          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[var(--on-video-warn)]">{t('live.cameraOffline')}</div>
+          <div className="text-[10px] text-white/35">{t('live.waitingReconnect')}</div>
+        </div>
+      )}
+
+      {/* Label band, as on the dashboard wall: state dot, name, REC — legible
+          over any picture without a solid bar. Above the offline overlay so
+          a dead tile still says which camera it is. */}
+      {cameraId && (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-9 bg-gradient-to-b from-black/75 to-transparent" />
+          <div className="pointer-events-none absolute left-2 right-2 top-1.5 z-30 flex items-center gap-1.5 text-white">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATE_INK[state] }} aria-hidden="true" />
+            <span className="text-[11px] font-medium truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{displayName}</span>
+            <span className="ml-auto shrink-0 flex items-center gap-2 leading-none text-[9px] font-bold tracking-[0.15em] [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
+              {!hasLink && <span className="text-[var(--on-video-warn)]">{t('live.noLink')}</span>}
+              {rec === 'recording' ? (
+                <span className="flex items-center gap-1 text-[var(--on-video-danger)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--on-video-danger)] animate-pulse" aria-hidden="true" />REC
+                </span>
+              ) : rec === 'stalled' ? (
+                <span className="text-[var(--on-video-warn)]">{t('dashboard.stalled').toUpperCase()}</span>
+              ) : null}
+            </span>
+          </div>
+        </>
+      )}
 
       {/* Camera Selection/Add Dialog */}
       {showCameraDialog && (
@@ -791,6 +830,7 @@ function ToolbarContents({
   availableLayouts,
   onOpenMenu,
   onToggleFullscreen,
+  isFullscreen = false,
   dropUp = false,
   fillMode,
   onToggleFillMode,
@@ -803,6 +843,7 @@ function ToolbarContents({
   availableLayouts: Array<{ id: string; name: string; tiles: number }>
   onOpenMenu: () => void
   onToggleFullscreen: () => void
+  isFullscreen?: boolean
   /** Layout dropdown direction: up when the bar sits at the bottom (fullscreen). */
   dropUp?: boolean
   fillMode?: boolean
@@ -817,104 +858,113 @@ function ToolbarContents({
   const dropdownRef = useRef<HTMLDivElement>(null)
   useClickOutside(dropdownRef, layoutDropdownOpen, () => setLayoutDropdownOpen(false))
 
+  const quick = ['1x1', '2x2', '3x3', '4x4']
+    .map((id) => availableLayouts.find((l) => l.id === id))
+    .filter((l): l is { id: string; name: string; tiles: number } => !!l)
+
   return (
-    <>
-      <Button size="sm" variant="outline" onClick={onOpenMenu}>
-        <Grid size={14} /> {t('live.menu')}
-      </Button>
-      <div className="ml-auto flex items-center gap-1">
-        {/* Quick layout buttons — collapse into the dropdown below md */}
-        {['1x1', '2x2', '3x3', '4x4'].map((layoutId) => {
-          const available = availableLayouts.find(l => l.id === layoutId)
-          if (!available) return null
-          return (
-            // Wrapped: Button is inline-flex, and `hidden` on the same element
-            // would compete with it on stylesheet order rather than intent.
-            <span key={layoutId} className="hidden md:inline-flex">
-              <Button
-                size="sm"
-                variant={currentLayout === layoutId ? 'primary' : 'outline'}
-                aria-pressed={currentLayout === layoutId}
-                onClick={() => setCurrentLayout(layoutId)}
-              >
-                {available.name}
-              </Button>
-            </span>
-          )
-        })}
-        {/* More layouts dropdown */}
-        <div className="relative" ref={dropdownRef}>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setLayoutDropdownOpen(!layoutDropdownOpen)}
-            aria-haspopup="menu"
-            aria-expanded={layoutDropdownOpen}
-            aria-label={t('live.layouts')}
-            title={t('live.layouts')}
-          >
-            <Grid size={14} />
-            <ChevronDown size={12} />
-          </Button>
-          {layoutDropdownOpen && (
-            <div className={`absolute right-0 z-50 bg-[var(--panel)] border border-[var(--border)] shadow-lg min-w-[160px] ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-              {availableLayouts.map(layout => (
-                <button
-                  key={layout.id}
-                  className={`w-full text-left px-3 py-2 text-xs hover:bg-[var(--panel-2)] ${currentLayout === layout.id ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : ''}`}
-                  onClick={() => { setCurrentLayout(layout.id); setLayoutDropdownOpen(false) }}
-                >
-                  {layout.name} ({layout.tiles})
-                </button>
-              ))}
-              <div className="border-t border-[var(--border)] px-3 py-2">
-                <button
-                  className="text-xs text-[var(--text-dim)] hover:text-[var(--accent)]"
-                  onClick={() => {
-                    setLayoutDropdownOpen(false)
-                    navigate('/settings/more-settings/window-settings')
-                  }}
-                >
-                  ⚙ {t('live.configureLayouts')}
-                </button>
-              </div>
-            </div>
-          )}
+    <div className="ml-auto flex items-center gap-1 shrink-0">
+      {/* Quick layouts — collapse into the dropdown below md */}
+      {quick.length > 0 && (
+        <div className="hidden md:flex">
+          <MiniSegment
+            label={t('live.layouts')}
+            value={currentLayout}
+            options={quick.map((l) => ({ value: l.id, label: l.name }))}
+            onChange={setCurrentLayout}
+          />
         </div>
-        {/* Fit/Fill toggle (hidden in fullscreen, which always fills) */}
-        {showFitToggle && onToggleFillMode && (
-          <Button
-            size="sm"
-            variant={fillMode ? 'primary' : 'outline'}
-            onClick={onToggleFillMode}
-            title={fillMode ? t('live.fill') : t('live.fit')}
-          >
-            {fillMode ? <Expand size={14} /> : <Scan size={14} />}
-            <span className="hidden sm:inline">{fillMode ? t('live.fill') : t('live.fit')}</span>
-          </Button>
+      )}
+      {/* More layouts dropdown */}
+      <div className="relative" ref={dropdownRef}>
+        <HeadButton
+          onClick={() => setLayoutDropdownOpen(!layoutDropdownOpen)}
+          aria-haspopup="menu"
+          aria-expanded={layoutDropdownOpen}
+          aria-label={t('live.layouts')}
+          title={t('live.layouts')}
+        >
+          <LayoutGrid size={12} />
+          <ChevronDown size={11} />
+        </HeadButton>
+        {layoutDropdownOpen && (
+          <div className={`absolute right-0 z-50 bg-[var(--panel)] border border-[var(--border)] shadow-lg min-w-[160px] ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            {availableLayouts.map(layout => (
+              <button
+                key={layout.id}
+                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--panel-2)] ${currentLayout === layout.id ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : ''}`}
+                onClick={() => { setCurrentLayout(layout.id); setLayoutDropdownOpen(false) }}
+              >
+                {layout.name} <span className="text-[var(--text-dim)] font-mono">({layout.tiles})</span>
+              </button>
+            ))}
+            <div className="border-t border-[var(--border)] px-3 py-1.5">
+              <button
+                className="text-xs text-[var(--text-dim)] hover:text-[var(--accent)]"
+                onClick={() => {
+                  setLayoutDropdownOpen(false)
+                  navigate('/settings/more-settings/window-settings')
+                }}
+              >
+                ⚙ {t('live.configureLayouts')}
+              </button>
+            </div>
+          </div>
         )}
-        {/* Detection boxes on/off — same visual grammar as Fit/Fill: lit
-            when on. Reads "Boxes", not "AI", because that is what it does. */}
-        {onToggleDetections && (
-          <Button
-            size="sm"
-            variant={showDetections ? 'primary' : 'outline'}
-            onClick={onToggleDetections}
-            aria-pressed={showDetections}
-            title={showDetections
-              ? 'Boxes on: tracked objects are outlined with label and confidence'
-              : 'Boxes off: show bounding boxes for tracked objects (label + confidence)'}
-          >
-            <ScanEye size={14} />
-            <span className="hidden sm:inline">{t('live.boxes')}</span>
-          </Button>
-        )}
-        <Button size="sm" variant="outline" onClick={onToggleFullscreen} title={t('live.fullscreen')}>
-          <Maximize size={14} />
-          <span className="hidden sm:inline">{t('live.fullscreen')}</span>
-        </Button>
       </div>
-    </>
+      <span className="w-px h-4 bg-[var(--border)] mx-0.5" aria-hidden="true" />
+      {/* Fit/Fill toggle (hidden in fullscreen, which always fills) */}
+      {showFitToggle && onToggleFillMode && (
+        <HeadButton active={fillMode} onClick={onToggleFillMode} title={fillMode ? t('live.fill') : t('live.fit')}>
+          {fillMode ? <Expand size={12} /> : <Scan size={12} />}
+          <span className="hidden sm:inline">{fillMode ? t('live.fill') : t('live.fit')}</span>
+        </HeadButton>
+      )}
+      {/* Detection overlay on/off — icon only, lit when on like Fit/Fill;
+          the tooltip says what it draws. */}
+      {onToggleDetections && (
+        <HeadButton
+          active={showDetections}
+          onClick={onToggleDetections}
+          aria-pressed={showDetections}
+          aria-label={t('live.boxes')}
+          title={showDetections
+            ? `${t('live.boxes')}: on — tracked objects are outlined with label and confidence`
+            : `${t('live.boxes')}: off — outline tracked objects with label and confidence`}
+        >
+          <ScanEye size={12} />
+        </HeadButton>
+      )}
+      <HeadButton
+        onClick={onToggleFullscreen}
+        aria-label={isFullscreen ? t('video.exitFullscreen') : t('live.fullscreen')}
+        title={isFullscreen ? t('video.exitFullscreen') : t('live.fullscreen')}
+      >
+        {isFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
+      </HeadButton>
+      <HeadButton onClick={onOpenMenu} title={t('live.menu')} aria-label={t('live.menu')}>
+        <MenuIcon size={12} />
+      </HeadButton>
+    </div>
+  )
+}
+
+/** A header-sized button, matching the dashboard's MiniSegment: lit when active. */
+function HeadButton({ active = false, className, children, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={clsx(
+        'h-5 px-1.5 inline-flex items-center gap-1 text-[10px] leading-none border',
+        active
+          ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+          : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel)]',
+        className,
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

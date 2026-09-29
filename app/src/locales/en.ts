@@ -235,7 +235,7 @@ export const translations: TranslationCatalog = {
   'live.hideToolbar': 'Hide toolbar',
   'live.showToolbar': 'Show toolbar',
   'live.layouts': 'Layouts',
-  'live.menu': 'Menu', 'live.fill': 'Fill', 'live.fit': 'Fit', 'live.boxes': 'Boxes', 'live.fullscreen': 'Fullscreen', 'live.configureLayouts': 'Configure Layouts…',
+  'live.menu': 'Menu', 'live.fill': 'Fill', 'live.fit': 'Fit', 'live.boxes': 'Detections', 'live.fullscreen': 'Fullscreen', 'live.configureLayouts': 'Configure Layouts…',
   'login.setupRequired': 'First-time setup required. Please complete setup before logging in.',
   'login.tooManyAttempts': 'Too many failed attempts. Try again in',
   'login.username': 'Username',

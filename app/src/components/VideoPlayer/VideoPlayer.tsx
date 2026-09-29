@@ -93,8 +93,11 @@ export interface VideoPlayerProps {
       keyboard shortcuts. 'none' is a bare feed for glance surfaces such as
       the dashboard wall: the caller draws its own labels, and with several
       players on one page a shortcut bound to the page body would toggle
-      every one of them at once. */
-  chrome?: 'full' | 'none'
+      every one of them at once. 'controls' keeps the control bar and the
+      shortcuts but, like 'none', leaves the title and state badges to the
+      caller and uses the compact loading and error states — a wall of
+      tiles that labels its own feeds. */
+  chrome?: 'full' | 'controls' | 'none'
 }
 
 export interface VideoPlayerHandle {
@@ -1041,6 +1044,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Double-click for fullscreen
     const handleDoubleClick = () => handleFullscreen()
     const bare = chrome === 'none'
+    const compact = chrome !== 'full'
 
     return (
       <div
@@ -1110,18 +1114,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {/* Loading / reconnecting overlay */}
-        {bare && (isLoading || isReconnecting) && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+        {compact && (isLoading || isReconnecting) && !error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/30">
             <div className="w-5 h-5 border-2 border-white/25 border-t-white/80 rounded-full animate-spin" />
+            {isReconnecting && (
+              <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/55">{t('video.reconnecting')}</div>
+            )}
           </div>
         )}
-        {bare && error && (
+        {compact && error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[#07090d] text-white/60">
             <AlertCircle size={16} className="opacity-70" />
             <div className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('video.noSignalShort')}</div>
+            {!bare && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                className="mt-1 px-2 py-0.5 text-[10px] border border-white/15 text-white/75 hover:bg-white/5 hover:text-white"
+              >
+                {t('common.refresh')}
+              </button>
+            )}
           </div>
         )}
-        {!bare && (isLoading || isReconnecting) && (
+        {!compact && (isLoading || isReconnecting) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
             <div className="w-10 h-10 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             {isReconnecting && (
@@ -1131,7 +1147,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {/* Error overlay */}
-        {!bare && error && (
+        {!compact && error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-white" style={{ background: '#1e3a8a' }}>
             {/* TV Static background */}
             <div 
@@ -1186,7 +1202,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             so a gutter wider than the LIVE badge means the two can never
             collide at any tile size; a percentage cap only holds until the
             tile gets small enough for the badge to outgrow its share. */}
-        {!bare && title && (
+        {!compact && title && (
           <div
             className={`absolute top-1.5 left-1/2 -translate-x-1/2 z-10 truncate text-sm @max-[300px]:text-xs leading-tight font-medium text-white/90 px-1.5 py-0.5 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] transition-opacity duration-700 group-hover:opacity-100 ${
               isLive && !error ? 'max-w-[calc(100%_-_110px)]' : 'max-w-[85%]'
@@ -1199,7 +1215,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {/* Live indicator — transparent: glowing dot + shadowed text so it
             doesn't overshadow the stream like the old solid red chip. Pinned
             to the band's corner so a long title can never run under it. */}
-        {!bare && isLive && !error && (
+        {!compact && isLive && !error && (
           <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 text-[10px] font-semibold tracking-wider text-red-400 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">
             <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse [box-shadow:0_0_5px_rgba(239,68,68,0.9)]" />
             LIVE
