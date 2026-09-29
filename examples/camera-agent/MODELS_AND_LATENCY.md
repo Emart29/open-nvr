@@ -20,6 +20,49 @@ Anything that adds a synchronous step (an extra tool call, a slow model) is
 felt directly, so the model picks below favour *fast and good-enough* over
 *slow and perfect*.
 
+## Four rules for a fast turn on CPU
+
+A field trace on an 8-core CPU box read
+`stt 14s → llm (iter 1) 17s → search_history 12s → llm (iter 2) 2.6s → tts 25s · 71s`.
+Most of it was contention (the same box was burning ~3 cores on a
+captioner that could not keep up — see the enrichment governor), but
+four things in the agent itself made every stage slower than it needs
+to be, and each is now a rule:
+
+1. **The prompt's static prefix is byte-identical across turns.** Ollama
+   reuses its KV cache only for an unchanged prefix, and its chat template
+   renders the tool schemas INSIDE the system turn, right after the system
+   text. The clock line (which changes every minute) used to sit in the
+   system prompt, ahead of ~3.5k tokens of schemas, so the whole prefix
+   was re-prefilled on every turn — the 17 s "iter 1" against 2.6 s for
+   "iter 2" of the same turn. On the `/converse` path the clock now rides
+   IN the user turn (`[The current date and time is …]` on its own line
+   above the user's words); the pre-warm sends the same clockless system
+   + tools. Not a system message after the history: Ollama collects
+   every system-role message into the one leading system block, which the
+   Qwen and Llama templates render before the tool schemas — so a
+   "trailing" system clock still busts the prefix, and several
+   OpenAI-compatible servers reject a second system turn outright. Keep
+   it that way: anything that varies per turn belongs in the user turn.
+   (The streaming `/ws` context keeps the clock in its system prompt
+   because that context is built once per session and does not change
+   within it.)
+2. **Whisper runs greedy (`beam_size: 1`).** Beam 5 costs 30-50% more CPU
+   and buys nothing on a clean, VAD-trimmed utterance of a few seconds.
+3. **The Piper voice is a MEDIUM tier by default** (`PIPER_VOICE`,
+   `en_US-lessac-medium`). Piper is the CPU hog of the stack (~390% on a
+   4-core box); the tier is the cost, and "high" is 2-3x the compute of
+   "medium" for the same intelligibility. Kokoro sounds better still and
+   runs ~9x slower than Piper on CPU — the wrong direction here.
+4. **`search_history` fetches each kept photo once, in parallel**, and
+   face-matches only when the question asks WHO. It used to fetch every
+   crop twice, one at a time, and run recognition on every person answer.
+
+The streaming voice path (`/ws`, Pipecat) already synthesises per
+sentence, so audio starts after the first sentence; the JSON `/converse`
+path returns one clip for the whole reply and is bounded by the rules
+above.
+
 ## Running on limited hardware (no GPU, little RAM)
 
 A real CPU-only test (Win 11, 11.5 GiB) gave the numbers that drive this advice:
@@ -248,7 +291,7 @@ itself — worth trying with your model; the template is the safe default.
 |------|------------------|---------------------------|-----|
 | LLM | `qwen2.5:1.5b` (non-thinking) | `qwen2.5:3b` / `llama3.1:8b-instruct` | Must support tool-calling. 1.5B answers tool calls in ~1–2 s warm on CPU; bigger is slower. Qwen2.5 dense models are Apache-2.0. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
-| TTS | Piper `en_US-libritts-high` | (voice of choice) | Piper is fast and CPU-friendly; pick the voice to match the persona gender. |
+| TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
 | Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
 | Caption | BLIP | — | Optional; `describe_camera` falls back to the detector if absent. |
 | Faces | InsightFace | — | Optional; only loaded for recognition/enrollment. |

@@ -65,6 +65,8 @@ services:
       # English-only Whisper: faster on CPU and avoids the multilingual
       # model hallucinating foreign-language tokens on noisy/quiet audio.
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base.en}
+      # CTranslate2 threads on CPU; empty = all cores. Adapter 1.0.1+.
+      - OPENNVR_WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-}
     volumes:
       - opennvr_whisper_models:/app/model_weights/whisper
     networks:
@@ -114,8 +116,16 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - |
-        VOICE=en_US-libritts-high
-        BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high
+        # PIPER_VOICE (.env) names any voice from rhasspy/piper-voices as
+        # <lang>_<REGION>-<name>-<quality>; the download path follows from
+        # it. The default is a MEDIUM voice on purpose: on CPU the quality
+        # tier is the cost — libritts-high took ~4 cores and 25 s for two
+        # sentences on the field box; medium is 2-3x cheaper and as clear.
+        # The agent asks for this voice per request (AppConfig.piper_voice).
+        VOICE=${PIPER_VOICE:-en_US-lessac-medium}
+        LANG_REGION=$${VOICE%%-*}; REST=$${VOICE#*-}
+        NAME=$${REST%-*}; QUALITY=$${REST##*-}; LANG_CODE=$${LANG_REGION%%_*}
+        BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/$$LANG_CODE/$$LANG_REGION/$$NAME/$$QUALITY
         cd /voices || exit 0
         for f in "$$VOICE.onnx" "$$VOICE.onnx.json"; do
           if [ -s "$$f" ]; then
@@ -149,6 +159,12 @@ services:
         condition: service_completed_successfully
     environment:
       - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+      # The voice used when a request names none (the agent names one),
+      # and the ONNX thread cap per synthesis: one utterance fanning
+      # across every core is what starved the detector on a 4-core box.
+      # Both honoured by adapter releases from 1.0.1 on.
+      - OPENNVR_PIPER_VOICE=${PIPER_VOICE:-en_US-lessac-medium}
+      - OPENNVR_PIPER_THREADS=${PIPER_THREADS:-2}
     volumes:
       # The adapter resolves MODEL_WEIGHTS_DIR/piper -> /app/model_weights/piper.
       # Custom/extra voices: drop .onnx + .onnx.json pairs into the
@@ -541,6 +557,8 @@ services:
       # "after 12:10 pm" alarm on an IST site stayed dormant until
       # 12:10 UTC (= 5:40 pm local). Must match the mediamtx/core TZ.
       - TZ=${TZ:-UTC}
+      # The Piper voice the agent asks for (see piper-voices-init).
+      - PIPER_VOICE=${PIPER_VOICE:-en_US-lessac-medium}
     volumes:
       - opennvr_camera_agent_config:/app/config:ro
       - ./agent-certs/camera-agent:/certs:ro

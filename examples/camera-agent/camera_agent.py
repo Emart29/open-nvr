@@ -166,6 +166,13 @@ class AppConfig:
     llm_api_key: str | None = None
     piper_url: str = "http://127.0.0.1:9001"
     piper_token: str = ""
+    # Which Piper voice to ask for, per request (the adapter honours a
+    # ``voice`` key). Empty = the adapter's own default. The compose
+    # stack passes PIPER_VOICE, whose default is a MEDIUM-tier voice: on
+    # CPU the tier is the cost — libritts-high took ~4 cores and 25 s
+    # for two sentences on the field box; a medium voice is 2-3x cheaper
+    # and as intelligible.
+    piper_voice: str = ""
 
     # LLM tuning.
     llm_model: str = "qwen2.5:1.5b"
@@ -2969,6 +2976,7 @@ def load_config(path: str | Path) -> AppConfig:
         llm_keep_alive=(raw["llm_keep_alive"] if raw.get("llm_keep_alive") is not None else -1),
         piper_url=_str("piper_url", "http://127.0.0.1:9001"),
         piper_token=_str("piper_token", ""),
+        piper_voice=_str("piper_voice", os.environ.get("PIPER_VOICE", "")),
         llm_model=_str("llm_model", "qwen2.5:1.5b"),
         llm_temperature=_float("llm_temperature", 0.4),
         llm_max_tokens=_int("llm_max_tokens", 256),
@@ -3155,7 +3163,8 @@ class CameraAgentRuntime:
                 num_thread=cfg.llm_num_threads, num_ctx=cfg.llm_num_ctx,
                 think=_think, keep_alive=cfg.llm_keep_alive,
             )
-        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token)
+        self.piper = PiperClient(url=cfg.piper_url, token=cfg.piper_token,
+                                 voice=cfg.piper_voice)
 
         self.caption_client = KaicAdapterClient(
             kaic_url=cfg.kaic_url,
@@ -5121,7 +5130,7 @@ class CameraAgentRuntime:
             # weight load. (KEEP_ALIVE=-1 keeps the cache resident.)
             await self.ollama.chat(
                 messages=[
-                    {"role": "system", "content": self.build_system_prompt()},
+                    {"role": "system", "content": self.build_system_prompt(clock=False)},
                     {"role": "user", "content": "hello"},
                 ],
                 tools=self.tool_definitions,
@@ -5269,37 +5278,52 @@ class CameraAgentRuntime:
             + "\n".join(lines)
         )
 
-    def build_system_prompt(self) -> str:
-        """Compose the system prompt the LLM sees: the agent's identity + the
-        operator's base prompt + a per-camera roster + task guidance."""
-        roster = "\n".join(
-            f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
-        )
-        # Per-turn wall clock, in the container's local timezone (TZ is passed
-        # through by the compose files). Without this the model cannot turn
-        # "today" or "the last 30 minutes" into the ISO 8601 window that
-        # search_history / describe_window take — it would have to guess the
-        # date, and small models guess their training cutoff.
+    @staticmethod
+    def _clock_line() -> str:
+        """Per-turn wall clock, in the container's local timezone (TZ is
+        passed through by the compose files). Without this the model cannot
+        turn "today" or "the last 30 minutes" into the ISO 8601 window that
+        search_history / describe_window take — it would have to guess the
+        date, and small models guess their training cutoff."""
         from datetime import datetime as _dt
         _now = _dt.now().astimezone()
-        clock_line = (
+        return (
             f"The current date and time is "
             f"{_now.strftime('%A %Y-%m-%d %H:%M (UTC%z)')}. When a tool takes "
             f"an ISO 8601 time window, compute it from THIS clock and include "
             f"the timezone offset (e.g. {_now.strftime('%Y-%m-%dT%H:%M:00%z')})."
         )
+
+    def build_system_prompt(self, *, clock: bool = True) -> str:
+        """Compose the system prompt the LLM sees: the agent's identity + the
+        operator's base prompt + a per-camera roster + task guidance.
+
+        ``clock=False`` leaves the per-turn clock OUT. Ollama's chat template
+        renders the tool schemas inside the system turn, AFTER this text, so
+        a clock anywhere in here sits before ~3.5k tokens of schemas and
+        changes every minute — the whole prefix re-prefilled per turn. The
+        JSON /converse path therefore carries the clock in the user turn
+        (see _user_turn); the streaming /ws path keeps it here because that
+        context is built once per session and stays byte-identical for the
+        session's length."""
+        roster = "\n".join(
+            f"- {cam.camera_id}: {cam.role}" for cam in self.visible_cameras()
+        )
+        clock_line = self._clock_line()
         # Which tools the LLM can actually call this turn — guidance below
         # must never route to a tool that isn't advertised (a small model
         # will either stall or 'improvise' with a live-scene tool instead).
         advertised = {
             t["function"]["name"] for t in (self.tool_definitions or ())
         }
+        # Nothing per-turn in here: everything below is byte-identical
+        # across turns, which is what lets Ollama keep its KV cache for the
+        # system text AND the tool schemas rendered after it.
         prompt = (
             f"You are the OpenNVR Agent, this system's camera agent. Speak in "
             f"the FIRST person — say 'I see…', 'I'm watching…', not in the "
             f"third person. If asked your name, say you're the OpenNVR Agent.\n\n"
             f"{self.cfg.system_prompt.strip()}\n\n"
-            f"{clock_line}\n\n"
             f"Cameras available to you:\n{roster}\n\n"
             f"Always pass one of the camera_id values exactly as listed "
             f"when calling a tool.\n\n"
@@ -5381,6 +5405,11 @@ class CameraAgentRuntime:
                 "'Let me look at the gate camera between two and three.' Never guess "
                 "the answer in that sentence."
             )
+        # Last of the prose when it is here at all (see the docstring). Only
+        # Qwen3's ``/no_think`` switch may follow: a control token the model
+        # wants at the very end, constant across turns.
+        if clock:
+            prompt += "\n\n" + clock_line
         if self.cfg.llm_think is False:
             prompt += "\n\n/no_think"
         return prompt
@@ -7546,6 +7575,24 @@ def _is_config_question(text: str) -> bool:
     return bool(_CONFIG_RE.search(text or ""))
 
 
+def _user_turn(runtime: "CameraAgentRuntime", user_text: str) -> str:
+    """The user message as the model sees it: the per-turn clock, then the
+    user's own words.
+
+    The clock is NOT a system message after the history. Ollama's chat
+    path collects every system-role message into the one leading system
+    block (template.go ``collate``), which the Qwen and Llama templates
+    render BEFORE the tool schemas — so a "trailing" system clock still
+    lands ahead of ~3.5k cached tokens and re-prefills the prefix every
+    minute. Several OpenAI-compatible servers (Gemma, Mistral templates)
+    reject a system turn after the first outright. The user turn is the
+    one message that is rendered last, wherever it is sent; the clock
+    rides in it. History keeps the user's bare words (what the UI shows),
+    so only that short tail re-prefills, never the system + tools.
+    """
+    return f"[{runtime._clock_line()}]\n\n{user_text}"
+
+
 def _pick_camera(text: str, cameras: list[str], preferred: str | None = None) -> str:
     """Best-effort: which camera did the user mean? An explicit name in the
     utterance wins; otherwise fall back to the UI-selected ``preferred``
@@ -7649,8 +7696,13 @@ async def _run_conversation_turn(
     if _is_config_question(user_text):
         return _roster_answer(runtime.visible_cameras())
 
+    # No clock in the system prompt: Ollama renders the tool schemas right
+    # after it, and a line that changes every minute in front of ~3.5k
+    # tokens of schemas re-prefilled the whole prefix on every turn — the
+    # 17 s "iter 1" of the field trace. The clock rides in the USER turn
+    # (see _user_turn), the last thing in the prompt.
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": runtime.build_system_prompt()}
+        {"role": "system", "content": runtime.build_system_prompt(clock=False)}
     ]
     tools = tool_definitions if tool_definitions is not None else runtime.tool_definitions
     cameras = [cam.camera_id for cam in runtime.visible_cameras()]
@@ -7666,7 +7718,12 @@ async def _run_conversation_turn(
             ),
         })
     messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    messages.append({"role": "user", "content": _user_turn(runtime, user_text)})
+    # The question itself, for tools that decide by it (face matching only
+    # when somebody asked WHO — tools.search_history). Task-local: a
+    # background task's or a scheduled report's turn does not overwrite
+    # the one a person is waiting on.
+    runtime.tools.current_question = user_text
 
     # Per-turn pipeline trace: ordered (step, detail, ms) of everything this
     # turn executed — LLM iterations, every tool, forced groundings — so the
