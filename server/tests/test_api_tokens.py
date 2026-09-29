@@ -75,20 +75,37 @@ import core.request_context  # noqa: E402,F401
 
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine, event  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
 
 
 @pytest.fixture()
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     import core.database as cdb
     import models
     from core.auth import create_access_token
     from services import api_tokens
 
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False},
-                        poolclass=StaticPool)
+    # A FILE, not ``sqlite://`` on a StaticPool. The in-memory form hands
+    # every session — every thread — the one DBAPI connection, and some
+    # of the code under this fixture reads the database from threads
+    # (``asyncio.to_thread``: the MQTT bridge's snapshot, the manager's
+    # integration list). A ``session.close()`` in one of those threads
+    # is a ``rollback()`` on the shared connection, and when it lands
+    # between a test's DELETE and its COMMIT it undoes the delete —
+    # the row is still there, the bridge is still wanted, and the
+    # assertion fails only on a runner slow enough to interleave them.
+    # Production gives each session its own connection; so does this.
+    # WAL so readers never block a writer's commit (a test holding a
+    # session open across an API write would otherwise wait out the
+    # five-second busy timeout).
+    eng = create_engine(f"sqlite:///{tmp_path / 'env.db'}",
+                        connect_args={"check_same_thread": False})
+
+    @event.listens_for(eng, "connect")
+    def _wal(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
+
     models.Base.metadata.create_all(eng)
     Session = sessionmaker(bind=eng)
     monkeypatch.setattr(cdb, "SessionLocal", Session)
@@ -164,8 +181,9 @@ def env(monkeypatch):
         return {"Authorization": f"Bearer {create_access_token({'sub': username})}"}
 
     client = TestClient(app, client=("192.168.1.20", 50000))
-    return type("Env", (), {"client": client, "Session": Session, "ids": ids,
-                            "jwt": staticmethod(jwt_for), "models": models})
+    yield type("Env", (), {"client": client, "Session": Session, "ids": ids,
+                           "jwt": staticmethod(jwt_for), "models": models})
+    eng.dispose()
 
 
 def _reachable_get_dbs(modules):
