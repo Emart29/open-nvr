@@ -27,13 +27,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Pin Pipecat carefully — its API has shifted between minor versions
-# (the 1.x line moved turn-taking into the user aggregator and the
-# serializer/transport modules; camera_agent.py, services.py and
-# serializer.py are written against 1.8). Keep this in lock-step with
-# pyproject.toml. If you bump these, re-run the example's test suite
-# (tests/test_pipeline_e2e.py drives the real pipeline) and the demo page
-# locally before committing.
+# Pipecat is PINNED to the exact version pyproject.toml and uv.lock carry
+# — never a range. Its API has shifted between minor versions (the 1.x
+# line moved turn-taking into the user aggregator and the serializer/
+# transport modules; camera_agent.py, services.py and serializer.py are
+# written against 1.8), and a range resolves to whatever PyPI has on
+# build day: ">=1.8.1,<2.0" became 1.12, which no longer depends on nltk,
+# and the punkt download below failed the whole image build while the
+# tests, run against the lock, stayed green. An image must install what
+# the lock says. Bumping pipecat is a change to pyproject.toml + `uv lock`
+# FIRST (then re-run tests/test_pipeline_e2e.py and the demo page), then
+# this line. websockets is bounded here for the same reason it is in
+# pyproject.toml: the live-overlay path depends on it directly.
 # Resilient install for slow / flaky PyPI links (pipecat's silero extra pulls
 # torch — a large download). Three layers of resilience:
 #   * --mount=type=cache keeps the pip wheel cache across build attempts, so a
@@ -58,6 +63,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
             "uvicorn>=0.27,<1.0" \
             "PyYAML>=6.0,<7.0" \
             "nats-py>=2.6" \
+            "websockets>=12,<18" \
             "Pillow>=10.0" \
             "opencv-python-headless>=4.8" \
         && break; \

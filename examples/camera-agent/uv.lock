@@ -1100,7 +1100,7 @@ requires-dist = [
     { name = "opencv-python-headless", marker = "extra == 'device'", specifier = ">=4.8" },
     { name = "opennvr-app-sdk", editable = "../../sdk/opennvr-app-sdk" },
     { name = "pillow", specifier = ">=10.0" },
-    { name = "pipecat-ai", extras = ["silero", "websocket"], specifier = ">=1.8.1,<2.0" },
+    { name = "pipecat-ai", extras = ["silero", "websocket"], specifier = "==1.8.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", specifier = ">=6.0,<7.0" },
