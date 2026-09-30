@@ -84,14 +84,46 @@ class FrameResult:
     stage_latency_s: dict[str, float] = field(default_factory=dict)
 
 
-def nms(dets: list[Detection], iou_threshold: float = 0.5) -> list[Detection]:
-    """Greedy per-label non-max suppression; keeps the highest score."""
+#: IoU above which two boxes of DIFFERENT labels are the same object.
+#: Well above the per-label threshold: a person standing in front of a car
+#: overlaps it partially and must keep both boxes; a vehicle the detector
+#: reads as "car" AND "truck" produces two near-identical boxes and must
+#: not — that double box was the most visible overlay inaccuracy, and the
+#: tracker (which matches per label) spawned two tracks for it.
+CROSS_LABEL_IOU = 0.85
+
+
+def nms(
+    dets: list[Detection],
+    iou_threshold: float = 0.5,
+    cross_label_iou: float | None = CROSS_LABEL_IOU,
+) -> list[Detection]:
+    """Greedy non-max suppression; keeps the highest score.
+
+    Same-label boxes are suppressed above ``iou_threshold``. Boxes of a
+    different label are suppressed only above ``cross_label_iou`` — near
+    coincidence, i.e. one object the model labelled two ways. ``None``,
+    ``<= 0`` or ``>= 1`` disables the cross-label rule; a value below
+    ``iou_threshold`` is raised to it, since suppressing ACROSS labels
+    more eagerly than within one is never the intent.
+
+    The losing label is gone from ``FrameResult.detections`` too, so a
+    benchmark scoring per-label recall (evalcmp) measures this policy as
+    well as the model; run such comparisons with the rule off
+    (``DETECT_NMS_CROSS_LABEL_IOU=0``).
+    """
+    cross: float | None = None
+    if cross_label_iou is not None and 0.0 < cross_label_iou < 1.0:
+        cross = max(cross_label_iou, iou_threshold)
     kept: list[Detection] = []
     for d in sorted(dets, key=lambda x: x.score, reverse=True):
-        if all(
-            not (k.label == d.label and intersection_over_union(d.box, k.box) > iou_threshold)
-            for k in kept
-        ):
+        duplicate = False
+        for k in kept:
+            limit = iou_threshold if k.label == d.label else cross
+            if limit is not None and intersection_over_union(d.box, k.box) > limit:
+                duplicate = True
+                break
+        if not duplicate:
             kept.append(d)
     return kept
 
@@ -170,6 +202,7 @@ class DetectPipeline:
         stationary_interval: int = 10,
         max_regions: int = 8,
         allowed_labels: frozenset[str] | set[str] | None = None,
+        cross_label_iou: float | None = CROSS_LABEL_IOU,
     ) -> None:
         self.frame_source = frame_source
         self.motion = motion
@@ -192,6 +225,9 @@ class DetectPipeline:
         # business confirming tracks for "kite"/"banana" wire false
         # positives — every phantom is a standing re-verify cost. None = all.
         self.allowed_labels = frozenset(allowed_labels) if allowed_labels else None
+        # See nms(): one object the model labels two ways is one box.
+        # DETECT_NMS_CROSS_LABEL_IOU; 0 or 1 turns the rule off.
+        self.cross_label_iou = cross_label_iou
         self._frame_idx = 0
 
     def process_frame(self, frame) -> FrameResult:
@@ -280,7 +316,7 @@ class DetectPipeline:
                 dets.extend(detections_to_frame(raws, region))
             if self.allowed_labels is not None:
                 dets = [d for d in dets if d.label in self.allowed_labels]
-            dets = nms(dets)
+            dets = nms(dets, cross_label_iou=self.cross_label_iou)
             detect_latency_s = time.monotonic() - _t   # pure detector time (this model)
             stages["detect"] = detect_latency_s
 

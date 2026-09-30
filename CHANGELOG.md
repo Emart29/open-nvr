@@ -92,6 +92,21 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **One object, one box on the live overlay.** Tier-0's non-maximum
+  suppression ran per label, so a vehicle the detector read as both
+  "car" and "truck" drew two near-identical boxes — and, because the
+  tracker matches per label too, spawned two tracks for it. Boxes of
+  different labels that nearly coincide (IoU > 0.85) now collapse to the
+  stronger one; partial overlaps (a person in front of a car) still keep
+  both. The tracker matches car/truck/bus detections to one track and
+  lets the label follow the majority vote, so a vehicle the model reads
+  both ways no longer alternates between two starving tracks.
+  `DETECT_NMS_CROSS_LABEL_IOU` (default 0.85; 0 or 1 = off) tunes or
+  disables the rule — off for per-label model benchmarking, whose recall
+  numbers would otherwise measure this policy too. The camera-agent's
+  own de-duplication (its `detect_objects` counts) applies the same
+  rule, and now reads boxes as the contract's top-left `{x, y, w, h}`
+  rather than centre-form, so its overlap test matches what it counts.
 - **Tier-0 no longer stalls the decoder when detection falls behind
   (#507).** The worker read ffmpeg's stdout in the same loop that ran
   detection, so detector latency was backpressure on the decoder: with a

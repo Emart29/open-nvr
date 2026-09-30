@@ -833,3 +833,47 @@ def test_the_note_caveats_attributes_on_a_found_answer_too(anyio_backend=None):
         tools.search_history({"label": "car", "attr": ["colour:red"]}))
     assert "1 car visit(s) described as colour:red" in out
     assert "cannot tell whether it is colour:red" in out
+
+
+# ── detection de-duplication (mirrors Tier-0's NMS policy) ────────────
+
+def _det(label, x, y, w, h, conf):
+    return {"label": label, "confidence": conf, "bbox": {"x": x, "y": y, "w": w, "h": h}}
+
+
+def test_dedup_collapses_same_label_duplicates_keeping_the_strongest():
+    out = CameraTools._dedup_detections([
+        _det("person", 0.10, 0.10, 0.20, 0.40, 0.6),
+        _det("person", 0.11, 0.10, 0.20, 0.41, 0.9),
+    ])
+    assert [d["confidence"] for d in out] == [0.9]
+
+
+def test_dedup_collapses_one_object_labelled_two_ways():
+    out = CameraTools._dedup_detections([
+        _det("car", 0.10, 0.20, 0.30, 0.25, 0.9),
+        _det("truck", 0.11, 0.20, 0.30, 0.25, 0.7),   # near-identical box
+    ])
+    assert [d["label"] for d in out] == ["car"]
+
+
+def test_dedup_keeps_a_person_in_front_of_a_car():
+    out = CameraTools._dedup_detections([
+        _det("car", 0.0, 0.0, 0.5, 0.5, 0.9),
+        _det("person", 0.2, 0.1, 0.1, 0.4, 0.8),      # inside the car, low IoU
+    ])
+    assert sorted(d["label"] for d in out) == ["car", "person"]
+
+
+def test_dedup_cross_label_rule_can_be_disabled():
+    dets = [_det("car", 0.1, 0.2, 0.3, 0.25, 0.9), _det("truck", 0.11, 0.2, 0.3, 0.25, 0.7)]
+    assert len(CameraTools._dedup_detections(dets, cross_label_iou=None)) == 2
+
+
+def test_iou_reads_boxes_as_top_left_like_the_contract():
+    # Two boxes side by side, touching: IoU must be 0, not the ~0.33 a
+    # centre-form reading of these values used to give.
+    a = {"x": 0.0, "y": 0.0, "w": 0.2, "h": 0.2}
+    b = {"x": 0.2, "y": 0.0, "w": 0.2, "h": 0.2}
+    assert CameraTools._iou(a, b) == 0.0
+    assert CameraTools._iou(a, dict(a)) == 1.0

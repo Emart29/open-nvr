@@ -265,6 +265,7 @@ DETECT_DECODE_FAST=false          # true = skip h264 loop filter (opt-in, not bi
 DETECT_DECODE_IDLE=nokey          # adaptive decode while quiet (dial 6, default on; none = off)
 DETECT_DECODE_IDLE_AFTER=60       # quiet seconds before a camera idles
 DETECT_STATIONARY_INTERVAL=10     # re-verify stationary tracks every Nth frame (0 = every frame)
+DETECT_NMS_CROSS_LABEL_IOU=0.85   # boxes of different labels this coincident are one object (0 or 1 = off)
 DETECT_MOTION_ENABLED=true        # false = motion gate OFF: detector runs on every frame (costly)
 DETECT_MOTION_THRESHOLD=30        # pixel-diff threshold 1-255 (raise on noisy sensors)
 DETECT_MOTION_CONTOUR_AREA=10     # min contour area counted as motion (raise to ignore small flicker)

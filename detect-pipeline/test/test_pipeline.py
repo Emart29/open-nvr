@@ -49,9 +49,53 @@ class _OneBoxDetector:
 def test_nms_suppresses_overlapping_same_label():
     a = Detection("person", (0, 0, 100, 100), 0.9)
     b = Detection("person", (5, 5, 105, 105), 0.6)      # heavy overlap, lower score
-    c = Detection("car", (0, 0, 100, 100), 0.8)         # different label, kept
+    c = Detection("car", (40, 60, 200, 200), 0.8)       # different label, partial overlap: kept
     out = nms([a, b, c])
     assert a in out and c in out and b not in out
+
+
+def test_nms_collapses_one_object_labelled_two_ways():
+    """A vehicle read as both car and truck is one box, the stronger label."""
+    car = Detection("car", (100, 100, 400, 300), 0.9)
+    truck = Detection("truck", (102, 98, 398, 303), 0.7)   # near-identical box
+    assert nms([car, truck]) == [car]
+
+
+def test_nms_keeps_a_person_in_front_of_a_car():
+    car = Detection("car", (0, 0, 400, 300), 0.9)
+    person = Detection("person", (150, 50, 250, 300), 0.8)  # inside the car box, IoU low
+    out = nms([car, person])
+    assert car in out and person in out
+
+
+def test_nms_cross_label_rule_can_be_disabled():
+    car = Detection("car", (100, 100, 400, 300), 0.9)
+    truck = Detection("truck", (102, 98, 398, 303), 0.7)
+    for off in (None, 1.0, 0.0, -0.5, 2.0):
+        assert len(nms([car, truck], cross_label_iou=off)) == 2, off
+
+
+def test_nms_cross_label_never_stricter_than_same_label():
+    # Touching, barely overlapping boxes of different labels: a cross-label
+    # value below the same-label threshold is raised to it, not applied.
+    car = Detection("car", (0, 0, 100, 100), 0.9)
+    person = Detection("person", (60, 0, 160, 100), 0.8)   # IoU ≈ 0.25
+    assert len(nms([car, person], cross_label_iou=0.1)) == 2
+
+
+def test_pipeline_passes_cross_label_setting_to_nms():
+    class _TwoLabels:
+        def detect(self, crop):
+            return [RawDetection("car", 0.9, (0.25, 0.25, 0.75, 0.75)),
+                    RawDetection("truck", 0.8, (0.25, 0.25, 0.75, 0.75))]
+    for setting, expected in ((0.85, 1), (0.0, 2)):
+        tracker = Tracker((H, W), TrackConfig(fps=5, min_initialized=1))
+        pipe = DetectPipeline(
+            _FakeSource(1), _FakeMotion(calibrating=False), _TwoLabels(), tracker,
+            cross_label_iou=setting,
+        )
+        result = pipe.process_frame(next(iter(_FakeSource(1).stream())))
+        assert len(result.detections) == expected, setting
 
 
 def test_select_regions_dedups_overlapping():
