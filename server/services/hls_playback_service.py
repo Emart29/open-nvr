@@ -549,12 +549,26 @@ class HlsPlaybackService:
             session.video_codec = None
             needs_remux = False
         session.needs_remux = needs_remux
-        if needs_remux:
-            rows = rows[:1]
 
         session_start = session.start_time
         if session_start.tzinfo is None:
             session_start = session_start.replace(tzinfo=UTC)
+
+        if needs_remux:
+            # The remux serves ONE file, so it must be the file that holds the
+            # session start: the latest one that started at or before it.
+            # rows[0] is not that file at a clip boundary. The resolver keeps
+            # files that end near the start (clock skew, and a row's duration
+            # runs past the next row's start), so rows[0] was the PREVIOUS
+            # file, and the player, asking for the next one, got the same file
+            # back forever and stalled at the first boundary.
+            holding = rows[0]
+            for row in rows:
+                if row[1] > session_start:
+                    break
+                holding = row
+            rows = [holding]
+            first_path = holding[0]
 
         files: list[SessionFile] = []
         timeline = 0.0  # seconds of media accumulated on the session timeline

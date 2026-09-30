@@ -452,10 +452,14 @@ def build_remux_index(src_path: str | Path) -> RemuxIndex:
     mdhd = _fullbox(b"mdhd", 0, 0, struct.pack(">IIII", 0, 0, timescale, total_dur)
                     + struct.pack(">HH", 0x55C4, 0))
     mdia = _box(b"mdia", mdhd + hdlr + minf)
+    # Display size, 16.16 fixed point, from the visual sample entry (width and
+    # height sit 24 bytes into its body). Firefox rejects a 0x0 video track
+    # with NS_ERROR_DOM_MEDIA_METADATA_ERR; Chromium ignores the field.
+    width, height = struct.unpack(">HH", bytes(stsd_entry[32:36]))
     tkhd = _fullbox(b"tkhd", 0, 7, struct.pack(">IIIII", 0, 0, 1, 0, total_dur)
                     + b"\x00" * 8 + struct.pack(">hhhh", 0, 0, 0, 0)
                     + struct.pack(">IIIIIIIII", 0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000)
-                    + struct.pack(">II", 0, 0))
+                    + struct.pack(">II", width << 16, height << 16))
     trak = _box(b"trak", tkhd + mdia)
     mvhd = _fullbox(b"mvhd", 0, 0, struct.pack(">IIII", 0, 0, timescale, total_dur)
                     + struct.pack(">IH", 0x10000, 0x0100) + b"\x00" * 10

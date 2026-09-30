@@ -63,3 +63,32 @@ def test_session_path_follows_audio_and_video_codecs(
     # The remux is per-file: a remuxed session stops at its first clip.
     assert len(session.files) == (1 if remux else 2)
     assert (session.remux_index is not None) is remux
+
+
+def test_a_remux_session_at_a_file_boundary_gets_the_next_file(tmp_path, monkeypatch):
+    """The player asks for the instant the current file ends. The resolver also
+    returns the file that just ended (its clock-skew allowance), and serving
+    that one sent the player back to the end of the same file forever, so
+    playback stalled at the first file boundary."""
+    start = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    first, second = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    _clip(first, b"avc1", b"ipcm")
+    _clip(second, b"avc1", b"ipcm")
+    boundary = start + timedelta(seconds=60)
+    # As the index stores them: whole-second starts, and a duration that runs
+    # past the next file's start (media length, not the start-to-start gap).
+    rows = [(first, start, 60.5), (second, boundary, 60.0)]
+    monkeypatch.setattr(
+        HlsPlaybackService, "_resolve_recording_rows", classmethod(lambda cls, *a: rows)
+    )
+    monkeypatch.setattr(
+        HlsPlaybackService, "_stored_codec", classmethod(lambda cls, *a: None)
+    )
+
+    session = _session(boundary)
+    HlsPlaybackService._attach_byte_index(session, 7, object(), 60.0)
+
+    assert session.needs_remux is True
+    assert [f.path for f in session.files] == [str(second)]
+    assert session.file_offset_seconds == 0.0
+    assert session.remux_index.src_path == str(second.resolve())

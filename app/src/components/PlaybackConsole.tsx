@@ -478,7 +478,12 @@ export function PlaybackConsole({
       // reload it from where we stopped to play into the newly-written tail.
       const grown = stuck ? undefined : segs.find((s) => s.startMs <= after && after < s.endMs - 500)
       if (grown) {
-        loadClip(grown, Math.max(0, (after - grown.startMs) / 1000), true)
+        // A remuxed session serves ONE file of the clip, so anchor the next
+        // session at `after`, which gets the file holding it. Loading from the
+        // clip start would fetch the file that just ended and only then retry
+        // from here: a second session round trip at every file boundary.
+        const remux = el.currentSrc.includes('/browser.mp4')
+        loadClip(grown, Math.max(0, (after - grown.startMs) / 1000), true, remux)
         return
       }
       // Otherwise advance to the next clip (skips the grey gap).

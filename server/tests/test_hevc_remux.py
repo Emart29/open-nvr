@@ -184,6 +184,21 @@ def test_remux_h264_keeps_avc1_and_drops_pcm(tmp_path):
     assert out[out.find(b"mdat") + 4:] == v0 + v1
 
 
+@pytest.mark.parametrize("vcodec", [b"avc1", b"hev1"])
+def test_remux_track_header_carries_the_video_size(tmp_path, vcodec):
+    """Firefox rejects a video track whose tkhd says 0x0 (METADATA_ERR) even
+    though the sample entry has the real size; Chromium doesn't care, which is
+    how the zeros went unnoticed."""
+    src = tmp_path / "in.mp4"
+    src.write_bytes(_build_fmp4([b"IDR"], [b"A"], vcodec=vcodec))
+    out = hrs.build_remux_index(src).header
+
+    tkhd = out.find(b"tkhd") - 4
+    size = struct.unpack(">I", out[tkhd:tkhd + 4])[0]
+    width, height = struct.unpack(">II", out[tkhd + size - 8:tkhd + size])
+    assert (width >> 16, height >> 16) == (320, 240)
+
+
 def test_remux_produces_videoonly_hvc1_preserving_samples(tmp_path):
     v0, v1 = b"KEYFRAME_BYTES_0", b"pframe1"
     src = tmp_path / "in.mp4"
