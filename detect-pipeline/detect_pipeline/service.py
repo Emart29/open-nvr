@@ -633,6 +633,7 @@ class CameraWorker:
             stationary_interval=_env_int("DETECT_STATIONARY_INTERVAL", 10),
             max_regions=_env_int("DETECT_MAX_REGIONS", 8),
             allowed_labels=allowed_labels_for(self.spec),
+            cross_label_iou=_env_float("DETECT_NMS_CROSS_LABEL_IOU", 0.85),
         )
         if self.spec.labels is not None:
             log.info(

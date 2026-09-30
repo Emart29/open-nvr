@@ -27,6 +27,27 @@ from itertools import count
 from .regions import Box, intersection_over_union
 from .thumbnail import ThumbCandidate, is_better_thumbnail
 
+#: Labels the detector confuses on ONE object. A vehicle read as "car" on
+#: one frame and "truck" on the next is the same vehicle: matching strictly
+#: per label gave it two tracks, each fed on alternate frames, each ageing
+#: toward deletion and re-spawning — the churn behind flickering boxes and
+#: duplicate visits. Labels in one group match each other; the track keeps
+#: a vote and carries the label the detector says most often.
+MATCH_LABEL_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"car", "truck", "bus"}),
+)
+_LABEL_GROUP: dict[str, frozenset[str]] = {
+    label: group for group in MATCH_LABEL_GROUPS for label in group
+}
+
+
+def labels_match(a: str, b: str) -> bool:
+    """Whether a detection labelled ``a`` may match a track labelled ``b``."""
+    if a == b:
+        return True
+    group = _LABEL_GROUP.get(a)
+    return group is not None and b in group
+
 
 @dataclass(frozen=True)
 class Detection:
@@ -98,6 +119,10 @@ class Track:
     confirmed: bool = False
     best: ThumbCandidate | None = None
     stationary_threshold: int = 50
+    # Matches per label (labels_match lets a group of confusable labels
+    # feed one track); ``label`` follows the majority so a vehicle first
+    # seen as "car" and then steadily read as "truck" is reported as one.
+    label_votes: dict[str, int] = field(default_factory=dict, compare=False)
     # Monotonic timestamp of the last positive match (set at spawn and on
     # every match) — the coast-TTL expiry anchor.
     last_matched: float = 0.0
@@ -284,11 +309,12 @@ class Tracker:
         unmatched_tracks = set(range(len(self._tracks)))
         unmatched_dets = set(range(len(detections)))
 
-        # candidate pairs (same label, within per-class distance threshold)
+        # candidate pairs (same label — or a confusable one, see
+        # labels_match — within per-class distance threshold)
         pairs: list[tuple[float, int, int]] = []
         for ti, tr in enumerate(self._tracks):
             for di, det in enumerate(detections):
-                if det.label != tr.label:
+                if not labels_match(det.label, tr.label):
                     continue
                 dist = bottom_center_distance(tr.box, det.box)
                 if dist <= cfg.threshold_for(det.label):
@@ -366,6 +392,13 @@ class Tracker:
         tr.age += 1
         tr.misses = 0
         tr.matched_now = True
+        if det.label != tr.label:
+            votes = tr.label_votes
+            votes[det.label] = votes.get(det.label, 0) + 1
+            if votes[det.label] > votes.get(tr.label, 0):
+                tr.label = det.label
+        else:
+            tr.label_votes[det.label] = tr.label_votes.get(det.label, 0) + 1
         tr.last_matched = now if now is not None else self._clock()
         if not tr.confirmed and tr.hits >= self.config.initialized():
             tr.confirmed = True
@@ -380,6 +413,7 @@ class Tracker:
             stationary_threshold=self.config.stationary_threshold,
             last_matched=now if now is not None else self._clock(),
             matched_now=True,
+            label_votes={det.label: 1},
         )
         tr.confirmed = self.config.initialized() <= 1
         self._update_best(tr, det, bgr)
