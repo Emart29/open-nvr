@@ -279,7 +279,15 @@ def query_events(
     ``camera_scope.visible_camera_ids`` — own cameras plus can_view
     grants. Pass None ONLY for superusers (unrestricted).
 
-    The ordering carries an ``id`` tiebreaker because ``started_at`` is
+    Newest READ first: ordered by SEEN_AT, not ``started_at``. A plate
+    event's list shows when the plate was read (``observed_at``); a vehicle
+    that sat in view before its plate was read started earlier than it was
+    read, so ordering by the track's start showed reads out of order
+    (16:54, 16:53, 16:54, 16:19, 16:22…). For any event with no read,
+    SEEN_AT *is* ``started_at``, so nothing else moves; ix_events_cam_seen
+    indexes the expression.
+
+    The ordering carries an ``id`` tiebreaker because the time is
     NOT unique: ``uq_events_visit`` is on the triple (camera, track,
     start), and Tier-0 emits visits in bursts, so ties cluster exactly
     when a page boundary is most likely to land in one. Without a total
@@ -293,7 +301,7 @@ def query_events(
     skip = max(0, int(skip))
     return (
         _events_query(db, **filters)
-        .order_by(TimelineEvent.started_at.desc(), TimelineEvent.id.desc())
+        .order_by(SEEN_AT.desc(), TimelineEvent.id.desc())
         .offset(skip)
         .limit(limit)
         .all()

@@ -43,6 +43,9 @@ export function Tabs({
       // `visible` — and the tabs' -mb-px then overflows the content box by
       // exactly 1px. The browser drew a stray vertical scrollbar for it,
       // floating in the middle of the tab strip.
+      // That same clip cut the active tab's -mb-px border-b-2 down to a
+      // sliver, so which tab was open was hard to tell. The underline is now
+      // an inset shadow INSIDE the tab: nothing overflows, nothing clips.
       className={clsx('flex gap-1 border-b border-[var(--border)] overflow-x-auto overflow-y-hidden', className)}
     >
       {tabs.map((t) => (
@@ -52,10 +55,10 @@ export function Tabs({
           aria-selected={active === t.key}
           onClick={() => onChange(t.key)}
           className={clsx(
-            'px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors',
+            'px-3 py-2 text-sm whitespace-nowrap transition-colors',
             active === t.key
-              ? 'border-[var(--accent)] text-[var(--text)]'
-              : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text)]'
+              ? 'font-medium text-[var(--text)] shadow-[inset_0_-2px_0_var(--accent)]'
+              : 'text-[var(--text-dim)] hover:text-[var(--text)] hover:shadow-[inset_0_-2px_0_var(--border)]'
           )}
         >
           {t.label}

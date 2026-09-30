@@ -19,6 +19,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TimelineSegment } from './PlaybackTimeline'
 import { useEdgeAutoPan } from '../hooks/useEdgeAutoPan'
+import { firstLocalTick } from '../lib/time'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
 
 export interface TimelineRow {
@@ -145,14 +146,14 @@ const TrackRow = memo(function TrackRow({
           <div
             key={i}
             className="absolute top-0 bottom-0"
-            style={{ left: `${b.left}%`, width: `${b.width}%`, background: '#dc2626' }}
+            style={{ left: `${b.left}%`, width: `${b.width}%`, background: 'var(--accent)' }}
           />
         ))}
         {liveBlocks.map((b, i) => (
           <div
             key={`live-${i}`}
             className="absolute top-0 bottom-0"
-            style={{ left: `${b.left}%`, width: `${b.width}%`, background: '#16a34a' }}
+            style={{ left: `${b.left}%`, width: `${b.width}%`, background: 'var(--ok)' }}
           />
         ))}
       </div>
@@ -162,7 +163,7 @@ const TrackRow = memo(function TrackRow({
 
 /**
  * CP-Plus-style multi-camera timeline: one shared time axis, one track row per
- * camera (red = footage, green = still-recording live zone), and a single
+ * camera (accent = footage, green = still-recording live zone), and a single
  * playhead spanning every row. Click/drag anywhere in the track area to seek
  * all cameras to that wall-clock instant; wheel to zoom around the cursor.
  */
@@ -230,7 +231,7 @@ export function MultiCamTimeline({
 
   const ticks = useMemo(() => {
     const interval = pickTickInterval(span)
-    const first = Math.ceil(viewStart / interval) * interval
+    const first = firstLocalTick(viewStart, interval)
     const out: { pct: number; label: string }[] = []
     for (let t = first; t <= viewEnd; t += interval) {
       out.push({ pct: toPct(t), label: fmtTick(t, interval, fmt) })

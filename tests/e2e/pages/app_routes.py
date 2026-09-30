@@ -57,7 +57,6 @@ ROUTES: list[str] = [
     "/cloud",
     "/firmware",
     "/support",
-    "/onvif-tools",
     # Settings sub-pages
     "/settings",
     "/settings/camera-config/device",

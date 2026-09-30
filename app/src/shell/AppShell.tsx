@@ -18,10 +18,10 @@
 
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { DeviceBlockedOverlay } from '../components/DeviceBlockedOverlay'
-import { AlertTriangle, Bell, BellRing, Boxes, Briefcase, Camera, Car, ChevronDown, Cloud, Cpu, Database, DoorOpen, FileCheck, GitCommitHorizontal, Hourglass, KeyRound, Layers, LifeBuoy, LogOut, Maximize, Menu, Minimize, Monitor, MonitorPlay, Moon, Network, PackageCheck, Plug, RefreshCcw, Search as SearchIcon, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Sun, UserRound, Users, Globe } from 'lucide-react'
+import { AlertTriangle, Bell, Boxes, Camera, ChevronDown, Cloud, Cpu, Database, FileCheck, KeyRound, Layers, LifeBuoy, LogOut, Maximize, Menu, Minimize, Monitor, MonitorPlay, Moon, Network, Plug, RefreshCcw, Search as SearchIcon, Settings as SettingsIcon, Shield, ShieldCheck, Sun, Globe } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiService } from '../lib/apiService'
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -29,6 +29,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useTheme } from '../hooks/useTheme'
 import { usePermissions, NAV_PERMISSIONS } from '../hooks/usePermissions'
 import { APP_VERTICALS, manifestProvides, verticalFor } from '../lib/appVerticals'
+import { verticalIcon } from '../lib/verticalIcons'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { CameraStatusProvider } from '../hooks/useCameraStatus'
 import { SystemAlertBanner } from '../components/SystemAlertBanner'
@@ -220,24 +221,8 @@ export function AppShell() {
   const enabledVerticals = APP_VERTICALS.filter((v) =>
     apps.some((a) => a.enabled && manifestProvides(a.manifest, v))
   )
-  // Icons live here (the nav owns its own presentation), keyed by route.
-  const verticalIcon: Record<string, ReactNode> = {
-    '/vehicles': <Car size={16} />,
-    '/occupancy': <Users size={16} />,
-    '/guard-compliance': <ShieldCheck size={16} />,
-    '/people': <UserRound size={16} />,
-    '/tripwires': <GitCommitHorizontal size={16} />,
-    '/loitering': <Hourglass size={16} />,
-    '/perimeter': <ShieldAlert size={16} />,
-    '/left-items': <Briefcase size={16} />,
-    '/deliveries': <PackageCheck size={16} />,
-    // lucide has no barrier/boom-gate glyph; DoorOpen is the nearest
-    // thing that reads as "a way through that opens".
-    '/gates': <DoorOpen size={16} />,
-    // Bell is already the alert inbox in the nav above; BellRing is the
-    // one that reads as "it actually went off on someone's phone".
-    '/notifications': <BellRing size={16} />,
-  }
+  // Icons come from lib/verticalIcons, shared with each app page's title
+  // bar, so the page you land on shows the glyph of the link you clicked.
   const enabledRoutes = enabledVerticals.map((v) => v.to).join(',')
 
   const visibleGroups = useMemo(
@@ -251,7 +236,7 @@ export function AppShell() {
         .map((v) => ({
           to: v.to,
           label: v.label,
-          icon: verticalIcon[v.to] ?? <Boxes size={16} />,
+          icon: verticalIcon(v.to),
           perm: v.to as keyof typeof NAV_PERMISSIONS,
         }))
       // Right after the pinned NVR group (i.e. under Cameras): these are

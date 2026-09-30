@@ -26,10 +26,10 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { CameraOff, Pencil, Trash2, Unplug, Video } from 'lucide-react'
-import { Badge, Button, EmptyState, PageHeader, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
+import { Camera as CameraIcon, CameraOff, Pencil, Plus, Search as SearchIcon, Trash2, Unplug, Video } from 'lucide-react'
+import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
-import { FilterBar, IconButton } from '../components/ui/layout'
+import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
 import { Pagination } from '../components/ui/Pagination'
 import type { BadgeVariant } from '../components/ui'
 import { AddCameraDialog } from '../components/AddCameraDialog'
@@ -248,7 +248,7 @@ export function Cameras() {
     if (!c.is_active) {
       return { variant: 'neutral', label: '—', title: 'Camera is paused' }
     }
-    if (c.live_online === true) return { variant: 'success', label: 'Ready' }
+    if (c.live_online === true) return { variant: 'success', label: 'Online' }
     if (c.live_online === false) {
       return { variant: 'warning', label: 'Disconnected', title: 'Stream not receiving data' }
     }
@@ -499,102 +499,147 @@ export function Cameras() {
   const hasNext = cameras.length === limit
 
   return (
-    <section className="space-y-4">
-      {/* Header */}
-      <PageHeader
-        title={t('nav.cameras')}
-        description={t('camera.description')}
-        actions={
-          <div className="flex items-center gap-3">
-            {/* Say so when pushed updates have stopped. The list still
-                refreshes on its own timer, so the badges are not frozen —
-                but they are no longer near-instant, and a status page that
-                hides that is worse than one that admits it. */}
-            {!liveUpdates && (
-              <span className="text-xs text-[var(--text-dim)]" title="Reconnecting to the live event stream; status may lag by up to a minute">
-                {t('dashboard.reconnecting')}
-              </span>
-            )}
-            {canManageCameras && (
-              <Button variant="outline" onClick={() => navigate('/onvif-tools')} title="Discover ONVIF cameras on the network, read profiles, PTZ and clock">
-                ONVIF Tools
-              </Button>
-            )}
-            {canManageCameras && (
-              <Button variant="primary" onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm() }}>
-                {t('camera.add')}
-              </Button>
-            )}
-          </div>
-        }
-      />
-
-      {/* Filters. Bulk actions appear here only with a selection, so the row
-          stays quiet in the common case. */}
-      <FilterBar
-        actions={canManageCameras && selected.size > 0 ? (
-          <>
-            <Button size="sm" variant="danger" onClick={onBulkDelete} disabled={mutating}>
-              Delete Selected ({selected.size})
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowBulkAssign((s) => !s)} disabled={mutating}>
-              Assign Permissions
-            </Button>
-          </>
-        ) : undefined}
-      >
-        <Input
-          className="w-56"
-          placeholder={t('camera.search')}
-          value={query}
-          onChange={(e) => { setPage(1); setQuery(e.target.value) }}
+    <section className="space-y-2">
+      {/* Title and filters in one panel, as on Search: the title is the
+          panel's header, the filters its body. The title bar, body padding
+          and field height are Search's own, shared, so the two pages cannot
+          drift apart. */}
+      <div className="border border-[var(--border)] bg-[var(--panel-2)]">
+        <PageTitleBar
+          icon={<CameraIcon size={16} />}
+          title={t('nav.cameras')}
+          description={t('camera.description')}
+          actions={(!liveUpdates || canManageCameras) ? (
+            <>
+              {/* Say so when pushed updates have stopped. The list still
+                  refreshes on its own timer, so the badges are not frozen —
+                  but they are no longer near-instant, and a status page that
+                  hides that is worse than one that admits it. */}
+              {!liveUpdates && (
+                <span
+                  className="inline-flex items-center gap-1.5 text-[11px] text-[var(--warn)]"
+                  title="Reconnecting to the live event stream; status may lag by up to a minute"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--warn)] animate-pulse" aria-hidden="true" />
+                  {t('dashboard.reconnecting')}
+                </span>
+              )}
+              {canManageCameras && (
+                <button
+                  type="button"
+                  onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm() }}
+                  className={TITLE_ACTION_CLASS}
+                >
+                  <Plus size={13} aria-hidden="true" />
+                  {t('camera.add')}
+                </button>
+              )}
+            </>
+          ) : undefined}
         />
-        <Checkbox
-          label={t('camera.activeOnly')}
-          checked={activeOnly}
-          onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }}
-        />
-      </FilterBar>
 
-      {/* Bulk Assign Panel */}
-      {canManageCameras && showBulkAssign && selected.size > 0 && (
-        <div className="border border-[var(--border)] bg-[var(--panel-2)] p-3 text-sm flex items-center gap-3 flex-wrap">
-          <div className="text-[var(--text-dim)]">Assign to user</div>
-          <div className="relative">
-            <Input
-              className="w-56"
-              placeholder="Type username or email"
-              value={userQuery}
-              onChange={(e) => { setUserQuery(e.target.value); setBulkUserId('') }}
+        {/* Filters. Bulk actions appear here only with a selection, so the
+            row stays quiet in the common case. */}
+        <div className={`flex flex-wrap items-center gap-3 ${TITLE_PANEL_BODY_CLASS}`}>
+          <div className="relative w-64 max-w-full">
+            <SearchIcon
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]"
+              aria-hidden="true"
             />
-            {userQuery && (
-              <div className="absolute z-10 mt-1 w-full bg-[var(--panel)] border border-[var(--border)] max-h-56 overflow-auto">
-                {usersLoading ? (
-                  <div className="px-2 py-1 text-[var(--text-dim)]">Searching…</div>
-                ) : userOptions.length === 0 ? (
-                  <div className="px-2 py-1 text-[var(--text-dim)]">No users</div>
-                ) : (
-                  userOptions.map(u => (
-                    <button
-                      type="button"
-                      key={u.id}
-                      className={`block w-full text-left px-2 py-1 hover:bg-[var(--panel-2)] ${bulkUserId === u.id ? 'bg-[var(--panel-2)]' : ''}`}
-                      onClick={() => { setBulkUserId(u.id); setUserQuery(u.username) }}
-                    >
-                      <span className="text-[var(--text)]">{u.username}</span>
-                      <span className="text-[var(--text-dim)]"> · {u.email}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+            <input
+              value={query}
+              onChange={(e) => { setPage(1); setQuery(e.target.value) }}
+              placeholder={t('camera.search')}
+              aria-label={t('camera.search')}
+              className="h-9 w-full border border-[var(--border)] bg-[var(--bg-2)] pl-9 pr-2 text-[13px] outline-none transition-colors placeholder:text-[color-mix(in_oklab,var(--text-dim)_50%,transparent)] focus:border-[var(--accent)] focus:placeholder:text-[color-mix(in_oklab,var(--text-dim)_20%,transparent)]"
+            />
           </div>
-          <Checkbox label={t('camera.canView')} checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} />
-          <Checkbox label={t('camera.canManage')} checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} />
-          <Button size="sm" variant="primary" onClick={onBulkAssign} disabled={mutating || bulkUserId === ''}>Apply to {selected.size} selected</Button>
-          <Button size="sm" variant="outline" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
+          <Checkbox
+            label={t('camera.activeOnly')}
+            checked={activeOnly}
+            onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }}
+            className="!items-center !text-[13px]"
+          />
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {canManageCameras && selected.size > 0 ? (
+              <>
+                <Button size="sm" variant="danger" className="h-7" onClick={onBulkDelete} disabled={mutating}>
+                  Delete selected ({selected.size})
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`h-7 ${showBulkAssign ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                  onClick={() => setShowBulkAssign((s) => !s)}
+                  aria-expanded={showBulkAssign}
+                  disabled={mutating}
+                >
+                  Assign permissions
+                </Button>
+              </>
+            ) : page === 1 && !hasNext && cameras.length > 0 ? (
+              <span className="text-[11px] font-mono tabular-nums text-[var(--text-dim)]">
+                {cameras.length} {cameras.length === 1 ? t('camera.cameraNoun') : t('camera.camerasNoun')}
+              </span>
+            ) : null}
+          </div>
         </div>
-      )}
+
+        {/* Bulk assign: a third row of the same panel, since it acts on the
+            selection the row above just announced. */}
+        {canManageCameras && showBulkAssign && selected.size > 0 && (
+          <div className={`flex flex-wrap items-center gap-3 border-t border-[var(--border)] text-[13px] ${TITLE_PANEL_BODY_CLASS}`}>
+            <span className="text-[var(--text-dim)]">Assign to user</span>
+            <div className="relative w-64 max-w-full">
+              <input
+                placeholder="Type username or email"
+                aria-label="User to assign"
+                value={userQuery}
+                onChange={(e) => { setUserQuery(e.target.value); setBulkUserId('') }}
+                className="h-9 w-full border border-[var(--border)] bg-[var(--bg-2)] px-2.5 text-[13px] outline-none transition-colors placeholder:text-[color-mix(in_oklab,var(--text-dim)_50%,transparent)] focus:border-[var(--accent)] focus:placeholder:text-[color-mix(in_oklab,var(--text-dim)_20%,transparent)]"
+              />
+              {userQuery && bulkUserId === '' && (
+                <div className="absolute z-10 mt-1 w-full bg-[var(--panel)] border border-[var(--border)] max-h-56 overflow-auto">
+                  {usersLoading ? (
+                    <div className="px-2 py-1 text-[var(--text-dim)]">Searching…</div>
+                  ) : userOptions.length === 0 ? (
+                    <div className="px-2 py-1 text-[var(--text-dim)]">No users</div>
+                  ) : (
+                    userOptions.map(u => (
+                      <button
+                        type="button"
+                        key={u.id}
+                        className="block w-full text-left px-2 py-1 hover:bg-[var(--panel-2)]"
+                        onClick={() => { setBulkUserId(u.id); setUserQuery(u.username) }}
+                      >
+                        <span className="text-[var(--text)]">{u.username}</span>
+                        <span className="text-[var(--text-dim)]"> · {u.email}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <Checkbox className="!items-center !text-[13px]" label={t('camera.canView')} checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} />
+            <Checkbox className="!items-center !text-[13px]" label={t('camera.canManage')} checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} />
+            <div className="ml-auto flex items-center gap-2">
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
+              {/* Same quiet accent as Add camera; until a user is picked it
+                  is plainly unavailable rather than a dimmed solid block. */}
+              <button
+                type="button"
+                onClick={onBulkAssign}
+                disabled={mutating || bulkUserId === ''}
+                title={bulkUserId === '' ? 'Pick a user first' : undefined}
+                className={TITLE_ACTION_CLASS}
+              >
+                Apply to {selected.size} selected
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Create Camera Dialog — shared with Live View (discover / manual) */}
       {canManageCameras && showCreateDialog && (
@@ -640,7 +685,7 @@ export function Cameras() {
         <Table className={`table-fixed min-w-[760px] ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}>
           <THead>
             <TR>
-              <TH className="w-10">
+              <TH className="w-[26px] !pr-0">
                 <input
                   type="checkbox"
                   className="accent-[var(--accent)]"
@@ -654,11 +699,11 @@ export function Cameras() {
                   }}
                 />
               </TH>
-              <TH>{t('nav.cameras')}</TH>
-              <TH className="w-[170px]">{t('camera.address')}</TH>
-              <TH className="w-[150px]">{t('camera.stream')}</TH>
-              <TH className="w-[150px]">{t('camera.recording')}</TH>
-              <TH className="w-[110px]">{t('camera.actions')}</TH>
+              <TH className="text-xs">{t('nav.cameras')}</TH>
+              <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
+              <TH className="text-xs w-[150px]">{t('camera.stream')}</TH>
+              <TH className="text-xs w-[150px]">{t('camera.recording')}</TH>
+              <TH className="text-xs w-[110px]">{t('camera.actions')}</TH>
             </TR>
           </THead>
           <TBody striped>
@@ -673,7 +718,7 @@ export function Cameras() {
                 .filter(Boolean).join(' · ')
               return (
                 <TR key={c.id} className={c.is_active ? undefined : 'opacity-60'}>
-                  <TD>
+                  <TD className="!pr-0">
                     <input
                       type="checkbox"
                       className="accent-[var(--accent)]"
@@ -696,9 +741,11 @@ export function Cameras() {
                         <Badge variant="warning" className="shrink-0" title={t('cameras.detectionOffHint')}>{t('cameras.detectionOff')}</Badge>
                       )}
                     </div>
-                    <div className="text-xs text-[var(--text-dim)] truncate" title={deviceTitle || undefined}>
-                      {deviceLine || '—'}
-                    </div>
+                    {deviceLine && (
+                      <div className="text-xs text-[var(--text-dim)] truncate" title={deviceTitle || undefined}>
+                        {deviceLine}
+                      </div>
+                    )}
                   </TD>
                   <TD className="whitespace-nowrap truncate" title={`${c.ip_address}:${c.port}`}>
                     {c.ip_address}<span className="text-[var(--text-dim)]">:{c.port}</span>
@@ -756,6 +803,7 @@ export function Cameras() {
 
       {/* activeOnly filters client-side of the count the backend returns, so
           the total would lie -- pass none and let the hasNext probe decide. */}
+      {(page > 1 || hasNext) && (
       <Pagination
         page={page}
         pageSize={limit}
@@ -768,6 +816,7 @@ export function Cameras() {
         isFetching={camsQuery.isFetching}
         label={t('camera.camerasNoun')}
       />
+      )}
 
       {/* Edit Camera Dialog */}
       {canManageCameras && showEditDialog && editing && (

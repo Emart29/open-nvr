@@ -94,11 +94,11 @@ export function formatSeenAt(
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  // hour12 stays false on purpose: this is a dense, scannable table
-  // column, where 24-hour is unambiguous and the same width on every
-  // row. The LANGUAGE still decides the date part and the separators.
+  // The language decides 12- or 24-hour, as on every other screen: this
+  // column alone used to force 24-hour, so the same read showed 16:54 here
+  // and 04:54 PM on Search. 2-digit parts keep every row the same width.
   const time = fmt.time(d, {
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
   const date = fmt.date(d, {
     day: '2-digit',
@@ -106,6 +106,18 @@ export function formatSeenAt(
     ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
   })
   return `${date} ${time}`
+}
+
+/**
+ * The first tick at or after `startMs` on a grid of `intervalMs` laid in
+ * LOCAL time. Ticks on multiples of the interval since the epoch sit on UTC
+ * hours, which a +5:30 zone labels 02:30, 05:30… instead of 03:00, 06:00….
+ * The offset is taken at `startMs`; a DST change inside the window shifts
+ * later ticks by that hour, which a day-long axis can live with.
+ */
+export function firstLocalTick(startMs: number, intervalMs: number): number {
+  const offset = -new Date(startMs).getTimezoneOffset() * 60_000
+  return Math.ceil((startMs + offset) / intervalMs) * intervalMs - offset
 }
 
 /** The unabbreviated timestamp, for the tooltip on a compact cell. */

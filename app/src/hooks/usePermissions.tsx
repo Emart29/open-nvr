@@ -172,7 +172,6 @@ export const NAV_PERMISSIONS = {
   '/alerts-incidents': 'alerts.view',
   '/alarms': 'alerts.view',
   '/integrations': 'integrations.view',
-  '/onvif-tools': 'onvif.discover',
   '/cloud': 'cloud.view',
   '/support': null, // Always visible
   '/settings': 'settings.view',
