@@ -847,13 +847,25 @@ class CameraTools:
                 parts.append(f"{count} {plural}")
         return ", ".join(parts[:8])
 
+    #: IoU above which two boxes of DIFFERENT labels are one object — the
+    #: same rule Tier-0 applies (detect_pipeline.pipeline.CROSS_LABEL_IOU),
+    #: so a vehicle the detector reads as both "car" and "truck" counts
+    #: once here as it draws once on the live overlay. Well above the
+    #: per-label threshold: a person in front of a car overlaps it only
+    #: partially and both must survive.
+    CROSS_LABEL_IOU = 0.85
+
     @classmethod
     def _dedup_detections(
-        cls, detections: list[dict[str, Any]], iou_threshold: float = 0.55
+        cls, detections: list[dict[str, Any]], iou_threshold: float = 0.55,
+        cross_label_iou: float | None = CROSS_LABEL_IOU,
     ) -> list[dict[str, Any]]:
-        """Greedy per-label NMS: drop boxes that overlap an already-kept
-        box of the same label by more than ``iou_threshold``."""
+        """Greedy NMS: drop boxes that overlap an already-kept box of the
+        same label by more than ``iou_threshold``, or of ANY label by more
+        than ``cross_label_iou`` (None disables the cross-label rule)."""
         kept: list[dict[str, Any]] = []
+        cross = (cross_label_iou if cross_label_iou is not None
+                 and 0.0 < cross_label_iou < 1.0 else None)
         # Highest-confidence first so the survivor of each overlap cluster
         # is the strongest detection.
         ordered = sorted(
@@ -872,7 +884,8 @@ class CameraTools:
                 same_label = str(
                     other.get("label") or other.get("class") or "?"
                 ).strip() == label
-                if same_label and cls._iou(box, other.get("bbox") or {}) > iou_threshold:
+                limit = iou_threshold if same_label else cross
+                if limit is not None and cls._iou(box, other.get("bbox") or {}) > limit:
                     dup = True
                     break
             if not dup:
@@ -881,13 +894,17 @@ class CameraTools:
 
     @staticmethod
     def _iou(a: dict[str, Any], b: dict[str, Any]) -> float:
-        """IoU of two center-form normalized boxes ({x, y, w, h})."""
+        """IoU of two normalized boxes in the adapter contract's shape:
+        ``{x, y, w, h}`` with ``x, y`` the TOP-LEFT corner (§5.1
+        NormalizedBBox). This used to read them as centre-form, which
+        shifted every box by half its size before comparing — harmless
+        for two near-identical boxes, wrong for anything else."""
         try:
-            ax1, ay1 = a["x"] - a["w"] / 2, a["y"] - a["h"] / 2
-            ax2, ay2 = a["x"] + a["w"] / 2, a["y"] + a["h"] / 2
-            bx1, by1 = b["x"] - b["w"] / 2, b["y"] - b["h"] / 2
-            bx2, by2 = b["x"] + b["w"] / 2, b["y"] + b["h"] / 2
-        except (KeyError, TypeError):
+            ax1, ay1 = float(a["x"]), float(a["y"])
+            ax2, ay2 = ax1 + float(a["w"]), ay1 + float(a["h"])
+            bx1, by1 = float(b["x"]), float(b["y"])
+            bx2, by2 = bx1 + float(b["w"]), by1 + float(b["h"])
+        except (KeyError, TypeError, ValueError):
             return 0.0
         ix1, iy1 = max(ax1, bx1), max(ay1, by1)
         ix2, iy2 = min(ax2, bx2), min(ay2, by2)

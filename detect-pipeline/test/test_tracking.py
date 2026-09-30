@@ -339,3 +339,31 @@ def test_since_match_s_is_zero_on_match_and_grows_while_coasting():
     t[0] = 102.0
     (tr,) = tk.update([Detection("car", (101, 101, 201, 201), 0.9)])
     assert tr.since_match_s == 0.0
+
+
+# ── confusable labels (car/truck/bus) share one track ───────────────
+
+_FH, _FW = 720, 1280
+
+
+def test_confusable_labels_feed_one_track_and_vote_the_label():
+    """car 0.72 / truck 0.70 one frame, truck 0.73 / car 0.71 the next: with
+    cross-label NMS only one survives per frame, and it must keep matching
+    the SAME track rather than starving two."""
+    tk = Tracker((_FH, _FW), TrackConfig(fps=5, min_initialized=1))
+    box = (100, 100, 400, 300)
+    (tr,) = tk.update([Detection("car", box, 0.72)])
+    assert tr.label == "car"
+    (tr2,) = tk.update([Detection("truck", box, 0.73)])
+    assert tr2.id == tr.id and tr2.label == "car"      # one vote each: keeps its own
+    (tr3,) = tk.update([Detection("truck", box, 0.73)])
+    assert tr3.id == tr.id and tr3.label == "truck"    # majority now says truck
+    assert tk.population == 1
+
+
+def test_unrelated_labels_still_never_match():
+    tk = Tracker((_FH, _FW), TrackConfig(fps=5, min_initialized=1))
+    box = (100, 100, 400, 300)
+    tk.update([Detection("car", box, 0.9)])
+    tk.update([Detection("person", box, 0.9)])
+    assert tk.population == 2

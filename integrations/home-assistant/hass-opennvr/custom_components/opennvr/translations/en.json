@@ -209,7 +209,7 @@
     },
     "webrtc_hosts_unset": {
       "title": "OpenNVR live video may not reach your devices",
-      "description": "OpenNVR's media server advertises no address other devices can reach, so live video over WebRTC can fail from phones and other computers. Set MEDIAMTX_WEBRTC_HOSTS to the OpenNVR host's LAN address (or open live view once in the OpenNVR web app from another device, which teaches it the address)."
+      "description": "OpenNVR's media server advertises no address other devices can reach, so live video over WebRTC can fail from phones and other computers. In OpenNVR's .env, set MEDIAMTX_WEBRTC_HOSTS to the OpenNVR host's LAN address, then run docker compose up -d. OpenNVR's start.sh sets it for you."
     },
     "rtsp_not_exposed": {
       "title": "OpenNVR RTSP stream not available",

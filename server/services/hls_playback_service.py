@@ -115,6 +115,9 @@ class PlaybackSession:
     # URL and stall. A session therefore serves one consistent snapshot; picking
     # up newly finished footage happens when the client starts a new session.
     remux_index: Any = None
+    # Serve the video-only remux (browser.mp4) instead of the HLS manifest:
+    # H.265, or any recording whose audio MSE can't decode (G.711 -> ipcm).
+    needs_remux: bool = False
 
 
 class HlsPlaybackService:
@@ -518,14 +521,15 @@ class HlsPlaybackService:
             )
             return
 
-        # Codec of the first file decides the path for the whole session: the
-        # H.265 remux is per-file, so an HEVC session is truncated to its
-        # first clip (the client's boundary logic opens the next one).
+        # Codecs of the first file decide the path for the whole session: the
+        # remux is per-file, so a remuxed session is truncated to its first
+        # clip (the client's boundary logic opens the next one).
         first_path = rows[0][0]
         first_start = rows[0][1]
         try:
             from services.hevc_remux_service import (
-                is_browser_incompatible_video,
+                needs_browser_remux,
+                probe_audio_codec,
                 probe_video_codec,
             )
 
@@ -536,10 +540,15 @@ class HlsPlaybackService:
             session.video_codec = cls._stored_codec(
                 camera_id, first_start, db
             ) or probe_video_codec(first_path)
-            needs_remux = is_browser_incompatible_video(session.video_codec)
+            # Only the video codec is stored per row; the audio probe reads
+            # just the moov box at the file head.
+            needs_remux = needs_browser_remux(
+                session.video_codec, probe_audio_codec(first_path)
+            )
         except Exception:
             session.video_codec = None
             needs_remux = False
+        session.needs_remux = needs_remux
         if needs_remux:
             rows = rows[:1]
 
@@ -625,9 +634,9 @@ class HlsPlaybackService:
         except Exception:
             session.file_offset_seconds = 0.0
 
-        # For H.265, freeze the remux recipe NOW (see PlaybackSession.remux_index):
-        # the file may still be growing, and re-indexing mid-playback would shift
-        # every byte offset under the player.
+        # For a remuxed session, freeze the recipe NOW (see
+        # PlaybackSession.remux_index): the file may still be growing, and
+        # re-indexing mid-playback would shift every byte offset under the player.
         if needs_remux:
             try:
                 from services.hevc_remux_service import build_remux_index

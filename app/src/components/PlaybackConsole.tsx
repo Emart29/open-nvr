@@ -301,9 +301,9 @@ export function PlaybackConsole({
       const sessionStartMs = atTarget ? targetMs : clip.startMs
 
       let manifestUrl: string
-      // H.265 (hev1) recordings can't play through hls.js/MSE as recorded (the
-      // browser rejects the hev1 tag + PCM audio). The backend flags those and
-      // exposes a server-remuxed, browser-playable hvc1 MP4 we play natively.
+      // H.265 recordings, and H.264 ones with G.711/PCM audio, can't play through
+      // hls.js/MSE as recorded (the hev1 tag, the ipcm track). The backend flags
+      // those and exposes a server-remuxed, video-only MP4 we play natively.
       let browserMp4Url: string | null = null
       // Seconds from the remuxed file's start to this clip's start — lets the
       // native player map the whole physical file's timeline (so seeks across it
@@ -360,7 +360,7 @@ export function PlaybackConsole({
       }
 
       if (browserMp4Url) {
-        // Native <video> playback of the server-remuxed hvc1 MP4 (H.265 path).
+        // Native <video> playback of the server-remuxed, video-only MP4.
         // The remuxed file is the WHOLE physical on-disk file resolved from the
         // session start; it begins `fileOffsetSec` before that start. Anchor the
         // timeline at the file's start (video t=0) so wall-clock <-> video time
