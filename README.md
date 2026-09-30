@@ -85,7 +85,7 @@ cp .env.example .env
 ./start.sh up
 ```
 
-Bare `docker compose up -d` works too, but you lose the NIC topology auto-detect, the security posture banner, and the setup token being surfaced — you'd be grepping logs for it.
+Bare `docker compose up -d` works too, but you lose the NIC topology auto-detect, the security posture banner, and the setup token being surfaced — you'd be grepping logs for it. Without the auto-detect, set `MEDIAMTX_WEBRTC_HOSTS=<server LAN IP>` in `.env` yourself, or live view from other machines falls back to HLS (seconds of lag). Browsers on another subnet also need UDP/TCP 8189 routed to the server.
 
 Retention, production hardening, and a reference for every compose file: [`DOCKER_QUICKSTART.md`](DOCKER_QUICKSTART.md).
 </details>

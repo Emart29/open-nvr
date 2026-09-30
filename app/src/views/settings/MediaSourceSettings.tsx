@@ -173,8 +173,11 @@ export function MediaSourceSettings() {
           </label>
         </div>
 
-        <div className="border border-[var(--border)] bg-[var(--panel-2)] p-2 space-y-2">
+        {/* Stored only: nothing in recording, playback or the media server reads
+            these yet, so the controls stay disabled rather than look like a fix. */}
+        <fieldset disabled className="border border-[var(--border)] bg-[var(--panel-2)] p-2 space-y-2">
           <div className="text-[var(--text-dim)]">{t('settings.transcoding')}</div>
+          <p className="text-[var(--text-dim)]">{t('settings.transcodingNotWired')}</p>
           <label className="flex items-center justify-between gap-2">
             <span>{t('settings.enableTranscoding')}</span>
             <input type="checkbox" className="accent-[var(--accent)]" checked={!!cfg.transcoding_enabled}
@@ -225,7 +228,7 @@ export function MediaSourceSettings() {
               </div>
             </label>
           </div>
-        </div>
+        </fieldset>
       </div>
     </div>
   )
