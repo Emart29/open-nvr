@@ -191,7 +191,7 @@ def test_thinking_aloud_endpoint_and_page_wiring():
     assert body["enabled"] is True and body["min_ms"] == 1500 and body["source"] == "template"
     assert body["expected_ms"]["describe_camera"] == DEFAULT_TOOL_MS["describe_camera"] + 1500 + 600
 
-    html = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text()
+    html = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text(encoding="utf-8")
     assert "if(d.working) onWorking(d.working);" in html
     assert "cutFiller();" in html                      # the answer outranks the filler
     assert "if(!w.audio_b64||!sessionActive||speaking) return;" in html   # typed turn: status only

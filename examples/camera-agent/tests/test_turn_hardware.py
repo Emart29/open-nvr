@@ -80,7 +80,7 @@ def test_available_cores_honours_a_cgroup_quota(monkeypatch, tmp_path):
     real_read = camera_agent.Path.read_text
 
     def fake_read(self, *a, **k):
-        if str(self) == "/sys/fs/cgroup/cpu.max":
+        if self.as_posix() == "/sys/fs/cgroup/cpu.max":
             return (tmp_path / "cpu.max").read_text()
         return real_read(self, *a, **k)
 

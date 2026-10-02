@@ -379,7 +379,7 @@ def test_live_video_pauses_when_tab_hidden(script: str) -> None:
 
 def _demo_html() -> str:
     from pathlib import Path
-    return (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text()
+    return (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text(encoding="utf-8")
 
 
 def test_camera_strip_refreshes_cameras_concurrently():

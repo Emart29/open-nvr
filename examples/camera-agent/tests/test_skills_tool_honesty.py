@@ -117,7 +117,7 @@ def test_events_skill_unavailable_with_neither_backend():
 
 def test_demo_renders_tool_chips():
     html = (Path(__file__).resolve().parents[1] / "demo" / "index.html"
-            ).read_text()
+            ).read_text(encoding="utf-8")
     assert "sk-tools" in html          # chips container
     assert "sk-tool" in html
     assert "s.tools" in html           # renderer consumes the payload field

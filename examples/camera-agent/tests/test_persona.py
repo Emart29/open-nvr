@@ -250,7 +250,7 @@ def test_intro_takes_the_operators_hour_and_the_page_greets_on_open():
     assert tc.get("/intro?hour=19").json()["text"].startswith("Good evening")
     assert tc.get("/intro?hour=19").json()["audio_b64"] is None      # text always, audio when Piper is up
 
-    html = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text()
+    html = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text(encoding="utf-8")
     # greets when the page opens (after auth resolves), not only on Talk
     assert 'if(!introPlayed){ introPlayed=true; playIntro(); }' in html
     # the browser's own hour rides along

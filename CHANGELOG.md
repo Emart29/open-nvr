@@ -92,6 +92,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The camera agent reads its files correctly on Windows.** The agent
+  read its config and its task registry in the system code page, so on
+  Windows any non-ASCII character in a prompt or a camera role was
+  silently mis-decoded; both are now read as UTF-8. A `file://` frame
+  URL with a drive letter (`file:///C:/frame.jpg`, `file://C:\frame.jpg`)
+  resolved to an empty path and was refused; it now opens the file. The
+  agent's test suite passes on Windows (12 tests failed and 4 files would
+  not load).
 - **One object, one box on the live overlay.** Tier-0's non-maximum
   suppression ran per label, so a vehicle the detector read as both
   "car" and "truck" drew two near-identical boxes — and, because the
