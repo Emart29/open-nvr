@@ -103,7 +103,7 @@ def test_agent_hides_stt_on_text_installs():
 
 # ── demo page: unified bar wiring ───────────────────────────────────────
 
-_HTML = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text()
+_HTML = (Path(__file__).resolve().parents[1] / "demo" / "index.html").read_text(encoding="utf-8")
 
 
 def test_demo_has_docked_bar_with_dictate_and_single_talk():
@@ -185,7 +185,7 @@ def test_configs_frame_ttl_matches_1fps():
     # At TTL 2.0 every other 1 fps poll returned the same cached JPEG.
     base = Path(__file__).resolve().parents[1]
     for fname in ("config.docker.yml", "config.docker.chat.yml"):
-        text = (base / fname).read_text()
+        text = (base / fname).read_text(encoding="utf-8")
         assert "frame_cache_ttl_seconds: 1.0" in text, fname
         assert "frame_cache_ttl_seconds: 2.0" not in text, fname
 

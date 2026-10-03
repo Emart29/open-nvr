@@ -648,7 +648,7 @@ def _derive_skill_backing_tasks() -> dict[str, list[str]]:
     missing file, bad YAML — falls back to the hardcoded map so the agent
     never fails to start over a taxonomy file."""
     try:
-        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text()) or []
+        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text(encoding="utf-8")) or []
         derived: dict[str, list[str]] = {}
         for entry in raw:
             skill = entry.get("agent_skill")
@@ -687,7 +687,7 @@ def _derive_skill_suggested_adapters() -> dict[str, list[str]]:
     skills (``_SKILL_TASK_INHERITS``) pick up their source's adapters. On any
     error the map is simply empty — a missing suggestion never breaks the UI."""
     try:
-        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text()) or []
+        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text(encoding="utf-8")) or []
         by_task: dict[str, list[str]] = {}
         for entry in raw:
             names = [entry["task"], *(entry.get("aliases") or [])]
@@ -728,7 +728,7 @@ def _derive_skill_suggested_apps() -> dict[str, list[str]]:
     skills (``_SKILL_TASK_INHERITS``) pick up their source's apps. On any
     error the map is empty — a missing suggestion never breaks the UI."""
     try:
-        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text()) or []
+        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text(encoding="utf-8")) or []
         by_task: dict[str, list[str]] = {}
         for entry in raw:
             names = [entry["task"], *(entry.get("aliases") or [])]
@@ -767,7 +767,7 @@ def _derive_skill_hardware() -> dict[str, list[dict[str, Any]]]:
     (``_SKILL_TASK_INHERITS``) pick up their source's rows. On any error
     the map is empty — a missing hint never breaks the UI."""
     try:
-        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text()) or []
+        raw = yaml.safe_load(TASKS_REGISTRY_PATH.read_text(encoding="utf-8")) or []
         derived: dict[str, list[dict[str, Any]]] = {}
         for entry in raw:
             skill = entry.get("agent_skill")
@@ -2862,7 +2862,7 @@ def _recent_app_alerts_tool() -> dict[str, Any]:
 
 
 def load_config(path: str | Path) -> AppConfig:
-    raw = yaml.safe_load(Path(path).read_text())
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise SystemExit(f"config file {path} did not parse to a dict")
 
