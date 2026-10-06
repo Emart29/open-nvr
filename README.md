@@ -12,7 +12,7 @@
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22804254-blue.svg)](https://doi.org/10.5281/zenodo.22804254)
 [![Discord](https://img.shields.io/badge/Discord-join_the_community-5865F2?logo=discord&logoColor=white)](https://opennvr.org/discord)
 
-[▶ Install walkthrough (video)](https://www.youtube.com/watch?v=PMC1WWjo654) · [⚡ Get it running](#get-it-running) · [🧩 Write an adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Write an app](docs/FIRST_DETECTOR.md) · [🏛 Government brief](docs/GOVERNMENT_DEPLOYMENT.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](https://opennvr.org/discord)
+[▶ Install walkthrough (video)](https://www.youtube.com/watch?v=LjWZasY-ddw) · [⚡ Get it running](#get-it-running) · [🧩 Write an adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Write an app](docs/FIRST_DETECTOR.md) · [🏛 Government brief](docs/GOVERNMENT_DEPLOYMENT.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](https://opennvr.org/discord)
 
 </div>
 
