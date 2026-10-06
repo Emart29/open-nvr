@@ -254,12 +254,26 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
   the handler normalises them) and `by`: `model`, `router` or `forced`
-  (the anti-fabrication grounding, also marked in `detail`). A final
-  `reply` step names where the answer came from (`llm`, `tool_fallback`,
-  `roster` or `none`). A malformed or unregistered tool call is now
-  traced instead of vanishing, and a camera-roster question no longer
-  hands back the previous turn's trace. Groundwork for the live-eval
-  harness (Discussion #607).
+  (the anti-fabrication grounding, also marked in `detail`); a model
+  call to the tool a tier-1 router hint named is also marked `hinted`,
+  so an eval does not credit the model with a choice it was nudged to.
+  Traced arguments are bounded: strings at 500 characters, lists and
+  objects at 50 entries. A final `reply` step names where the answer
+  came from (`llm`, `tool_fallback`, `roster` or `none`). A malformed or
+  unregistered tool call — including arguments that arrive as a
+  non-empty list or a number — is now traced instead of vanishing; an
+  empty map sent as `[]` or `null` still runs. A `describe_camera` step
+  names how it was answered (`vlm`, `detector-fallback` or `no-frame`)
+  from that call alone, every path for a multi-camera call
+  (`detector-fallback+vlm`), and none for a call that raised, never ran
+  or named an unknown camera.
+  Each turn now owns its trace: a background task or scheduled report
+  running alongside a person's turn used to share one trace slot, so
+  tool steps — and the vision label — could land in the wrong turn.
+  `/ask` and `/converse` now return, and feed the latency medians from,
+  their own turn's trace, and a bare wake word no longer re-records the
+  previous turn's stages. Groundwork for the live-eval harness
+  (Discussion #607).
 
 - **ANPR scan mode: accurate, fast or auto, per camera.** The plate
   sweep OCRs up to four looks per visit and writes only when two agree

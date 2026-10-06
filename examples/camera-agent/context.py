@@ -54,6 +54,18 @@ logger = logging.getLogger(__name__)
 CAMERA_SCOPE: ContextVar[frozenset[str] | None] = ContextVar(
     "camera_scope", default=None)
 
+#: The pipeline trace of the conversation turn THIS asyncio task is
+#: running (camera_agent._run_conversation_turn sets it; _trace_tool
+#: appends to it). Not a slot on the runtime: turns are not serialised —
+#: a background task or a scheduled report runs its own turn while a
+#: person's is in flight — so a shared slot let one turn's tool steps
+#: land in another's trace. ``None`` = not inside a turn: nothing is
+#: traced. Cleared by ``spawn_unscoped`` for the same reason the camera
+#: scope is: a loop started from inside a turn must not keep appending to
+#: a trace that turn has already returned.
+TURN_TRACE: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "camera_agent_turn_trace", default=None)
+
 
 def set_camera_scope(scope: Iterable[str] | None):
     """Bind the caller's visible agent-camera ids (``None`` = all).
@@ -81,11 +93,13 @@ def spawn_unscoped(coro, *, name: str | None = None) -> asyncio.Task:
     loop started from inside a scoped request would carry that caller's
     camera scope for its whole life — an alarm the site admin later
     widened would keep looking at one guard's cameras. Background loops
-    watch the fleet: this clears the scope in the new task before the
-    coroutine runs (the reset touches only the new task's own context).
+    watch the fleet: this clears the scope — and the spawning turn's
+    trace — in the new task before the coroutine runs (the reset touches
+    only the new task's own context).
     """
     async def _run():
         CAMERA_SCOPE.set(None)
+        TURN_TRACE.set(None)
         return await coro
 
     return asyncio.create_task(_run(), name=name)
