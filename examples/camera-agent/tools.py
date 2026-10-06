@@ -426,6 +426,15 @@ def build_tool_definitions(
 _question: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "camera_agent_question", default=None)
 
+#: How THIS task's most recent describe was answered: "vlm" (the caption /
+#: VQA adapter), "detector-fallback" (the object detector stood in), or
+#: "no-frame" (offline or unconfigured camera — nothing was looked at).
+#: Task-local for the reason ``_question`` is: ``last_vision_error`` is
+#: the site's health dot, shared by every turn, so a background turn's
+#: failed describe could relabel a person's successful one in its trace.
+_describe_path: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "camera_agent_describe_path", default=None)
+
 _WHO_RE = re.compile(r"\b(who|whom|whose|recogni[sz]e|name)\b")
 #: A capitalised word mid-sentence — "was Priya here" from an STT that
 #: capitalises names; the words below have that shape and are not names.
@@ -560,6 +569,11 @@ class CameraTools:
     # ── describe_camera ────────────────────────────────────────────
 
     async def describe_camera(self, args: dict[str, Any]) -> str:
+        # Reset at ENTRY, not only in _describe_one: a call that fails to
+        # resolve its camera looked at nothing and must not carry the
+        # previous describe's path (that of an earlier call in this turn,
+        # or of the scheduler's previous report, which reuses the task).
+        _describe_path.set(None)
         cams = self._resolve_cameras(args)
         if isinstance(cams, str):  # ERROR
             return cams
@@ -569,7 +583,17 @@ class CameraTools:
         # returns a scene caption. Either way the agent gets a real answer
         # instead of guessing (test-report S-6).
         question = str(args.get("question") or "").strip() or None
-        clauses = [await self._describe_one(c, question) for c in cams]
+        clauses: list[str] = []
+        paths: list[str] = []
+        for cam in cams:
+            clauses.append(await self._describe_one(cam, question))
+            path = _describe_path.get()
+            if path and path not in paths:
+                paths.append(path)
+        # Every path that answered part of it, in order: "all" over two
+        # cameras where one fell back reads "vlm+detector-fallback", not
+        # just whichever camera came last.
+        _describe_path.set("+".join(paths) or None)
         return self._join_clauses(clauses)
 
     async def _best_frame(self, camera_id: str) -> bytes | None:
@@ -604,6 +628,7 @@ class CameraTools:
 
     async def _describe_one(self, camera_id: str, question: str | None = None) -> str:
         self.last_vision_error = None    # per-call: set again only on fallback
+        _describe_path.set(None)
         # "What do you see now" must look at a FRESH LIVE frame. Tier-0's best
         # frame is a curated crop of a RECENT detection — a clean, cheap stand-in
         # only while a track is ACTIVE right now; for a quiet/static scene it is a
@@ -615,9 +640,11 @@ class CameraTools:
             try:
                 frame = await self._ctx.get_frame(camera_id)
             except LookupError:
+                _describe_path.set("no-frame")
                 return f"{camera_id} is not configured"
             except FrameSourceError as exc:
                 logger.warning("VISION DEGRADED: %s frame fetch failed (camera offline / bad RTSP path?): %s", camera_id, exc)
+                _describe_path.set("no-frame")
                 return f"{camera_id} appears to be offline"
         # Prefer a real scene caption / VQA answer when the caption adapter is
         # available. Send the task explicitly for symmetry with
@@ -641,6 +668,7 @@ class CameraTools:
             # VQA adapters return ``answer``; captioners return ``caption``.
             caption = (result.get("answer") or result.get("caption") or "").strip()
             if caption:
+                _describe_path.set("vlm")
                 return f"{camera_id}: {caption}"
         except Exception as exc:
             # No caption adapter reachable (not registered, sovereignty 403,
@@ -650,6 +678,7 @@ class CameraTools:
             # while the VLM had never received a single request).
             reason = self._vision_error_reason(exc)
             self.last_vision_error = f"{type(exc).__name__}: {exc}"[:300]
+            _describe_path.set("detector-fallback")
             logger.warning(
                 "VISION DEGRADED: describe_camera caption adapter unavailable for %s "
                 "(%s); falling back to object detection",
@@ -658,6 +687,8 @@ class CameraTools:
             return await self._describe_via_detection(
                 camera_id, frame, degraded_reason=reason
             )
+        # The adapter answered, but with nothing: the detector stands in.
+        _describe_path.set("detector-fallback")
         return await self._describe_via_detection(camera_id, frame)
 
     @staticmethod
@@ -1311,6 +1342,11 @@ class CameraTools:
     # ── Helpers ────────────────────────────────────────────────────
 
     # ── search_history (canonical event store — RFC-0001 C1) ──────
+
+    @property
+    def describe_path(self) -> str | None:
+        """How this task's last describe was answered (see ``_describe_path``)."""
+        return _describe_path.get()
 
     @property
     def current_question(self) -> str | None:
