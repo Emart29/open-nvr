@@ -78,6 +78,7 @@ def harness(monkeypatch):
     def set_chat(fn):
         monkeypatch.setattr(rt.ollama, "chat", fn)
     state["set_chat"] = set_chat
+    state["rt"] = rt
 
     # No context manager → skip startup() (NATS + LLM prewarm) which we
     # don't need for endpoint tests.
@@ -275,6 +276,24 @@ def test_converse_bare_wake_word_acks_without_llm(harness):
     assert data["armed"] is True         # bare wake word arms her (Hey-Siri style)
     assert data["reply"]                 # a spoken acknowledgement ("Yes?")
     assert called["chat"] is False       # but no LLM spend
+
+
+def test_a_bare_wake_word_records_no_stale_stages(harness):
+    """An armed turn runs no LLM, so it must not feed the PREVIOUS turn's
+    llm/tool latencies into the thinking-aloud medians a second time."""
+    client, state = harness
+    rt = state["rt"]
+    rt.last_turn_trace = [{"step": "llm", "detail": "iter 1", "ms": 9999}]
+    state["transcript"] = "Hey Camera Agent"
+
+    async def chat(**kw):
+        return {"message": {"role": "assistant", "content": "x"}}
+    state["set_chat"](chat)
+
+    data = client.post("/converse?wake=1", content=_wav_blob()).json()
+    assert data["armed"] is True
+    assert data["trace"] == []
+    assert 9999.0 not in rt.thinking.stage_ms.get("llm", ())
 
 
 # ── talking-avatar clips are served (whitelisted) ─────────────────────

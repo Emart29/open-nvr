@@ -241,12 +241,19 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
   the handler normalises them) and `by`: `model`, `router` or `forced`
-  (the anti-fabrication grounding, also marked in `detail`). A final
-  `reply` step names where the answer came from (`llm`, `tool_fallback`,
-  `roster` or `none`). A malformed or unregistered tool call is now
-  traced instead of vanishing, and a camera-roster question no longer
-  hands back the previous turn's trace. Groundwork for the live-eval
-  harness (Discussion #607).
+  (the anti-fabrication grounding, also marked in `detail`); a model
+  call to the tool a tier-1 router hint named is also marked `hinted`,
+  so an eval does not credit the model with a choice it was nudged to.
+  Argument strings are capped at 500 characters. A final `reply` step
+  names where the answer came from (`llm`, `tool_fallback`, `roster` or
+  `none`). A malformed or unregistered tool call — including arguments
+  that arrive as a list or number — is now traced instead of vanishing.
+  Each turn now owns its trace: a background task or scheduled report
+  running alongside a person's turn used to share one trace slot, so
+  tool steps could land in the wrong turn; `/ask` and `/converse` now
+  return, and feed the latency medians from, their own turn's trace,
+  and a bare wake word no longer re-records the previous turn's stages.
+  Groundwork for the live-eval harness (Discussion #607).
 
 - **ANPR scan mode: accurate, fast or auto, per camera.** The plate
   sweep OCRs up to four looks per visit and writes only when two agree

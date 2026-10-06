@@ -214,3 +214,119 @@ def test_malformed_and_unregistered_calls_are_traced_not_dropped():
     assert all(t["by"] == "model" for t in rt.last_turn_trace)
     # Nothing ran, so no latency to feed the thinking-aloud medians.
     assert not any("ms" in t for t in rt.last_turn_trace)
+
+
+# ── review round: one turn's trace is that turn's, and only what ran is labelled ──
+
+
+class _PerQuestionLLM:
+    """Asks for tool_a when the question says alpha, tool_b otherwise, and
+    yields to the loop on every call, so two concurrent turns interleave."""
+
+    async def chat(self, *, messages=(), **kw):
+        await asyncio.sleep(0)
+        if any(m.get("role") == "tool" for m in messages):
+            return {"message": {"content": "done", "tool_calls": []}}
+        question = next((m["content"] for m in reversed(messages)
+                         if m.get("role") == "user"), "")
+        tool = "tool_a" if "alpha" in question else "tool_b"
+        return {"message": {"content": "", "tool_calls": [{
+            "id": "t1", "type": "function",
+            "function": {"name": tool, "arguments": {}}}]}}
+
+
+def test_concurrent_turns_never_write_into_each_others_trace():
+    """A background task or scheduled report runs its own turn while a
+    person's is in flight. Each turn's tool steps belong to that turn."""
+    rt = _runtime(router=False)
+    rt.ollama = _PerQuestionLLM()
+
+    async def _slow(args):
+        await asyncio.sleep(0.01)
+        return "ok"
+    rt.tool_handlers["tool_a"] = _slow
+    rt.tool_handlers["tool_b"] = _slow
+    trace_a: list = []
+    trace_b: list = []
+
+    async def _both():
+        await asyncio.gather(
+            ca._run_conversation_turn(rt, [], "alpha question", trace=trace_a),
+            ca._run_conversation_turn(rt, [], "bravo question", trace=trace_b),
+        )
+    asyncio.run(_both())
+    tools_a = [t["step"] for t in trace_a if t["step"].startswith("tool_")]
+    tools_b = [t["step"] for t in trace_b if t["step"].startswith("tool_")]
+    assert tools_a == ["tool_a"]
+    assert tools_b == ["tool_b"]
+    assert trace_a[-1]["step"] == "reply" and trace_b[-1]["step"] == "reply"
+
+
+def test_a_caller_supplied_trace_receives_the_roster_reply():
+    rt = _runtime()
+    mine: list = []
+    asyncio.run(ca._run_conversation_turn(rt, [], "how many cameras are configured?",
+                                          trace=mine))
+    assert mine == [{"step": "reply", "detail": "roster"}]
+
+
+def test_a_describe_that_never_ran_names_no_vision_path():
+    """last_vision_error belongs to the PREVIOUS describe; a call that
+    never reached its handler must not inherit it."""
+    rt = _runtime(router=False)
+    rt.last_turn_trace = []
+    rt.tools.last_vision_error = "vlm adapter down"
+    asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "describe_camera", "arguments": "{not json"}}))
+    (step,) = rt.last_turn_trace
+    assert step["detail"] == "malformed arguments"
+
+
+def test_a_model_call_to_the_hinted_tool_is_marked_hinted():
+    rt = _runtime(router=False)
+    rt.last_turn_trace = []
+    call = {"function": {"name": "describe_camera", "arguments": {"camera_id": "cam1"}}}
+    asyncio.run(ca._invoke_tool(rt, call, hint="describe_camera"))
+    asyncio.run(ca._invoke_tool(rt, call, hint="search_history"))
+    asyncio.run(ca._invoke_tool(rt, call, by="forced", hint="describe_camera"))
+    hinted, other_hint, forced = rt.last_turn_trace
+    assert hinted["by"] == "model" and hinted["hinted"] is True
+    assert "hinted" not in other_hint
+    assert "hinted" not in forced
+
+
+def test_parsed_non_object_arguments_are_malformed_and_none_is_empty():
+    rt = _runtime(router=False)
+    rt.last_turn_trace = []
+    _, result = asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "describe_camera", "arguments": ["cam1"]}}))
+    assert result.startswith("ERROR")
+    seen = {}
+
+    async def _record(args):
+        seen["args"] = args
+        return "ok"
+    rt.tool_handlers["noop"] = _record
+    _, result = asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "noop", "arguments": None}}))
+    assert result == "ok" and seen["args"] == {}
+    listed, empty = rt.last_turn_trace
+    assert "malformed" in listed["detail"] and listed["raw_args"] == "['cam1']"
+    assert "ms" not in listed
+    assert empty["args"] == {} and "ms" in empty
+
+
+def test_traced_argument_strings_are_capped():
+    rt = _runtime(router=False)
+    rt.last_turn_trace = []
+
+    async def _ok(args):
+        return "ok"
+    rt.tool_handlers["search_footage"] = _ok
+    long = "x" * 5000
+    asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "search_footage", "arguments": {"query": long, "n": 3}}}))
+    (step,) = rt.last_turn_trace
+    assert len(step["args"]["query"]) <= ca._TRACE_ARG_CHARS + 1
+    assert step["args"]["n"] == 3
+
