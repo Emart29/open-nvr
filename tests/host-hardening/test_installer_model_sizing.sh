@@ -356,6 +356,35 @@ start_test "install.ps1 gates the Ollama vision path on the budget"
 grep -q 'captionSuggest -eq .ollamavlm.' scripts/install.ps1 && pass \
     || fail "install.ps1 no longer lets the budget veto CAPTION_ADAPTER=ollamavlm"
 
+# ── 7. choosing ollamavlm against the advice still gets a real default ──
+# Field report: on a Mac (no CUDA, so no vision suggestion) the operator
+# picked ollamavlm anyway and the vision menu opened with "[]" — Enter
+# wrote an EMPTY OLLAMA_VLM_MODEL into .env.
+start_test "Apple Silicon with RAM to spare preselects gemma3:4b if ollamavlm is chosen"
+size 32 10 metal >/dev/null
+[[ -z "$SUGGEST_VLM" && "$SUGGEST_VLM_IF_CHOSEN" == "gemma3:4b" ]] && pass \
+    || fail "expected no suggestion but gemma3:4b if chosen; got VLM='${SUGGEST_VLM}' if-chosen='${SUGGEST_VLM_IF_CHOSEN}'"
+
+start_test "a box with no vision budget preselects the low-RAM moondream if ollamavlm is chosen"
+size 8 4 cpu >/dev/null
+[[ "$SUGGEST_VLM_IF_CHOSEN" == "moondream" ]] && pass \
+    || fail "expected moondream, got '${SUGGEST_VLM_IF_CHOSEN}'"
+
+start_test "the catalog menu never opens with a blank default"
+PICKER=$(awk '/^pick_model_from_catalog\(\)/,/^}/' scripts/install.sh)
+eval "$PICKER"
+ask_value() { REPLY="$2"; }
+HW_RAM_GB=32; HW_MODEL_BUDGET_GB=27
+menu=$(pick_model_from_catalog vlm "" "Vision model (Ollama)" </dev/null 2>&1; printf 'PICKED=%s' "$PICKED_MODEL")
+# (read -p only prints its prompt on a terminal, so the "[1]" is not
+# asserted here; Enter on an empty suggestion must resolve to row 1.)
+grep -q 'PICKED=moondream' <<<"$menu" && pass \
+    || fail "Enter on an empty suggestion should pick row 1 (moondream); got: $(tail -c 120 <<<"$menu")"
+
+start_test "install.ps1 preselects a vision model when ollamavlm is chosen against the advice"
+grep -q 'vlmSuggest = \$vlmIfChosen' scripts/install.ps1 && pass \
+    || fail "install.ps1 still hands the vision menu an empty suggestion"
+
 echo ""
 if (( TESTS_FAILED > 0 )); then
     echo "✗ ${TESTS_FAILED} of ${TESTS_RUN} tests failed"

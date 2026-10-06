@@ -483,8 +483,8 @@ first contribution.
 |---|---|---|---|---|
 | `qwen2.5:0.5b` | 1 GB | fastest | tested | Any CPU; simple questions; weakest at multi-step tool use |
 | `qwen2.5:1.5b` | 2 GB | fast | tested | The balanced low-RAM default: reliable tool routing |
-| `qwen3:1.7b` | 3 GB | fast | tested | Field-tested: better answers than the qwen2.5 set at similar speed; the default where RAM allows |
-| `qwen2.5:3b` | 4 GB | medium | tested | Best of the qwen2.5 family; wants GPU or strong CPU |
+| `qwen3:1.7b` | 3 GB | fast | tested | Field-tested: better answers than the qwen2.5 set at similar speed; the default on CPU-only boxes with 8+ cores |
+| `qwen2.5:3b` | 4 GB | medium | tested | Best of the qwen2.5 family; the default on a GPU (CUDA or Apple Silicon) with RAM to spare |
 | `qwen2.5:7b` | 8 GB | slower | untested | Strongest family reasoning; ~2× slower per answer |
 | `llama3.2:3b` | 4 GB | medium | untested | Different family; conversational tone, solid tool calling |
 

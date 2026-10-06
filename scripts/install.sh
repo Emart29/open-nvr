@@ -519,6 +519,16 @@ suggest_models() {
     # is worse than a smaller one: it evicts the LLM on every question.
     local remaining=$(( HW_MODEL_BUDGET_GB - llm_ram ))
     (( remaining < 0 )) && remaining=0
+    # What to PRESELECT if the operator chooses ollamavlm against the
+    # advice below (a Mac, say): the largest tested vision model the
+    # leftover budget holds, speed be damned — they have already decided
+    # to serve vision through Ollama — else the tested low-RAM pick, and
+    # the menu's own fit warning speaks. Without this the vision menu
+    # opened with a blank default, and Enter wrote an EMPTY
+    # OLLAMA_VLM_MODEL into .env.
+    picked=$(catalog_pick vlm "$remaining")
+    SUGGEST_VLM_IF_CHOSEN="${picked%%|*}"
+    [[ -z "$SUGGEST_VLM_IF_CHOSEN" ]] && SUGGEST_VLM_IF_CHOSEN="moondream"
     # On a weak CPU, serving vision through Ollama is slow enough to be a
     # worse experience than the small in-container model, whatever fits.
     if [[ "$HW_ACCEL" == "cpu" ]] && (( HW_CORES < 4 )); then remaining=0; fi
@@ -673,6 +683,12 @@ pick_model_from_catalog() {
             "$([[ "$tested" == yes ]] && echo tested || echo untested)" \
             "$summary" "$fit" "$mark"
     done < <(grep -v '^#' "$catalog")
+    # No suggestion matched a row (or none was given): default to the
+    # first entry rather than show "[]" and accept an empty answer.
+    if [[ -z "$default_idx" && -z "$suggest" && idx -ge 1 ]]; then
+        default_idx=1
+        PICKED_MODEL="${names[1]}"
+    fi
     read -r -p "  ${label} [${default_idx:-$suggest}]: " REPLY || true
     REPLY="${REPLY:-${default_idx:-$suggest}}"
     if [[ "$REPLY" =~ ^[0-9]+$ ]] && (( REPLY >= 1 && REPLY <= idx )); then
@@ -1272,6 +1288,10 @@ choose_example() {
             "moondream | blip | ollamavlm — all local."
         # ollamavlm chosen → suggest a VLM sized like the LLM was.
         if [[ "$(env_get CAPTION_ADAPTER)" == "ollamavlm" ]]; then
+            # Chosen where it was not suggested (no CUDA GPU, or no RAM
+            # left): still preselect something real, sized to what is
+            # left, so Enter never writes an empty model name.
+            [[ -z "$vlm_suggest" ]] && vlm_suggest="$SUGGEST_VLM_IF_CHOSEN"
             explain "Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. gemma3:4b (tested — clearly better answers) is suggested where RAM allows; moondream is the tested low-RAM pick." \
                 "yes" "$vlm_suggest"
             pick_model_from_catalog vlm "$vlm_suggest" "Vision model (Ollama)"

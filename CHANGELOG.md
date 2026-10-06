@@ -92,6 +92,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The installer's vision-model menu no longer opens blank.** On a
+  machine where vision through Ollama is not suggested (no CUDA GPU, or
+  no RAM left beside the LLM), choosing `ollamavlm` anyway showed
+  `Vision model (Ollama) []:` and Enter wrote an empty
+  `OLLAMA_VLM_MODEL` into `.env`. Both installers now preselect the
+  largest tested vision model the leftover budget holds, else the
+  low-RAM `moondream`, and a catalog menu with no matching suggestion
+  defaults to its first row. The menu's own wording also said
+  `qwen3:1.7b` was "the default where RAM allows" while the sizing rule
+  gives a GPU (CUDA or Apple Silicon) `qwen2.5:3b`; the catalog and the
+  models table now say which hardware each default is for.
 - **The camera agent reads its files correctly on Windows.** The agent
   read its config and its task registry in the system code page, so on
   Windows any non-ASCII character in a prompt or a camera role was

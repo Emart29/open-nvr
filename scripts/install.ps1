@@ -459,6 +459,9 @@ function Pick-ModelFromCatalog([string]$Kind, [string]$Suggest, [string]$Label, 
         $tested = if ($f[3] -eq 'yes') { 'tested' } else { 'untested' }
         Write-Host ('   {0}. {1,-16} ~{2}GB  {3,-8} {4,-8} {5}{6}{7}' -f ($i + 1), $f[1], $f[2], $f[4], $tested, $f[5], $fit, $mark)
     }
+    # No suggestion matched a row (or none was given): default to the
+    # first entry rather than show "[]" and accept an empty answer.
+    if (-not $defaultIdx -and [string]::IsNullOrWhiteSpace($Suggest)) { $defaultIdx = '1' }
     $answer = Read-Host "  $Label [$(if ($defaultIdx) { $defaultIdx } else { $Suggest })]"
     if ([string]::IsNullOrWhiteSpace($answer)) { $answer = if ($defaultIdx) { $defaultIdx } else { $Suggest } }
     $n = 0
@@ -772,6 +775,13 @@ function Choose-Example {
         # Whatever the LLM did not take. A vision model the machine cannot
         # hold is worse than a smaller one: it evicts the LLM every question.
         $remaining = [math]::Max(0, $budgetGb - $llmRam)
+        # What to preselect if the operator picks ollamavlm against the
+        # advice: the largest tested vision model the leftover budget
+        # holds, else the tested low-RAM pick. Mirrors install.sh; without
+        # it the vision menu opened with a blank default and Enter wrote
+        # an empty OLLAMA_VLM_MODEL.
+        $ifChosen = Pick-FromCatalog 'vlm' $remaining 9
+        $vlmIfChosen = if ($ifChosen) { $ifChosen[0] } else { 'moondream' }
         if ($accel -eq 'cpu' -and $cores -lt 4) { $remaining = 0 }
         # Vision gets a SPEED ceiling too, not just a RAM one - the same rule
         # the LLM got. Without it every machine with room landed on the same
@@ -851,6 +861,7 @@ function Choose-Example {
             "Describes what a camera sees. moondream runs inside Docker (0.5B, answers questions, the right pick without a CUDA GPU - on CPU it is ~10x faster than Ollama's 1.8B moondream); blip runs inside Docker (plain captions only, fastest); ollamavlm proxies to your Ollama (only worth it on an NVIDIA GPU; needs an adapter tag newer than 0.1.3)." 'yes' `
             'moondream | blip | ollamavlm - all local.'
         if ((Get-EnvValue CAPTION_ADAPTER) -eq 'ollamavlm') {
+            if ([string]::IsNullOrWhiteSpace($vlmSuggest)) { $vlmSuggest = $vlmIfChosen }
             Explain 'Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. gemma3:4b (tested - clearly better answers) is suggested where RAM allows; moondream is the tested low-RAM pick.' 'yes' $vlmSuggest
             Set-EnvValue OLLAMA_VLM_MODEL (Pick-ModelFromCatalog 'vlm' $vlmSuggest 'Vision model (Ollama)' $budgetGb)
         }
