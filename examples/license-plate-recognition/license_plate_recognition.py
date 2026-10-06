@@ -194,6 +194,33 @@ def parse_monitors(raw: Any) -> dict[str, dict[str, Any]]:
     return monitors
 
 
+SCAN_MODES: tuple[str, ...] = ("accurate", "fast", "auto")
+
+
+def normalize_scan_mode(value: Any, default: str = "accurate") -> str:
+    """``accurate`` | ``fast`` | ``auto``; anything else is the default.
+    Core applies the same rule when it reads this config, so a typo in
+    the form degrades to the accurate sweep on both sides."""
+    if isinstance(value, str) and value.strip().lower() in SCAN_MODES:
+        return value.strip().lower()
+    return default
+
+
+def normalize_scan_mode_overrides(value: Any) -> dict[str, str]:
+    """``{camera_id: mode}`` with junk modes dropped (an override that
+    is not a mode is no override, not an accidental 'accurate')."""
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, str] = {}
+    for cam, mode in value.items():
+        key = str(cam).strip()
+        if not key or not isinstance(mode, str):
+            continue
+        if mode.strip().lower() in SCAN_MODES:
+            out[key] = mode.strip().lower()
+    return out
+
+
 def gate_in_cameras(camera_roles: Any) -> frozenset[str]:
     """Platform handles of gate-IN cameras from the ``camera_roles``
     config map. Keys may be numeric core ids (``"3"`` — what the
@@ -389,6 +416,22 @@ MANIFEST = AppManifest(
                   "role gate_in | gate_out | parking | other. Consumed "
                   "by the Vehicles page (gate history, inside-now); "
                   "declared here so config saves validate.")),
+        Param("scan_mode", str, default="accurate",
+              description=(
+                  "How hard the platform works for each plate: "
+                  "'accurate' (default) OCRs up to four looks per visit "
+                  "and writes a plate only when two agree — right for an "
+                  "entry gate; 'fast' takes the first accepted read, at "
+                  "most two looks, and a short re-sighting window — right "
+                  "for a road camera or a weak CPU where the queue of "
+                  "visits waiting for OCR grows into minutes; 'auto' is "
+                  "accurate while the sweep keeps up and fast while it is "
+                  "backlogged. Per-camera overrides below win.")),
+        Param("scan_mode_overrides", dict, default={},
+              description=(
+                  "{camera_id: scan_mode} — one mode per camera where the "
+                  "site mixes a gate and a road ('cam3': 'fast'). Cameras "
+                  "not listed use scan_mode.")),
         Param("unknown_cooldown_seconds", float, default=300.0,
               description=(
                   "Per-plate re-alarm suppression for unknown vehicles, "
@@ -520,6 +563,12 @@ class AppConfig:
     plate_formats: list[str] = field(default_factory=list)
     overstay_hours: float = 0.0
     unknown_cooldown_seconds: float = 300.0
+    # Scan policy (consumed by CORE's plate sweep, which reads this
+    # app's registry config): accurate | fast | auto, plus per-camera
+    # overrides. Declared here so the catalog form validates and shows
+    # it; the app itself only reports it.
+    scan_mode: str = "accurate"
+    scan_mode_overrides: dict[str, Any] = field(default_factory=dict)
 
     # Alert delivery channels (see alerts.py / the SDK alert stack).
     webhook_url: str | None = None
@@ -565,6 +614,9 @@ def load_config(path: str | Path) -> AppConfig:
         overstay_hours=float(raw.get("overstay_hours", 0.0)),
         alarm_on_unknown=bool(raw.get("alarm_on_unknown", False)),
         unknown_cooldown_seconds=float(raw.get("unknown_cooldown_seconds", 300.0)),
+        scan_mode=normalize_scan_mode(raw.get("scan_mode")),
+        scan_mode_overrides=normalize_scan_mode_overrides(
+            raw.get("scan_mode_overrides")),
         webhook_url=raw.get("webhook_url"),
         nats_alerts_url=raw.get("nats_alerts_url"),
         nats_alerts_token=raw.get("nats_alerts_token"),
@@ -617,6 +669,9 @@ class PlateAlerter(Detector):
             cfg.monitors, cfg.denylist)
         self._alarm_on_unknown: bool = bool(cfg.alarm_on_unknown)
         self._unknown_cooldown: float = max(0.0, float(cfg.unknown_cooldown_seconds))
+        self._scan_mode: str = normalize_scan_mode(cfg.scan_mode)
+        self._scan_mode_overrides: dict[str, str] = normalize_scan_mode_overrides(
+            cfg.scan_mode_overrides)
         self._unknown_last: dict[str, float] = {}
         self._unknown_alarms: int = 0
         # Gate automation (access.decided.v1). The publisher's channel
@@ -1239,6 +1294,8 @@ class PlateAlerter(Detector):
             "gate_in_cameras": sorted(self._gate_in),
             "decisions_published": self._decisions_published,
             "unknown_alarms": self._unknown_alarms,
+            "scan_mode": self._scan_mode,
+            "scan_mode_overrides": dict(self._scan_mode_overrides),
             "recent": list(self._recent),
         }
 
@@ -1296,7 +1353,8 @@ class PlateAlerter(Detector):
 </div>
 <div class="dim">Unknown-vehicle alarm: {"ON" if self._alarm_on_unknown else "off"}
  · Barrier: {"AUTO (registered vehicles)" if self._barrier_mode == "registered" else "off"}
- · Decisions published: {self._decisions_published}</div>
+ · Decisions published: {self._decisions_published}
+ · Scan mode: {self._scan_mode}{" (" + ", ".join(f"{c}: {m}" for c, m in sorted(self._scan_mode_overrides.items())) + ")" if self._scan_mode_overrides else ""}</div>
 {table}
 <div class="note">Watchlists are edited in the App Catalog's config
 form (applied live). Full history: the timeline's plate search.</div>
@@ -1363,6 +1421,14 @@ form (applied live). Full history: the timeline's plate search.</div>
                     0.0, float(config.get("unknown_cooldown_seconds", 300.0)))
             except (TypeError, ValueError):
                 pass
+        # Reported only: core's sweep reads these from the registry row
+        # itself (services/plate_policy.py), so the app and the platform
+        # can never disagree about which mode is in force.
+        if "scan_mode" in config:
+            self._scan_mode = normalize_scan_mode(config.get("scan_mode"))
+        if "scan_mode_overrides" in config:
+            self._scan_mode_overrides = normalize_scan_mode_overrides(
+                config.get("scan_mode_overrides"))
 
 
 # ── CLI ─────────────────────────────────────────────────────────────

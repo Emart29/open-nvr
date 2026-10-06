@@ -120,7 +120,9 @@ def apply_plate_event(envelope: object) -> str:
     * ``"deferred-to-sweep"`` — core's own enrichment sweep is still
       working this row (this event is one of its attempts, echoed by
       KAI-C); the sweep writes text AND evidence, so the row is left
-      to it.
+      to it. Not under a ``fast`` scan policy (plate_policy): there the
+      first accepted read is final, so it is written here at once and
+      the sweep spends nothing more on the row.
     """
     if not isinstance(envelope, dict):
         return "malformed"
@@ -158,8 +160,10 @@ def apply_plate_event(envelope: object) -> str:
         # looks are in play). A state check on core itself, not a
         # producer check — consumers must not branch on producer.
         from services.plate_enrichment import sweep_is_pending
+        from services.plate_policy import policy_for
 
-        if sweep_is_pending(event_id):
+        policy = policy_for(row.camera_id)
+        if sweep_is_pending(event_id) and not policy.first_read_wins:
             return "deferred-to-sweep"
         # Same partial-read rule as the synchronous producer. The two are
         # racing writers for one column, so a guard on only one of them is
@@ -186,7 +190,8 @@ def apply_plate_event(envelope: object) -> str:
             is_duplicate_sighting, note_sighting,
         )
 
-        if is_duplicate_sighting(row.camera_id, normalized):
+        if is_duplicate_sighting(row.camera_id, normalized,
+                                 window_s=policy.dedup_window_s):
             note_sighting(row.camera_id, normalized)
             return "duplicate"
         row.plate_text = plate.strip()[:32]

@@ -1408,6 +1408,12 @@ async def update_app_config(
     row.config_json = effective
     db.commit()
     db.refresh(row)
+    if app_id == "license-plate-recognition":
+        # The plate scan policy reads this row (cached briefly); a save
+        # in the form should apply to the very next visit.
+        from services.plate_policy import forget_cached_config
+
+        forget_cached_config()
 
     write_audit_log(
         db,
