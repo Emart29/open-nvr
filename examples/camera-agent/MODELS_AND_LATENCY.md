@@ -157,6 +157,15 @@ python tools/latency_harness.py --url http://localhost:9100 \
 It reports p50/p95 per phase and quantifies how much background polling
 (watches/alarms) steals from the live turn.
 
+Speed is half of picking a model; the other half is whether it calls the
+right tool. `tools/eval_harness.py` measures that against the same live agent
+(see "Measuring better" in [`AGENT_DESIGN.md`](AGENT_DESIGN.md#measuring-better--the-eval-strategy)):
+
+```bash
+python tools/eval_harness.py --url http://localhost:9100 \
+    --camera <id> --repeat 5 --throwaway --out qwen2.5-1.5b.json
+```
+
 ## Turn detection & background-noise rejection
 
 A hands-free loop only feels good if it (a) ends the turn when you stop talking

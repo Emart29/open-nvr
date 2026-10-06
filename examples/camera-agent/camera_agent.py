@@ -6025,6 +6025,13 @@ def build_app(runtime: CameraAgentRuntime) -> FastAPI:
             # not every registered handler (test-report #4).
             "tools": [t["function"]["name"] for t in runtime.tool_definitions],
             "llm_model": runtime.cfg.llm_model,
+            # What decides a turn besides the model — tools/eval_harness.py
+            # records these with every run, so two runs are only compared
+            # when they were configured alike (Discussion #607).
+            "llm_temperature": runtime.cfg.llm_temperature,
+            "llm_max_tokens": runtime.cfg.llm_max_tokens,
+            "router": {"tier0": bool(getattr(runtime.cfg, "router_tier0", True)),
+                       "hints": bool(getattr(runtime.cfg, "router_hints", True))},
             # For the demo header's health dot: the last describe attempt's
             # failure reason (None = last look succeeded or none ran yet) and
             # whether the events store (History) is wired.

@@ -1,0 +1,94 @@
+# Cases for tools/eval_harness.py — the live-eval tier in AGENT_DESIGN.md.
+#
+# A case is one question (`ask` + `expect`) or a conversation (`turns`,
+# each with an `ask` and, where it should be scored, an `expect`). Turns
+# of one case share chat history; every case starts from a cleared one.
+# `{camera}` is replaced with --camera.
+#
+# expect:
+#   tool:            the tool that should run; a list means any of them
+#   args:            fields its arguments must have, as the chooser asked
+#                    (before the handler normalises them). A list value
+#                    means any of those values; case-insensitive.
+#   no_tool: true    no tool may run, and nothing may be created
+#   state:           an item that must be NEW afterwards, read back from
+#                    the agent: alarms / monitors / tasks / reports, each
+#                    a mapping of fields (same matching as args)
+#   reply_contains:  a word (or list, any of) the reply must contain
+#   reply_source:    llm | tool_fallback | roster | none (or a list)
+#
+# Add a case whenever a live run shows a phrasing the agent gets wrong,
+# the same way tests/test_agent_evals.py grows for the deterministic tier.
+
+# ── from AGENT_DESIGN.md ──────────────────────────────────────────────
+
+- id: alarm-after-6pm
+  ask: "set an alarm if a person is seen on {camera} after 6pm"
+  expect:
+    tool: create_alarm
+    args:
+      target: person
+      after: ["18:00", "6pm", "6 pm", "6:00 pm", "06:00 pm", "18"]
+    state:
+      alarms: {target: person, window: "after 18:00"}
+
+- id: monitor-crowd
+  ask: "notify me when more than 3 people gather on {camera}"
+  expect:
+    tool: create_monitor
+    args: {kind: count, target: person}
+    state:
+      monitors: {kind: count, target: person}
+
+- id: overnight-summary
+  note: "Must look it up, not make it up."
+  ask: "what did the cameras see overnight?"
+  expect:
+    tool: [create_background_task, recent_events, search_history, search_footage, describe_window]
+
+- id: what-is-person-wearing
+  ask: "what is the person on {camera} wearing?"
+  expect:
+    tool: describe_camera
+    args: {camera_id: "{camera}"}
+    reply_source: llm
+
+- id: polite-close
+  ask: "thanks, that's all"
+  expect:
+    no_tool: true
+    reply_source: llm
+
+# ── beyond the design doc ─────────────────────────────────────────────
+
+- id: greeting-no-tool
+  ask: "hi, what can you do?"
+  expect:
+    no_tool: true
+    reply_source: llm
+
+- id: is-anyone-there
+  ask: "is anyone on {camera} right now?"
+  expect:
+    tool: [detect_objects, describe_camera]
+    args: {camera_id: "{camera}"}
+    reply_source: llm
+
+- id: past-tense-goes-to-history
+  note: "A question about the past must not be answered from a live frame."
+  ask: "did anyone come by {camera} this morning?"
+  expect:
+    tool: [search_history, recent_events, search_footage, describe_window]
+
+- id: follow-up-alarm
+  note: "The second turn only makes sense with the first one's context."
+  turns:
+    - ask: "is anyone on {camera}?"
+    - ask: "ok, ring an alarm if a person shows up there after 10pm"
+      expect:
+        tool: create_alarm
+        args:
+          target: person
+          after: ["22:00", "10pm", "10 pm", "10:00 pm", "22"]
+        state:
+          alarms: {target: person, window: "after 22:00", camera_ids: "{camera}"}

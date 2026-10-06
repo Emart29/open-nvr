@@ -238,6 +238,19 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A live-eval harness for the camera agent.** `tools/eval_harness.py`
+  runs a case file (`tools/eval_cases.yml`: the five cases in
+  `AGENT_DESIGN.md` plus multi-turn and past-tense ones) against a running
+  agent and scores, without an LLM judge, whether the right tool ran with
+  the right arguments, who chose it, what it created and where the reply
+  came from. Each case reports a pass rate and a model-only rate with a
+  95% interval over `--repeat` runs, grouped by router tier, and `--out`
+  writes the raw turns plus the model and router settings as JSON, so
+  runs are only compared when configured alike. `/health` now reports
+  `llm_temperature`, `llm_max_tokens` and the router settings for this.
+  Needs a real model, so it is not run in CI; it refuses to start without
+  `--throwaway`, since cases arm real alarms and clear the chat history.
+
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
   the handler normalises them) and `by`: `model`, `router` or `forced`
