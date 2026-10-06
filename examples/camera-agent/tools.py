@@ -569,6 +569,11 @@ class CameraTools:
     # ── describe_camera ────────────────────────────────────────────
 
     async def describe_camera(self, args: dict[str, Any]) -> str:
+        # Reset at ENTRY, not only in _describe_one: a call that fails to
+        # resolve its camera looked at nothing and must not carry the
+        # previous describe's path (that of an earlier call in this turn,
+        # or of the scheduler's previous report, which reuses the task).
+        _describe_path.set(None)
         cams = self._resolve_cameras(args)
         if isinstance(cams, str):  # ERROR
             return cams
@@ -578,7 +583,17 @@ class CameraTools:
         # returns a scene caption. Either way the agent gets a real answer
         # instead of guessing (test-report S-6).
         question = str(args.get("question") or "").strip() or None
-        clauses = [await self._describe_one(c, question) for c in cams]
+        clauses: list[str] = []
+        paths: list[str] = []
+        for cam in cams:
+            clauses.append(await self._describe_one(cam, question))
+            path = _describe_path.get()
+            if path and path not in paths:
+                paths.append(path)
+        # Every path that answered part of it, in order: "all" over two
+        # cameras where one fell back reads "vlm+detector-fallback", not
+        # just whichever camera came last.
+        _describe_path.set("+".join(paths) or None)
         return self._join_clauses(clauses)
 
     async def _best_frame(self, camera_id: str) -> bytes | None:

@@ -320,7 +320,7 @@ def test_parsed_non_object_arguments_are_malformed_and_none_is_empty(direct_trac
         "name": "noop", "arguments": None}}))
     assert result == "ok" and seen["args"] == {}
     listed, empty = direct_trace
-    assert "malformed" in listed["detail"] and listed["raw_args"] == "['cam1']"
+    assert "malformed" in listed["detail"] and listed["raw_args"] == '["cam1"]'
     assert "ms" not in listed
     assert empty["args"] == {} and "ms" in empty
 
@@ -453,4 +453,60 @@ def test_a_step_names_the_camera_as_asked_not_as_the_handler_left_it(direct_trac
     (step,) = direct_trace
     assert step["detail"] == "front"
     assert step["args"] == {"camera_id": "front"}
+
+
+# ── third review round ───────────────────────────────────────────────
+
+
+def test_a_describe_of_an_unknown_camera_carries_no_earlier_path(direct_trace):
+    """cam1 answered by the VLM, then cam99 (no such camera): the second
+    step must not read "vlm" — it looked at nothing."""
+    rt = _runtime(router=False)
+    for cam in ("cam1", "cam99"):
+        asyncio.run(ca._invoke_tool(rt, {"function": {
+            "name": "describe_camera", "arguments": {"camera_id": cam}}}))
+    first, second = direct_trace
+    assert first["detail"] == "cam1 · vlm"
+    assert second["detail"] == "cam99"
+
+
+def test_a_multi_camera_describe_names_every_path_that_answered(direct_trace):
+    cfg = AppConfig(kaic_url="http://k", kaic_api_key="key", system_prompt="t",
+                    cameras=[CameraSpec("cam1", "http://x/1.jpg", "front"),
+                             CameraSpec("cam2", "http://x/2.jpg", "back")],
+                    router_tier0=False, router_hints=False)
+    rt = CameraAgentRuntime(cfg)
+
+    class _Src:
+        def fetch(self):
+            return b"\xff\xd8jpeg"
+    rt.context.register_frame_source("cam1", _Src())
+    rt.context.register_frame_source("cam2", _Src())
+
+    class _HalfUp:
+        def __init__(self):
+            self.n = 0
+
+        async def infer(self, **kw):
+            self.n += 1
+            if self.n == 1:
+                raise RuntimeError("caption adapter down")
+            return {"result": {"caption": "an empty yard"}}
+    rt.tools._caption = _HalfUp()
+
+    async def _no_detector(camera_id, frame, degraded_reason=None):
+        return f"{camera_id}: nothing detected"
+    rt.tools._describe_via_detection = _no_detector
+    asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "describe_camera", "arguments": {"camera_id": "all"}}}))
+    (step,) = direct_trace
+    assert step["detail"].endswith("detector-fallback+vlm")
+
+
+def test_raw_args_that_arrived_parsed_are_recorded_as_json(direct_trace):
+    rt = _runtime(router=False)
+    asyncio.run(ca._invoke_tool(rt, {"function": {
+        "name": "describe_camera", "arguments": [True, None]}}))
+    (step,) = direct_trace
+    assert step["raw_args"] == "[true, null]"
 

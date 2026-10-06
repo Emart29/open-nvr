@@ -7312,6 +7312,29 @@ _TRACE_ARG_CHARS = 500
 _TRACE_ARG_ITEMS = 50
 
 
+#: Sentinel: arguments that are present but not an object (unparseable
+#: JSON, "[1]", "3", a parsed non-empty list) — distinct from "none".
+_MALFORMED = object()
+
+
+def _parse_tool_args(raw: Any) -> Any:
+    """A tool call's ``arguments`` as a dict, or ``_MALFORMED``.
+
+    One rule for every reader (the invoker and the thinking-aloud line):
+    a JSON string is parsed; absent, "", null and an empty list mean no
+    arguments — some OpenAI-compatible servers serialise an empty map as
+    [] — so a zero-argument tool still runs; anything else that is not an
+    object is malformed.
+    """
+    try:
+        args = (json.loads(raw) if raw.strip() else {}) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, ValueError):
+        return _MALFORMED
+    if args is None or (isinstance(args, list) and not args):
+        return {}
+    return dict(args) if isinstance(args, dict) else _MALFORMED
+
+
 async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
                        by: str = "model", hint: str | None = None) -> tuple[str, str]:
     """Run one tool call; return (name, result_string). Never raises.
@@ -7327,28 +7350,18 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
     name = str(func.get("name") or "").strip()
     args_raw = func.get("arguments")
     _tool_t0 = time.perf_counter()
-    try:
-        args = (json.loads(args_raw) if args_raw.strip() else {}) \
-            if isinstance(args_raw, str) else args_raw
-    except (json.JSONDecodeError, ValueError):
-        args = _MALFORMED
-    if args is None or (isinstance(args, list) and not args):
-        # No arguments: absent, or an empty map that the backend serialised
-        # as null / [] (some OpenAI-compatible servers do). Not malformed —
-        # a zero-argument tool must still run.
-        args = {}
-    if not isinstance(args, dict):
-        # Unparseable JSON, or a non-empty value that is not an object
-        # ("[1]", "3", a parsed list): the handlers all take keyword-style
-        # dicts, so each of these is malformed.
+    args = _parse_tool_args(args_raw)
+    if args is _MALFORMED:
+        # The handlers all take keyword-style dicts (see _parse_tool_args).
         name = name or "<unknown>"
         _trace_tool(runtime, name, {}, "malformed arguments", _tool_t0, by=by,
-                    raw_args=args_raw, ran=False)
+                    asked={}, raw_args=args_raw, ran=False)
         return name, f"ERROR: tool '{name}' received malformed arguments."
-    args = dict(args)
     # As asked, before the handler normalises anything (_handle_create_alarm
     # rewrites times and targets) — the eval scores the model on these.
-    asked = _cap_strings(_json_safe(args))
+    # Only built inside a turn: outside one nothing is traced, and a large
+    # payload need not be serialised just to be thrown away.
+    asked = _cap_strings(_json_safe(args)) if _TURN_TRACE.get() is not None else None
     hinted = bool(hint) and by == "model" and name == hint
     handler = runtime.tool_handlers.get(name)
     if handler is None:
@@ -7367,10 +7380,6 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
     if len(result) > 1200:
         result = result[:1200] + " …(truncated)"
     return name, result
-
-
-#: Sentinel for arguments that did not parse (distinct from a JSON null).
-_MALFORMED = object()
 
 
 def _cap_strings(value: Any, limit: int = _TRACE_ARG_CHARS,
@@ -7431,7 +7440,7 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     if note:
         detail = (detail + f" · {note}").strip(" ·")
     step: dict[str, Any] = {"step": name, "detail": detail, "by": by,
-                            "args": asked if asked is not None else _cap_strings(_json_safe(args))}
+                            "args": asked if asked is not None else {}}
     if hinted:
         step["hinted"] = True
     if ran:
@@ -7439,7 +7448,14 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     # else no "ms": nothing ran, and a 0 ms entry would drag this tool's
     # median down in fillers.record_stages.
     if raw_args is not None:
-        step["raw_args"] = _cap_strings(str(raw_args))
+        # The JSON as sent; a value that arrived already parsed is dumped
+        # back to JSON (not a Python repr) so an eval can re-parse it.
+        if not isinstance(raw_args, str):
+            try:
+                raw_args = json.dumps(raw_args)
+            except (TypeError, ValueError):
+                raw_args = str(raw_args)
+        step["raw_args"] = _cap_strings(raw_args)
     trace.append(step)
 
 
@@ -7619,11 +7635,9 @@ async def _conversation_turn_body(
             return
         func = call.get("function") or {}
         name = str(func.get("name") or "")
-        raw = func.get("arguments")
-        try:
-            args = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw if isinstance(raw, dict) else {})
-        except (json.JSONDecodeError, ValueError):
-            args = {}
+        args = _parse_tool_args(func.get("arguments"))
+        if args is _MALFORMED:
+            return        # the call will fail; say nothing about running it
         try:
             line = thinking.line_for(name, args, cameras=runtime.visible_cameras(), model_line=model_line)
         except Exception:  # noqa: BLE001

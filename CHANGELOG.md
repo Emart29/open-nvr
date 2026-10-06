@@ -251,7 +251,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   non-empty list or a number — is now traced instead of vanishing; an
   empty map sent as `[]` or `null` still runs. A `describe_camera` step
   names how it was answered (`vlm`, `detector-fallback` or `no-frame`)
-  from that call alone, and a call that raised or never ran names none.
+  from that call alone, every path for a multi-camera call
+  (`detector-fallback+vlm`), and none for a call that raised, never ran
+  or named an unknown camera.
   Each turn now owns its trace: a background task or scheduled report
   running alongside a person's turn used to share one trace slot, so
   tool steps — and the vision label — could land in the wrong turn.
