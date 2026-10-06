@@ -238,6 +238,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The camera agent's turn trace says who chose each tool.** Every tool
+  step in the trace `/ask` returns now carries `args` (as asked, before
+  the handler normalises them) and `by`: `model`, `router` or `forced`
+  (the anti-fabrication grounding, also marked in `detail`). A final
+  `reply` step names where the answer came from (`llm`, `tool_fallback`,
+  `roster` or `none`). A malformed or unregistered tool call is now
+  traced instead of vanishing, and a camera-roster question no longer
+  hands back the previous turn's trace. Groundwork for the live-eval
+  harness (Discussion #607).
+
 - **ANPR scan mode: accurate, fast or auto, per camera.** The plate
   sweep OCRs up to four looks per visit and writes only when two agree
   — right for a gate, a minutes-long backlog on a road camera or a weak

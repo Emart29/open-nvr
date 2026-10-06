@@ -7292,11 +7292,18 @@ def _transcode_to_wav16k(blob: bytes) -> bytes:
     return proc.stdout
 
 
-async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any]) -> tuple[str, str]:
-    """Run one tool call; return (name, result_string). Never raises."""
+async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
+                       by: str = "model") -> tuple[str, str]:
+    """Run one tool call; return (name, result_string). Never raises.
+
+    ``by`` says who chose the call — "model", "router" (tier 0) or
+    "forced" (the anti-fabrication grounding) — and goes into the trace,
+    so an eval can tell what the model did from what the agent did for it.
+    """
     func = call.get("function") or {}
     name = str(func.get("name") or "").strip()
     args_raw = func.get("arguments")
+    _tool_t0 = time.perf_counter()
     try:
         if isinstance(args_raw, str):
             args = json.loads(args_raw) if args_raw.strip() else {}
@@ -7305,30 +7312,59 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any]) -> t
         else:
             args = {}
     except (json.JSONDecodeError, ValueError):
+        name = name or "<unknown>"
+        _trace_tool(runtime, name, {}, "malformed arguments", _tool_t0, by=by,
+                    raw_args=args_raw, ran=False)
+        return name, f"ERROR: tool '{name}' received malformed arguments."
+    if not isinstance(args, dict):
+        # Valid JSON that is not an object ("[1]", "3"): the handlers all
+        # take keyword-style dicts, so this is malformed too.
+        _trace_tool(runtime, name or "<unknown>", {}, "malformed arguments", _tool_t0,
+                    by=by, raw_args=args_raw, ran=False)
         return name or "<unknown>", f"ERROR: tool '{name}' received malformed arguments."
+    # As asked, before the handler normalises anything (_handle_create_alarm
+    # rewrites times and targets) — the eval scores the model on these.
+    asked = _json_safe(args)
     handler = runtime.tool_handlers.get(name)
     if handler is None:
+        _trace_tool(runtime, name or "<unknown>", args, "not registered", _tool_t0,
+                    by=by, asked=asked, ran=False)
         return name, f"ERROR: tool '{name}' is not registered."
-    _tool_t0 = time.perf_counter()
     try:
         result = await handler(args)
     except Exception:
         logger.exception("Tool %s raised", name)
-        _trace_tool(runtime, name, args, "ERROR", _tool_t0)
+        _trace_tool(runtime, name, args, "ERROR", _tool_t0, by=by, asked=asked)
         return name, f"ERROR: tool '{name}' failed unexpectedly."
     result = str(result)
-    _trace_tool(runtime, name, args, None, _tool_t0)
+    _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked)
     if len(result) > 1200:
         result = result[:1200] + " …(truncated)"
     return name, result
 
 
-def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float) -> None:
-    """Append one tool execution to the current turn's pipeline trace."""
+def _json_safe(value: Any) -> Any:
+    """A JSON-serialisable copy of tool arguments (they go out on /ask)."""
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
+                by: str = "model", asked: Any = None, raw_args: Any = None,
+                ran: bool = True) -> None:
+    """Append one tool execution to the current turn's pipeline trace.
+
+    Each tool step carries ``args`` (as the chooser asked, before the
+    handler touched them) and ``by`` (model / router / forced).
+    """
     trace = getattr(runtime, "last_turn_trace", None)
     if trace is None:
         return
     detail = str(args.get("camera_id") or args.get("camera") or "").strip()
+    if by == "forced":
+        detail = (detail + " · forced").strip(" ·")
     if name == "describe_camera":
         # Name the path that actually answered: full vision, or the honest
         # detector fallback (tools.last_vision_error is set per describe).
@@ -7336,8 +7372,15 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float) -> 
         detail = (detail + (" · detector-fallback" if err else " · vlm")).strip(" ·")
     if note:
         detail = (detail + f" · {note}").strip(" ·")
-    trace.append({"step": name, "detail": detail,
-                  "ms": int((time.perf_counter() - t0) * 1000)})
+    step: dict[str, Any] = {"step": name, "detail": detail, "by": by,
+                            "args": asked if asked is not None else _json_safe(args)}
+    if ran:
+        step["ms"] = int((time.perf_counter() - t0) * 1000)
+    # else no "ms": nothing ran, and a 0 ms entry would drag this tool's
+    # median down in fillers.record_stages.
+    if raw_args is not None:
+        step["raw_args"] = str(raw_args)[:500]
+    trace.append(step)
 
 
 def _user_turn(runtime: "CameraAgentRuntime", user_text: str, *,
@@ -7442,6 +7485,8 @@ async def _run_conversation_turn(
     # are instant: previously they ran the full tool loop (tens of seconds on a
     # CPU model) only to have the roster answer override the result at the end.
     if _is_config_question(user_text):
+        # A fresh trace, so /ask does not hand back the previous turn's.
+        runtime.last_turn_trace = [{"step": "reply", "detail": "roster"}]
         return _roster_answer(runtime.visible_cameras())
 
     # No clock in the system prompt: Ollama renders the tool schemas right
@@ -7536,7 +7581,7 @@ async def _run_conversation_turn(
         call = {"id": "route-0", "type": "function",
                 "function": {"name": decision.tool, "arguments": dict(decision.args)}}
         _think_aloud(call, "")
-        name, result = await _invoke_tool(runtime, call)
+        name, result = await _invoke_tool(runtime, call, by="router")
         logger.info("converse: ROUTED %s %s -> %s", name, decision.args, result[:120])
         grounded = True
         tools_called += 1
@@ -7644,7 +7689,7 @@ async def _run_conversation_turn(
                     "function": {"name": tool_name, "arguments": tool_args},
                 }
                 _think_aloud(call, "")
-                name, result = await _invoke_tool(runtime, call)
+                name, result = await _invoke_tool(runtime, call, by="forced")
                 logger.info("converse: FORCED grounding (%s) on %s -> %s",
                             tool_name, cam, result[:120])
                 tools_called += 1
@@ -7687,6 +7732,10 @@ async def _run_conversation_turn(
     # not calling tools, a deflection, etc.) without re-running.
     degraded = _degradation_reasons(last_tool_result, final, cleaned,
                                     grounded, tools_called)
+    # Where the answer came from. No "ms": it is a label, not a stage, so
+    # the latency medians (fillers.record_stages) and the demo's flow line
+    # leave it out.
+    trace.append({"step": "reply", "detail": source})
     log = logger.warning if degraded else logger.info
     log("converse: TURN reply_source=%s grounded=%s forced=%s tools=%d "
         "issues=%s reply=%r", source, grounded, forced, tools_called,

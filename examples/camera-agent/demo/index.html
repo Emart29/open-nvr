@@ -1321,7 +1321,9 @@
       // One muted line under the reply: the pipeline this turn actually ran,
       // with what each stage cost, the slowest stage emphasised, total at the end:
       //   stt 0.4s → llm 1.2s → describe_camera (cam1 · vlm) 35ms → llm 0.9s → tts 0.3s · 2.9s
-      if(!trace||!trace.length) return;
+      // "reply" names where the answer came from, not a stage that ran.
+      trace=(trace||[]).filter(s=>s.step!=="reply");
+      if(!trace.length) return;
       const stages=trace.map(s=>({label:s.step+(s.detail?" ("+s.detail+")":""), ms:s.ms}));
       if(timings&&timings.stt!=null) stages.unshift({label:"stt", ms:timings.stt});
       if(timings&&timings.tts!=null) stages.push({label:"tts", ms:timings.tts});
