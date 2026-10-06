@@ -1010,3 +1010,32 @@ def test_fuzzy_allowlist_wording_is_expected_not_registered():
     assert "Probable expected vehicle KA05MJ6021" in fired[0].title
     assert "registered" not in fired[0].title
     assert fired[0].evidence["unknown_alarm"] is False
+
+
+# ── scan mode: declared here, applied by core's sweep ────────────────
+
+def test_manifest_declares_the_scan_mode_params():
+    names = {p.name for p in lpr.MANIFEST.params}
+    assert {"scan_mode", "scan_mode_overrides"} <= names
+
+
+def test_scan_mode_normalises_and_degrades_to_accurate():
+    assert lpr.normalize_scan_mode("FAST ") == "fast"
+    assert lpr.normalize_scan_mode("auto") == "auto"
+    assert lpr.normalize_scan_mode("turbo") == "accurate"
+    assert lpr.normalize_scan_mode(None) == "accurate"
+    assert lpr.normalize_scan_mode_overrides(
+        {"cam3": "Fast", "4": "auto", "5": "nope", "": "fast", 6: 1}
+    ) == {"cam3": "fast", "4": "auto"}
+    assert lpr.normalize_scan_mode_overrides(["cam3"]) == {}
+
+
+def test_scan_mode_is_reported_and_reloads_live():
+    alerter, _ = _alerter(scan_mode="fast", scan_mode_overrides={"cam1": "accurate"})
+    snap = alerter.state_snapshot()
+    assert snap["scan_mode"] == "fast"
+    assert snap["scan_mode_overrides"] == {"cam1": "accurate"}
+    alerter.on_config_update({"scan_mode": "auto", "scan_mode_overrides": {}})
+    snap = alerter.state_snapshot()
+    assert snap["scan_mode"] == "auto" and snap["scan_mode_overrides"] == {}
+    assert "Scan mode: auto" in alerter.ui_html()

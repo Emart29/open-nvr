@@ -105,6 +105,24 @@ You'll see lines like:
 SIGINT / SIGTERM stops cleanly — the NATS subscription drains and the
 alert dispatcher flushes.
 
+### Scan mode — how hard the platform works for each plate
+
+Set in the App Catalog's config form (`scan_mode`, with per-camera
+`scan_mode_overrides`); core's plate sweep reads it from the registry.
+
+| Mode | Looks per visit | Writes when | Re-sighting window | Use for |
+|---|---|---|---|---|
+| `accurate` (default) | up to 4 | 2 looks agree | 30 s | entry gates, barriers — the number must be right |
+| `fast` | up to 2 | first accepted read | 8 s | road cameras, weak CPUs — the table keeps up with the alarms |
+| `auto` | as accurate | as accurate | as accurate | mixed sites: flips to `fast` only while more visits wait for OCR than the box can run at once |
+
+`fast` is the mode where "plate read alarm is there but the table is
+empty or late" goes away: the first accepted read is written the
+moment it is published, the same read the app alarmed on. The price is
+that a single misread stands until a human corrects it — which is why
+a gate stays `accurate`. Core's own knobs (`OPENNVR_PLATE_*` in
+`.env`) define what `accurate` means.
+
 ## Layout
 
 ```

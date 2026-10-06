@@ -535,3 +535,125 @@ def test_ingest_marks_the_sweep_pending_and_resweeps_early_reads():
     assert "(not row.plate_text or early_read)" in src, (
         "an early read must still hand its candidates to the sweep — "
         "they are the looks that confirm or overturn it")
+
+
+# ── scan policy: fast / accurate / auto, per camera ─────────────────
+# A road camera on a weak CPU cannot afford four looks and two agreeing
+# reads per car; an entry gate must not open on a single misread. The
+# ANPR app's config form picks the mode per camera and core's sweep
+# obeys it (services/plate_policy.py).
+
+import services.plate_policy as pp  # noqa: E402
+
+
+@pytest.fixture()
+def scan_mode(monkeypatch):
+    """Set what the ANPR app's registry config says, bypassing the DB."""
+    state = {"cfg": {}}
+    monkeypatch.setattr(pp, "app_config", lambda now=None: state["cfg"])
+    pp.forget_cached_config()
+
+    def _set(**cfg):
+        state["cfg"] = cfg
+    return _set
+
+
+def test_policy_defaults_to_accurate_without_the_app(scan_mode):
+    scan_mode()
+    pol = pp.policy_for(3)
+    assert pol.mode == "accurate" and pol.min_agreeing == 2
+    assert pol.max_looks == pe.MAX_INGEST_ATTEMPTS
+    assert pol.dedup_window_s == pe.dedup_window_s()
+
+
+def test_policy_fast_is_first_read_wins_with_two_looks(scan_mode):
+    scan_mode(scan_mode="fast")
+    pol = pp.policy_for(3)
+    assert pol.mode == "fast" and pol.first_read_wins
+    assert pol.max_looks == 2
+    assert pol.dedup_window_s == pp.FAST_DEDUP_WINDOW_DEFAULT_S
+
+
+def test_policy_override_names_the_camera_either_way(scan_mode):
+    scan_mode(scan_mode="accurate", scan_mode_overrides={"cam3": "fast", "7": "auto"})
+    assert pp.policy_for(3).mode == "fast"
+    assert pp.policy_for("cam3").mode == "fast"
+    assert pp.policy_for(4).mode == "accurate"
+    assert pp.policy_for(7, backlog=0).configured == "auto"
+
+
+def test_policy_junk_degrades_to_accurate(scan_mode):
+    scan_mode(scan_mode="turbo", scan_mode_overrides={"cam3": 12})
+    assert pp.policy_for(3).mode == "accurate"
+
+
+def test_policy_auto_follows_the_sweep_backlog(scan_mode, monkeypatch):
+    scan_mode(scan_mode="auto")
+    monkeypatch.delenv("OPENNVR_PLATE_AUTO_BACKLOG", raising=False)
+    assert pp.policy_for(3, backlog=0).mode == "accurate"
+    assert pp.policy_for(3, backlog=2).mode == "accurate"
+    fast = pp.policy_for(3, backlog=3)
+    assert fast.mode == "fast" and fast.configured == "auto"
+    assert "3 sweep(s) pending" in fast.reason
+
+
+def test_sweeps_in_flight_counts_marked_not_cleared():
+    pe.mark_sweep_pending(9001)
+    pe.mark_sweep_pending(9002)
+    try:
+        assert pe.sweeps_in_flight() >= 2
+    finally:
+        pe.clear_sweep_pending(9001)
+        pe.clear_sweep_pending(9002)
+
+
+def test_fast_sweep_writes_the_first_read_and_spends_one_look(db, stored, scan_mode):
+    """The same disagreeing looks that write NOTHING under accurate
+    write the first read under fast — and the second look is never
+    OCR'd."""
+    scan_mode(scan_mode="fast")
+    SessionLocal, row_id = db
+    ocr = _sweep(row_id, [_acc("R183JF", 1.0), _acc("L656XH", 1.0),
+                          _acc("L605HZ", 1.0)], [b"a", b"b", b"c"])
+    r = _row(SessionLocal, row_id)
+    assert r.plate_text == "R183JF"
+    assert r.payload["plate_reads"] == 1
+    assert r.plate_frame_path == "xx/a.jpg"      # evidence still attached
+    assert len(ocr.calls) == 1
+
+
+def test_fast_sweep_caps_the_looks_it_ships(db, stored, scan_mode):
+    """Four candidates, none readable: fast gives up after two."""
+    scan_mode(scan_mode="fast")
+    SessionLocal, row_id = db
+    ocr = _sweep(row_id, [None, None, _acc("NEVER1"), _acc("NEVER1")],
+                 [b"a", b"b", b"c", b"d"])
+    assert _row(SessionLocal, row_id).plate_text is None
+    assert len(ocr.calls) == 2
+
+
+def test_accurate_sweep_is_unchanged_by_the_policy(db, stored, scan_mode):
+    scan_mode(scan_mode="accurate")
+    SessionLocal, row_id = db
+    _sweep(row_id, [_acc("R183JF", 1.0), _acc("L656XH", 1.0),
+                    _acc("L605HZ", 1.0)], [b"a", b"b", b"c"])
+    assert _row(SessionLocal, row_id).plate_text is None
+
+
+def test_fast_bus_read_is_written_while_the_sweep_still_owns_the_row(db, scan_mode):
+    """Under fast the bus consumer does not defer to the sweep: the
+    plate the app just alarmed on lands in the table at once."""
+    from services.plate_event_consumer import apply_plate_event
+
+    SessionLocal, row_id = db
+    envelope = {"correlation_id": "c1", "payload": {
+        "plate_text": "R197GB", "event_id": row_id, "confidence": 0.9}}
+    pe.mark_sweep_pending(row_id)
+    try:
+        scan_mode(scan_mode="accurate")
+        assert apply_plate_event(envelope) == "deferred-to-sweep"
+        scan_mode(scan_mode="fast")
+        assert apply_plate_event(envelope) == "applied"
+    finally:
+        pe.clear_sweep_pending(row_id)
+    assert _row(SessionLocal, row_id).plate_text == "R197GB"

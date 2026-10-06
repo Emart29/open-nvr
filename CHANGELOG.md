@@ -238,6 +238,21 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **ANPR scan mode: accurate, fast or auto, per camera.** The plate
+  sweep OCRs up to four looks per visit and writes only when two agree
+  — right for a gate, a minutes-long backlog on a road camera or a weak
+  CPU, where the ANPR app had already alarmed on the first read while
+  the Plates Read table stayed empty or late. The app's config form now
+  carries `scan_mode` (`accurate` | `fast` | `auto`) and per-camera
+  `scan_mode_overrides`; core's sweep reads them from the registry
+  (`services/plate_policy.py`). `fast` = first accepted read wins, two
+  looks at most, an 8 s re-sighting window, and the bus consumer writes
+  the read at once instead of deferring to the sweep. `auto` is
+  accurate while the sweep keeps up and fast while more visits are
+  waiting for OCR than the box can run at once
+  (`OPENNVR_PLATE_AUTO_BACKLOG`, default 3). Nothing changes for an
+  install that does not touch the form.
+
 - **Home Assistant.** OpenNVR now works with Home Assistant in two ways
   ([docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)):
   - a **native integration** plus its `pyopennvr` client library, under

@@ -624,6 +624,13 @@ def clear_sweep_pending(event_id: int) -> None:
         _evict_stale_sweeps(now)
 
 
+def sweeps_in_flight() -> int:
+    """Sweeps queued or running right now (marked, not yet cleared).
+    The scan policy's ``auto`` mode reads this as the backlog."""
+    with _sweeps_lock:
+        return sum(1 for t in _sweeping.values() if t is None)
+
+
 def sweep_is_pending(event_id: int) -> bool:
     """In flight, or finished within the echo grace."""
     import time as _time
@@ -981,12 +988,15 @@ def note_sighting(camera_id: int, plate: str, now: float | None = None) -> None:
 
 
 def is_duplicate_sighting(camera_id: int, plate: str,
-                          now: float | None = None) -> bool:
+                          now: float | None = None,
+                          window_s: float | None = None) -> bool:
     """Was this plate seen on this camera within the rolling window?
 
     Pure lookup — recording the new sighting is the caller's job (via
-    ``note_sighting``), on whichever branch it takes."""
-    window = dedup_window_s()
+    ``note_sighting``), on whichever branch it takes. ``window_s``
+    overrides the environment default — the scan policy hands a road
+    camera a short window (plate_policy)."""
+    window = dedup_window_s() if window_s is None else window_s
     if window <= 0:
         return False
     import time as _time
@@ -1140,7 +1150,15 @@ async def enrich_event_plate(
         finally:
             db.close()
 
-        min_agree = min_agreeing_reads()
+        # The scan policy for THIS camera (plate_policy): accurate, fast,
+        # or auto by backlog. It sets how many looks may be spent, how
+        # many must agree, and how long a re-sighting folds.
+        from services.plate_policy import policy_for
+
+        policy = policy_for(camera_id)
+        min_agree = policy.min_agreeing
+        max_looks = max(1, min(MAX_INGEST_ATTEMPTS, policy.max_looks))
+        dedup_window = policy.dedup_window_s
         if prior_plate and (prior_reads >= max(min_agree, 2)
                             or min_agree <= 1):
             # A consensus is already on the row (or the policy is
@@ -1151,11 +1169,11 @@ async def enrich_event_plate(
         # Attempt list: candidates best-first; the evidence crop as the
         # sole attempt when none were shipped (pre-multi-frame producers,
         # non-LPR cameras).
-        attempts: list[bytes] = list(candidate_jpegs or [])[:MAX_INGEST_ATTEMPTS]
+        attempts: list[bytes] = list(candidate_jpegs or [])[:max_looks]
         # Capture time per attempt, same order. Only trusted when it lines
         # up 1:1 — a short list would give a read the timestamp of a
         # different look, and a wrong observed time is worse than none.
-        stamps: list[float | None] = list(candidate_ts or [])[:MAX_INGEST_ATTEMPTS]
+        stamps: list[float | None] = list(candidate_ts or [])[:max_looks]
         if len(stamps) != len(attempts):
             stamps = [None] * len(attempts)
         if not attempts:
@@ -1287,7 +1305,8 @@ async def enrich_event_plate(
                 event_id, plate, agreeing, looks,
             )
             return
-        if not prior_plate and is_duplicate_sighting(camera_id, plate) \
+        if not prior_plate and is_duplicate_sighting(camera_id, plate,
+                                                     window_s=dedup_window) \
                 and not _row_already_reads(event_id, plate):
             # Track fragmentation: this "new" vehicle is the car we just
             # read. Fold the sighting — the visit row stays (it is a
@@ -1365,7 +1384,7 @@ async def enrich_event_plate(
                 # images and all — unless the plate the looks agree on
                 # is the car we read moments ago (a fragment), in which
                 # case the honest row is a visit with NO plate.
-                if is_duplicate_sighting(camera_id, plate):
+                if is_duplicate_sighting(camera_id, plate, window_s=dedup_window):
                     note_sighting(camera_id, plate)
                     logger.info(
                         "plate enrichment: event %s single read %s "
@@ -1385,7 +1404,7 @@ async def enrich_event_plate(
                 )
                 row.plate_evidence_path = None
                 row.plate_frame_path = None
-            elif is_duplicate_sighting(camera_id, plate):
+            elif is_duplicate_sighting(camera_id, plate, window_s=dedup_window):
                 # Re-checked here too: another fragment of the same pass
                 # can have been written during the OCR window.
                 note_sighting(camera_id, plate)
