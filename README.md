@@ -12,15 +12,52 @@
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22804254-blue.svg)](https://doi.org/10.5281/zenodo.22804254)
 [![Discord](https://img.shields.io/badge/Discord-join_the_community-5865F2?logo=discord&logoColor=white)](https://opennvr.org/discord)
 
-[▶ 90-second demo](docs/DEMO.md) · [⚡ Get it running](#get-it-running) · [🧩 Write an adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Write an app](docs/FIRST_DETECTOR.md) · [🏛 Government brief](docs/GOVERNMENT_DEPLOYMENT.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](https://opennvr.org/discord)
-
-<a href="https://opennvr.org/camera-agent">
-  <img src=".github/demo-agent.gif" alt="Ask your cameras a question — the OpenNVR camera agent runs a detector on a live frame and answers locally, no cloud" width="760" />
-</a>
+[▶ Install walkthrough (video)](https://www.youtube.com/watch?v=PMC1WWjo654) · [⚡ Get it running](#get-it-running) · [🧩 Write an adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter) · [📱 Write an app](docs/FIRST_DETECTOR.md) · [🏛 Government brief](docs/GOVERNMENT_DEPLOYMENT.md) · [🔒 Security](docs/SECURITY_ARCHITECTURE.md) · [💬 Discord](https://opennvr.org/discord)
 
 </div>
 
 ---
+
+## Get it running
+
+Two commands. You need [Docker](https://docs.docker.com/get-docker/), nothing else. No account, no API key, no cloud.
+
+```bash
+git clone https://github.com/open-nvr/open-nvr.git && cd open-nvr
+./start.sh          # Windows: .\start.ps1
+```
+
+A short wizard follows; every question has a working default in `[brackets]`, so Enter through all of them gives a running stack. It generates the secrets, pulls the images, and prints your URL and a one-time setup token.
+
+> First run takes 8–15 minutes, almost all of it downloading images. Every start after that is seconds.
+
+Open the URL, accept the self-signed certificate, paste the token, add a camera. Detection overlays appear within about 30 seconds. **No camera to hand?** [OpenNVR Cam](https://play.google.com/store/apps/details?id=org.opennvr.cam) turns an Android phone into an ONVIF camera, or let the agent use the machine's own webcam.
+
+<details>
+<summary><b>Day-two commands</b></summary>
+
+| Situation | Command |
+|---|---|
+| Start now, no prompt | `./start.sh up` |
+| Re-print the setup token | `./start.sh token` |
+| Change settings or swap the example | `./start.sh reconfigure` |
+| Your LAN IP changed | `./start.sh refresh-certs` *(Linux/macOS)* |
+| Stop everything | `./start.sh down` |
+| Tail live logs | `./start.sh logs` |
+| Pick up new images after an upgrade | `docker compose pull && ./start.sh up` |
+
+Unattended installs: `cp .env.example .env && ./scripts/generate-secrets.sh --write && ./start.sh up`. Retention, hardening and every compose file: [`DOCKER_QUICKSTART.md`](DOCKER_QUICKSTART.md).
+</details>
+
+
+## What it looks like
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="data/images/svg/opennvr-screens-dark.svg">
+  <img src="data/images/svg/opennvr-screens-light.svg" alt="OpenNVR screens: dashboard, live view with detection boxes, natural-language search, the App Catalog, and the Vehicles (ANPR) page" width="100%">
+</picture>
+
+Dashboard · Live view · Search · App Catalog · Vehicles (ANPR). The dark and light variants follow your GitHub theme.
 
 ## What OpenNVR is
 
@@ -93,37 +130,6 @@ flowchart LR
 
 The three-tier model, the wire contracts and the offline-first design are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Get it running
-
-Two commands. You need [Docker](https://docs.docker.com/get-docker/), nothing else. No account, no API key, no cloud.
-
-```bash
-git clone https://github.com/open-nvr/open-nvr.git && cd open-nvr
-./start.sh          # Windows: .\start.ps1
-```
-
-A short wizard follows; every question has a working default in `[brackets]`, so Enter through all of them gives a running stack. It generates the secrets, pulls the images, and prints your URL and a one-time setup token.
-
-> First run takes 8–15 minutes, almost all of it downloading images. Every start after that is seconds.
-
-Open the URL, accept the self-signed certificate, paste the token, add a camera. Detection overlays appear within about 30 seconds. **No camera to hand?** [OpenNVR Cam](https://play.google.com/store/apps/details?id=org.opennvr.cam) turns an Android phone into an ONVIF camera, or let the agent use the machine's own webcam.
-
-<details>
-<summary><b>Day-two commands</b></summary>
-
-| Situation | Command |
-|---|---|
-| Start now, no prompt | `./start.sh up` |
-| Re-print the setup token | `./start.sh token` |
-| Change settings or swap the example | `./start.sh reconfigure` |
-| Your LAN IP changed | `./start.sh refresh-certs` *(Linux/macOS)* |
-| Stop everything | `./start.sh down` |
-| Tail live logs | `./start.sh logs` |
-| Pick up new images after an upgrade | `docker compose pull && ./start.sh up` |
-
-Unattended installs: `cp .env.example .env && ./scripts/generate-secrets.sh --write && ./start.sh up`. Retention, hardening and every compose file: [`DOCKER_QUICKSTART.md`](DOCKER_QUICKSTART.md).
-</details>
-
 ## Add a capability in one click
 
 **App Catalog** in the sidebar lists the installable applications. Pick one, click Install, choose which cameras it watches. Each app declares what it needs before you install it, which cameras, which hosts it may reach, whether it wants a licence key, and an administrator approves that, so an app cannot quietly acquire access it never asked for. Cameras get jobs too: assign camera 1 to plates and cameras 2–3 to counting on each camera's settings page ([how assignments work](docs/CAMERA_ASSIGNMENTS.md)).
@@ -148,6 +154,10 @@ Unattended installs: `cp .env.example .env && ./scripts/generate-secrets.sh --wr
 Fourteen of the sixteen shipped examples are listed above; [`inference-listener`](examples/inference-listener) and [`alerts-subscriber`](examples/alerts-subscriber) are minimal subscriber templates. Every app is a copy-as-template starting point. Replace the predicate and you have a purpose-built NVR for your domain. Gallery and roadmap: [`examples/README.md`](examples/README.md), [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Talk to your cameras
+
+<a href="https://opennvr.org/camera-agent">
+  <img src="data/images/svg/opennvr-agent.svg" alt="The OpenNVR agent watches two cameras: a user asks about a plate, the agent searches history and answers; a monitored plate passes the road camera, the alarm automation fires and the agent speaks the alert" width="100%">
+</a>
 
 ```bash
 examples/camera-agent/quickstart.sh          # voice: click Start and speak
