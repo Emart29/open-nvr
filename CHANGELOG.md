@@ -244,16 +244,21 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (the anti-fabrication grounding, also marked in `detail`); a model
   call to the tool a tier-1 router hint named is also marked `hinted`,
   so an eval does not credit the model with a choice it was nudged to.
-  Argument strings are capped at 500 characters. A final `reply` step
-  names where the answer came from (`llm`, `tool_fallback`, `roster` or
-  `none`). A malformed or unregistered tool call — including arguments
-  that arrive as a list or number — is now traced instead of vanishing.
+  Traced arguments are bounded: strings at 500 characters, lists and
+  objects at 50 entries. A final `reply` step names where the answer
+  came from (`llm`, `tool_fallback`, `roster` or `none`). A malformed or
+  unregistered tool call — including arguments that arrive as a
+  non-empty list or a number — is now traced instead of vanishing; an
+  empty map sent as `[]` or `null` still runs. A `describe_camera` step
+  names how it was answered (`vlm`, `detector-fallback` or `no-frame`)
+  from that call alone, and a call that raised or never ran names none.
   Each turn now owns its trace: a background task or scheduled report
   running alongside a person's turn used to share one trace slot, so
-  tool steps could land in the wrong turn; `/ask` and `/converse` now
-  return, and feed the latency medians from, their own turn's trace,
-  and a bare wake word no longer re-records the previous turn's stages.
-  Groundwork for the live-eval harness (Discussion #607).
+  tool steps — and the vision label — could land in the wrong turn.
+  `/ask` and `/converse` now return, and feed the latency medians from,
+  their own turn's trace, and a bare wake word no longer re-records the
+  previous turn's stages. Groundwork for the live-eval harness
+  (Discussion #607).
 
 - **ANPR scan mode: accurate, fast or auto, per camera.** The plate
   sweep OCRs up to four looks per visit and writes only when two agree

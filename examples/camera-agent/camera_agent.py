@@ -47,7 +47,6 @@ import asyncio
 import base64
 import binascii
 import contextlib
-import contextvars
 import difflib
 import json
 import logging
@@ -92,6 +91,7 @@ from context import (
     scoped_cameras,
     set_camera_scope,
     spawn_unscoped,
+    TURN_TRACE as _TURN_TRACE,
 )
 from frame_sources import build_frame_source, discover_local_cameras
 from monitor_host import MonitorHost
@@ -3428,8 +3428,11 @@ class CameraAgentRuntime:
             "recent_app_alerts": self._handle_recent_app_alerts,
         }
 
-        # Pipeline trace of the most recent conversation turn (see
-        # _run_conversation_turn) — served to the UI by /ask and /converse.
+        # The trace of whichever conversation turn STARTED last, background
+        # turns included — for tests and debugging only. /ask and /converse
+        # serve their own turn's trace (see _run_conversation_turn); nothing
+        # that answers a person may read this, since a concurrent turn can
+        # replace it at any await.
         self.last_turn_trace: list[dict[str, Any]] = []
 
         self.agent_name = agent_name_for(cfg.agent_name)
@@ -7301,21 +7304,12 @@ def _transcode_to_wav16k(blob: bytes) -> bytes:
     return proc.stdout
 
 
-#: The trace of the turn THIS asyncio task is running. Not a slot on the
-#: runtime: turns are not serialised — a background task or a scheduled
-#: report runs its own turn while a person's is in flight (the same
-#: reason tools.current_question is a contextvar) — and a shared
-#: ``runtime.last_turn_trace`` let one turn's tool steps land in
-#: another's trace. ``_run_conversation_turn`` sets it; ``_trace_tool``
-#: reads it. None outside a turn (a direct ``_invoke_tool`` call), where
-#: the trace falls back to ``runtime.last_turn_trace``.
-_TURN_TRACE: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
-    "camera_agent_turn_trace", default=None)
-
-#: Longest string kept per traced argument value. The trace rides on
-#: every /ask and /converse response; a model that writes a multi-KB
-#: query should not make every reply carry it. Same cap as raw_args.
+#: Limits on what a traced argument may carry. The trace rides on every
+#: /ask and /converse response; a model that writes a multi-KB query, or
+#: a list of thousands of ids, must not make every reply carry it. The
+#: running turn's trace itself is ``context.TURN_TRACE`` (_TURN_TRACE).
 _TRACE_ARG_CHARS = 500
+_TRACE_ARG_ITEMS = 50
 
 
 async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
@@ -7334,18 +7328,19 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
     args_raw = func.get("arguments")
     _tool_t0 = time.perf_counter()
     try:
-        if isinstance(args_raw, str):
-            args = json.loads(args_raw) if args_raw.strip() else {}
-        elif args_raw is None:
-            args = {}
-        else:
-            args = args_raw
+        args = (json.loads(args_raw) if args_raw.strip() else {}) \
+            if isinstance(args_raw, str) else args_raw
     except (json.JSONDecodeError, ValueError):
-        args = None
+        args = _MALFORMED
+    if args is None or (isinstance(args, list) and not args):
+        # No arguments: absent, or an empty map that the backend serialised
+        # as null / [] (some OpenAI-compatible servers do). Not malformed —
+        # a zero-argument tool must still run.
+        args = {}
     if not isinstance(args, dict):
-        # Unparseable JSON, valid JSON that is not an object ("[1]", "3"),
-        # or a provider that sent a parsed non-object: the handlers all
-        # take keyword-style dicts, so each of these is malformed.
+        # Unparseable JSON, or a non-empty value that is not an object
+        # ("[1]", "3", a parsed list): the handlers all take keyword-style
+        # dicts, so each of these is malformed.
         name = name or "<unknown>"
         _trace_tool(runtime, name, {}, "malformed arguments", _tool_t0, by=by,
                     raw_args=args_raw, ran=False)
@@ -7374,14 +7369,28 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
     return name, result
 
 
-def _cap_strings(value: Any, limit: int = _TRACE_ARG_CHARS) -> Any:
-    """``value`` with every string inside it cut to ``limit`` characters."""
+#: Sentinel for arguments that did not parse (distinct from a JSON null).
+_MALFORMED = object()
+
+
+def _cap_strings(value: Any, limit: int = _TRACE_ARG_CHARS,
+                 items: int = _TRACE_ARG_ITEMS) -> Any:
+    """``value`` bounded for the trace: every string cut to ``limit``
+    characters (a cut one ends in "…"), every list and object to
+    ``items`` entries (a cut list ends in an "…(+N more)" marker)."""
     if isinstance(value, str):
         return value if len(value) <= limit else value[:limit] + "…"
     if isinstance(value, dict):
-        return {k: _cap_strings(v, limit) for k, v in value.items()}
+        kept = list(value.items())[:items]
+        out = {k: _cap_strings(v, limit, items) for k, v in kept}
+        if len(value) > items:
+            out["…"] = f"+{len(value) - items} more"
+        return out
     if isinstance(value, list):
-        return [_cap_strings(v, limit) for v in value]
+        out = [_cap_strings(v, limit, items) for v in value[:items]]
+        if len(value) > items:
+            out.append(f"…(+{len(value) - items} more)")
+        return out
     return value
 
 
@@ -7404,19 +7413,21 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     """
     trace = _TURN_TRACE.get()
     if trace is None:
-        trace = getattr(runtime, "last_turn_trace", None)
-    if trace is None:
-        return
-    detail = str(args.get("camera_id") or args.get("camera") or "").strip()
+        return            # not inside a turn: nothing to attribute it to
+    # The camera as ASKED, like ``args`` below — a handler that resolves
+    # an alias in place must not make one step name two cameras.
+    source = asked if isinstance(asked, dict) else args
+    detail = str(source.get("camera_id") or source.get("camera") or "").strip()
     if by == "forced":
         detail = (detail + " · forced").strip(" ·")
-    if name == "describe_camera" and ran:
-        # Only for a call that ran: last_vision_error belongs to the
-        # PREVIOUS describe when this one never reached its handler.
-        # Name the path that actually answered: full vision, or the honest
-        # detector fallback (tools.last_vision_error is set per describe).
-        err = getattr(runtime.tools, "last_vision_error", None)
-        detail = (detail + (" · detector-fallback" if err else " · vlm")).strip(" ·")
+    if name == "describe_camera" and ran and note != "ERROR":
+        # Name the path that actually answered (vlm / detector-fallback /
+        # no-frame), from THIS task's describe — never the site-wide
+        # last_vision_error a concurrent turn can set. Only for a call that
+        # completed: one that never ran or raised looked at nothing.
+        path = getattr(runtime.tools, "describe_path", None)
+        if path:
+            detail = (detail + f" · {path}").strip(" ·")
     if note:
         detail = (detail + f" · {note}").strip(" ·")
     step: dict[str, Any] = {"step": name, "detail": detail, "by": by,
@@ -7428,7 +7439,7 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     # else no "ms": nothing ran, and a 0 ms entry would drag this tool's
     # median down in fillers.record_stages.
     if raw_args is not None:
-        step["raw_args"] = str(raw_args)[:500]
+        step["raw_args"] = _cap_strings(str(raw_args))
     trace.append(step)
 
 
@@ -7529,11 +7540,6 @@ async def _run_conversation_turn(
     and make the model answer from that result — so a reply about a camera
     is always grounded in an actual frame, never imagined.
     """
-    # Roster/config questions ("how many cameras are configured?") are answered
-    # deterministically from the config — the model can't reliably count them and
-    # tends to narrate a phantom tool. Short-circuit BEFORE the LLM loop so these
-    # are instant: previously they ran the full tool loop (tens of seconds on a
-    # CPU model) only to have the roster answer override the result at the end.
     # Per-turn pipeline trace: ordered (step, detail, ms) of everything this
     # turn executed — LLM iterations, every tool, forced groundings — so the
     # UI can show "llm → describe_camera → llm" and a slow or degraded turn
@@ -7565,6 +7571,11 @@ async def _conversation_turn_body(
     speak_progress: str | None,
 ) -> str:
     """The turn itself; ``_run_conversation_turn`` owns its trace."""
+    # Roster/config questions ("how many cameras are configured?") are answered
+    # deterministically from the config — the model can't reliably count them and
+    # tends to narrate a phantom tool. Short-circuit BEFORE the LLM loop so these
+    # are instant: previously they ran the full tool loop (tens of seconds on a
+    # CPU model) only to have the roster answer override the result at the end.
     if _is_config_question(user_text):
         trace.append({"step": "reply", "detail": "roster"})
         return _roster_answer(runtime.visible_cameras())
