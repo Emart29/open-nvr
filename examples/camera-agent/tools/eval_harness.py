@@ -25,8 +25,16 @@ keeps one chat history, so cases cannot run in parallel):
 1. POST /reset (chat history only), then snapshot the ids in /alarms,
    /monitors, /tasks and /reports.
 2. Send each turn to POST /ask and keep the reply and the trace.
-3. Diff the snapshot: what is new is what the turn created. Score it,
-   then delete the alarms and monitors the case created.
+3. Snapshot again — even when /ask failed, since a turn can arm an alarm
+   and then fail composing its reply — and diff: what is new is what the
+   turn created. Score it.
+4. Delete what the case created, then read the collections back: a delete
+   route answers 200 even when it removed nothing (an item outside the
+   token's camera scope), so only the read-back says what is left.
+
+A snapshot that cannot be read ends the case. Reading a failed GET as an
+empty collection would make every existing alarm look created by the
+case — and cleanup would delete the operator's own.
 
 Scoring is deterministic, no LLM judge. Each tool step in the trace says
 who chose it (`by`: model / router / forced) and the arguments as asked;
@@ -74,6 +82,16 @@ STATE = {
     "reports": ("/reports", "schedules", "/reports/{id}"),
 }
 
+# The tool that creates each collection's items. A create that reuses an
+# identical active rule ("Alarm #3 already covers that") adds nothing to
+# the diff; with this the state check can still credit it.
+CREATORS = {
+    "alarms": "create_alarm",
+    "monitors": "create_monitor",
+    "tasks": "create_background_task",
+    "reports": "create_report",
+}
+
 _EXPECT_KEYS = {"tool", "args", "no_tool", "state", "reply_contains", "reply_source"}
 _TURN_KEYS = {"ask", "camera", "expect"}
 _CASE_KEYS = {"id", "ask", "camera", "expect", "turns", "note"}
@@ -81,6 +99,10 @@ _CASE_KEYS = {"id", "ask", "camera", "expect", "turns", "note"}
 
 class CaseError(ValueError):
     """A case file that cannot be run as written."""
+
+
+class SnapshotError(RuntimeError):
+    """A collection the harness must read could not be read."""
 
 
 # ── cases ──────────────────────────────────────────────────────────────
@@ -190,7 +212,21 @@ def tier_of(trace: list[dict[str, Any]]) -> int | None:
 
 
 def tool_steps(trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every tool step, including calls that never ran (an attempted call
+    is still a choice — it fails ``no_tool``)."""
     return [s for s in trace or () if s.get("step") not in _LABEL_STEPS]
+
+
+def step_ran(step: dict[str, Any]) -> bool:
+    """Did this tool call run and complete? The agent marks it ``ok``;
+    an older agent is read by its shape: a call that never ran (malformed
+    arguments, not registered) has no ``ms``, one that raised ends its
+    detail in "ERROR". A call that did not run looked nothing up, so it
+    must not count as the right tool being used."""
+    if "ok" in step:
+        return bool(step["ok"])
+    detail = str(step.get("detail") or "")
+    return "ms" in step and detail.rsplit(" · ", 1)[-1] != "ERROR"
 
 
 def reply_source(trace: list[dict[str, Any]]) -> str | None:
@@ -218,18 +254,31 @@ def match_value(expected: Any, actual: Any) -> bool:
     return str(_norm(expected)) == str(_norm(actual)) if actual is not None else False
 
 
+def _field(actual: dict[str, Any], key: str) -> Any:
+    """``actual[key]``; a ``camera_id`` expectation also reads
+    ``camera_ids``, the list form the camera tools accept for the same
+    thing (``match_value`` matches a list that contains the value)."""
+    got = actual.get(key)
+    if got is None and key == "camera_id":
+        got = actual.get("camera_ids")
+    return got
+
+
 def match_fields(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     """The fields of ``expected`` that ``actual`` gets wrong (empty = match)."""
-    return [f"{k}: wanted {v!r}, got {actual.get(k)!r}"
-            for k, v in expected.items() if not match_value(v, actual.get(k))]
+    return [f"{k}: wanted {v!r}, got {_field(actual, k)!r}"
+            for k, v in expected.items() if not match_value(v, _field(actual, k))]
 
 
 def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
-               created: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+               created: dict[str, list[dict[str, Any]]],
+               existing: dict[str, dict[Any, dict[str, Any]]] | None = None) -> dict[str, Any]:
     """Score one turn. ``created`` holds the items new in each STATE
-    collection since the case started. Returns the checks, ``pass`` (the
-    agent did the right thing) and ``model`` (the model chose it; None
-    when the router decided the turn)."""
+    collection since the case started; ``existing`` is the full snapshot
+    after the turn, so a create that reused an identical active rule can
+    still be credited. Returns the checks, ``pass`` (the agent did the
+    right thing) and ``model`` (the model chose it; None when the model
+    never decided the turn: a router (tier 0) call or a roster answer)."""
     tier = tier_of(trace)
     steps = tool_steps(trace)
     checks: dict[str, dict[str, Any]] = {}
@@ -245,12 +294,16 @@ def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
         names = {str(n) for n in names}
         want_args = expect.get("args") or {}
         candidates = [s for s in steps if s.get("step") in names]
-        good = [s for s in candidates if not match_fields(want_args, s.get("args") or {})]
+        ran = [s for s in candidates if step_ran(s)]
+        good = [s for s in ran if not match_fields(want_args, s.get("args") or {})]
         by = sorted({str(s.get("by") or "model") for s in good})
         detail: dict[str, Any] = {"ok": bool(good), "by": by,
-                                  "got": [(s.get("step"), s.get("by")) for s in steps]}
-        if candidates and not good:
-            detail["args"] = match_fields(want_args, candidates[0].get("args") or {})
+                                  "got": [(s.get("step"), s.get("by"), step_ran(s))
+                                          for s in steps]}
+        if candidates and not ran:
+            detail["did_not_run"] = [s.get("detail") for s in candidates]
+        elif ran and not good:
+            detail["args"] = match_fields(want_args, ran[0].get("args") or {})
         checks["tool"] = detail
         model_ok = any((s.get("by") or "model") == "model" for s in good)
 
@@ -258,7 +311,15 @@ def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
         items = created.get(coll) or []
         hit = any(not match_fields(want, it) for it in items)
         d: dict[str, Any] = {"ok": hit, "new": len(items)}
-        if items and not hit:
+        if not hit and existing is not None:
+            # The creating tool ran, nothing new appeared, and an existing
+            # item matches: the agent reused an identical active rule.
+            creator_ran = any(s.get("step") == CREATORS.get(coll) and step_ran(s)
+                              for s in steps)
+            if creator_ran and any(not match_fields(want, it)
+                                   for it in (existing.get(coll) or {}).values()):
+                d.update(ok=True, reused=True)
+        if items and not d["ok"]:
             d["fields"] = match_fields(want, items[0])
         checks[f"state.{coll}"] = d
 
@@ -278,8 +339,11 @@ def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
         checks["reply_source"] = {"ok": match_value(expect["reply_source"], src), "got": src}
 
     passed = all(c["ok"] for c in checks.values())
+    # The model never decided a tier-0 turn (the router did) or a roster
+    # question (answered from config before the router or model ran).
+    model_decided = tier != 0 and reply_source(trace) != "roster"
     return {"tier": tier, "checks": checks, "pass": passed,
-            "model": None if tier == 0 else (passed and model_ok)}
+            "model": (passed and model_ok) if model_decided else None}
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -352,6 +416,11 @@ def http_requester(base: str, token: str | None = None,
                 status = r.status
         except urllib.error.HTTPError as exc:
             raw, status = exc.read(), exc.code
+        except (urllib.error.URLError, OSError) as exc:
+            # Refused, unresolvable, timed out: status 0, the reason as the
+            # body — the callers' error paths say it, not a traceback.
+            reason = getattr(exc, "reason", None) or exc
+            return 0, {"error": f"{type(exc).__name__}: {reason}"}
         try:
             return status, json.loads(raw.decode() or "null")
         except ValueError:
@@ -360,11 +429,18 @@ def http_requester(base: str, token: str | None = None,
 
 
 def snapshot(request: Requester) -> dict[str, dict[Any, dict[str, Any]]]:
+    """Every STATE collection by id. Raises ``SnapshotError`` when one
+    cannot be read: an unreadable collection is not an empty one."""
     out = {}
     for coll, (path, key, _delete) in STATE.items():
         status, body = request("GET", path, None)
-        items = (body or {}).get(key) if status == 200 and isinstance(body, dict) else None
-        out[coll] = {it.get("id"): it for it in (items or []) if isinstance(it, dict)}
+        items = body.get(key) if status == 200 and isinstance(body, dict) else None
+        if not isinstance(items, list):
+            why = body.get("error") if isinstance(body, dict) else None
+            raise SnapshotError(f"GET {path} answered {status}"
+                                + (f" ({why})" if why else "")
+                                + "; cannot tell what the case created")
+        out[coll] = {it.get("id"): it for it in items if isinstance(it, dict)}
     return out
 
 
@@ -375,18 +451,21 @@ def diff_created(before: dict[str, dict], after: dict[str, dict]) -> dict[str, l
 
 
 def cleanup(request: Requester, created: dict[str, list[dict]]) -> list[str]:
-    """Delete what a case created; return what could not be deleted."""
-    left = []
-    for coll, items in created.items():
+    """Delete what a case created, then read the collections back and
+    return what is still there. The status of a DELETE is not trusted: the
+    routes answer 200 {"stopped": false} when they removed nothing."""
+    ids = [(coll, it.get("id")) for coll, items in created.items() for it in items]
+    if not ids:
+        return []
+    for coll, item_id in ids:
         template = STATE[coll][2]
-        for it in items:
-            if template is None:
-                left.append(f"{coll}#{it.get('id')}")
-                continue
-            status, _ = request("DELETE", template.format(id=it.get("id")), None)
-            if status >= 400:
-                left.append(f"{coll}#{it.get('id')}")
-    return left
+        if template is not None:
+            request("DELETE", template.format(id=item_id), None)
+    try:
+        now = snapshot(request)
+    except SnapshotError as exc:
+        return [f"{coll}#{item_id} (unverified: {exc})" for coll, item_id in ids]
+    return [f"{coll}#{item_id}" for coll, item_id in ids if item_id in now.get(coll, {})]
 
 
 def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
@@ -394,6 +473,7 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
     record: dict[str, Any] = {"case": case["id"], "turns": [], "error": None,
                               "leftovers": []}
     created_all: dict[str, list[dict]] = {c: [] for c in STATE}
+    state_lost: str | None = None     # set when a turn's after-state is unreadable
     try:
         status, body = request("POST", "/reset", None)
         if status >= 400:
@@ -408,21 +488,28 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
             t0 = time.perf_counter()
             status, resp = request("POST", "/ask", body_in)
             wall = int((time.perf_counter() - t0) * 1000)
+            # Diff BEFORE judging the answer: a turn can arm an alarm and
+            # then fail composing its reply, and what it created must still
+            # be cleaned up (or reported as left behind).
+            try:
+                after = snapshot(request)
+            except SnapshotError as exc:
+                state_lost = str(exc)
+                raise
+            created = diff_created(before, after)
+            for coll, items in created.items():
+                created_all[coll].extend(items)
+            before = after
             if status >= 400 or not isinstance(resp, dict):
                 err = (resp or {}).get("error") if isinstance(resp, dict) else None
                 raise RuntimeError(f"/ask answered {status}: {err or resp!r}")
             trace = resp.get("trace") or []
             reply = str(resp.get("reply") or "")
-            after = snapshot(request)
-            created = diff_created(before, after)
-            for coll, items in created.items():
-                created_all[coll].extend(items)
-            before = after
             total_ms += int(resp.get("latency_ms") or wall)
             t_rec: dict[str, Any] = {"ask": turn["ask"], "reply": reply, "trace": trace,
                                      "latency_ms": resp.get("latency_ms"), "wall_ms": wall}
             if turn.get("expect"):
-                t_rec["score"] = score_turn(turn["expect"], trace, reply, created)
+                t_rec["score"] = score_turn(turn["expect"], trace, reply, created, after)
                 scored.append(t_rec["score"])
             record["turns"].append(t_rec)
         last = scored[-1]
@@ -439,6 +526,10 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
             record["leftovers"] = cleanup(request, created_all)
         except Exception as exc:  # noqa: BLE001
             record["leftovers"] = [f"cleanup failed: {exc}"]
+        if state_lost:
+            record["leftovers"].append(
+                f"unknown: the state after a turn could not be read ({state_lost});"
+                " check /alarms, /monitors and /reports by hand")
     return record
 
 
@@ -520,7 +611,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         cases = load_cases(args.cases)
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 — OSError, CaseError, YAML syntax, no PyYAML
         print(f"cases: {exc}", file=sys.stderr)
         return 2
     if args.only:
@@ -537,7 +628,9 @@ def main(argv: list[str] | None = None) -> int:
     request = http_requester(args.url, args.token, args.timeout)
     status, health = request("GET", "/health", None)
     if status != 200 or not isinstance(health, dict):
-        print(f"{args.url}/health answered {status}; is the agent up?", file=sys.stderr)
+        why = health.get("error") if isinstance(health, dict) else None
+        print(f"{args.url}/health answered {status}"
+              + (f" ({why})" if why else "") + "; is the agent up?", file=sys.stderr)
         return 2
     meta = {
         "url": args.url, "started": datetime.datetime.now().astimezone().isoformat(),

@@ -205,10 +205,19 @@ def test_run_case_scores_cleans_up_and_reports_leftovers():
     assert agent.calls[0] == ("POST", "/reset")
 
 
+def _empty_collections(path):
+    """What the agent's list routes answer when nothing exists."""
+    key = {"/alarms": "alarms", "/monitors": "monitors",
+           "/tasks": "tasks", "/reports": "schedules"}[path]
+    return 200, {key: []}
+
+
 def test_a_failing_ask_is_recorded_not_raised():
     def broken(method, path, body):
         if path == "/ask":
             return 502, {"error": "LLM at http://ollama timed out"}
+        if method == "GET":
+            return _empty_collections(path)
         return 200, {}
     case = eh.normalise_cases([{"id": "x", "ask": "hi", "expect": {"no_tool": True}}])[0]
     r = eh.run_case(broken, case)
@@ -261,3 +270,152 @@ def test_end_to_end_against_the_agent_app():
     assert r["error"] is None, r
     assert r["pass"] and r["model"] is True and r["tier"] == 2, r["turns"][0]["score"]
     assert rt.alarms.list() == [], "the harness removed the alarm it armed"
+
+
+# ── review round: cleanup never deletes what the case did not make ─────
+
+class _Agent:
+    """The list routes, /reset, /ask and DELETE, with switchable faults."""
+    def __init__(self, *, alarms=None, fail_get=(), ask=None, deletes=True):
+        self.alarms = {a["id"]: a for a in (alarms or [])}
+        self.fail_get = list(fail_get)   # GET numbers (1-based) that answer 500
+        self.ask = ask
+        self.deletes = deletes
+        self.gets = 0
+        self.deleted = []
+
+    def __call__(self, method, path, body):
+        if (method, path) == ("POST", "/reset"):
+            return 200, {"status": "ok"}
+        if method == "GET":
+            self.gets += 1
+            if self.gets in self.fail_get:
+                return 500, {"error": "boom"}
+            if path == "/alarms":
+                return 200, {"alarms": list(self.alarms.values())}
+            return _empty_collections(path)
+        if (method, path) == ("POST", "/ask"):
+            return self.ask(self)
+        if method == "DELETE" and path.startswith("/alarms/"):
+            aid = int(path.rsplit("/", 1)[1])
+            self.deleted.append(aid)
+            if self.deletes:
+                self.alarms.pop(aid, None)
+            # 200 either way, like the real route outside the token's scope
+            return 200, {"stopped": self.deletes, "already_gone": not self.deletes}
+        return 404, None
+
+
+_CASE = eh.normalise_cases([{"id": "c", "ask": "hi", "expect": {"no_tool": True}}])[0]
+
+
+def _quiet_ask(agent):
+    return 200, {"reply": "Hello.", "trace": _trace(2)}
+
+
+def test_an_unreadable_snapshot_ends_the_case_and_deletes_nothing():
+    """A transient 500 on the BEFORE snapshot used to read as "no alarms",
+    so the operator's own alarm looked created by the case and was deleted."""
+    agent = _Agent(alarms=[{"id": 1, "target": "operator's alarm"}],
+                   fail_get=[1], ask=_quiet_ask)
+    r = eh.run_case(agent, _CASE)
+    assert "SnapshotError" in r["error"]
+    assert agent.deleted == [] and 1 in agent.alarms
+
+
+def test_a_failed_ask_still_cleans_up_what_the_turn_armed():
+    def arm_then_fail(agent):
+        agent.alarms[2] = {"id": 2, "target": "person"}
+        return 502, {"error": "compose timed out"}
+    agent = _Agent(alarms=[{"id": 1, "target": "operator's alarm"}], ask=arm_then_fail)
+    r = eh.run_case(agent, _CASE)
+    assert "timed out" in r["error"]
+    assert agent.deleted == [2] and 2 not in agent.alarms
+    assert 1 in agent.alarms, "only what the case created is touched"
+    assert r["leftovers"] == []
+
+
+def test_a_delete_that_removed_nothing_is_reported_left_behind():
+    def arm(agent):
+        agent.alarms[2] = {"id": 2, "target": "person"}
+        return 200, {"reply": "Armed.", "trace": _trace(2)}
+    agent = _Agent(ask=arm, deletes=False)
+    r = eh.run_case(agent, _CASE)
+    assert r["leftovers"] == ["alarms#2"]
+
+
+def test_an_unreadable_after_state_is_reported_not_guessed():
+    agent = _Agent(fail_get=[5], ask=_quiet_ask)    # GETs 1-4: before; 5: after
+    r = eh.run_case(agent, _CASE)
+    assert "SnapshotError" in r["error"]
+    assert any(x.startswith("unknown:") for x in r["leftovers"])
+
+
+# ── review round: scoring ──────────────────────────────────────────────
+
+def test_a_tool_call_that_never_ran_is_not_the_right_tool_used():
+    expect = {"tool": "search_footage"}
+    marked = {"step": "search_footage", "detail": "not registered", "by": "model",
+              "args": {}, "ok": False}
+    older = {"step": "search_footage", "detail": "not registered", "by": "model", "args": {}}
+    raised = {"step": "search_footage", "detail": "ERROR", "ms": 3, "by": "model", "args": {}}
+    for step in (marked, older, raised):
+        s = eh.score_turn(expect, _trace(2, step), "nothing found", {})
+        assert not s["pass"] and s["model"] is False, step
+        assert s["checks"]["tool"]["did_not_run"]
+    # ...but it is still a tool choice: no_tool fails on it.
+    s = eh.score_turn({"no_tool": True}, _trace(2, marked), "hi", {})
+    assert not s["pass"]
+
+
+def test_a_reused_identical_rule_is_credited():
+    """create_alarm with an identical active alarm answers "already covers
+    that" and creates nothing; the existing alarm satisfies the case."""
+    expect = {"tool": "create_alarm", "state": {"alarms": {"target": "person"}}}
+    trace = _trace(2, _step("create_alarm", target="person"))
+    existing = {"alarms": {7: {"id": 7, "target": "person"}}}
+    s = eh.score_turn(expect, trace, "Alarm #7 already covers that.", {}, existing)
+    assert s["pass"] and s["checks"]["state.alarms"]["reused"] is True
+    # Not when the create never ran.
+    trace = _trace(2, {**_step("create_alarm", target="person"), "ok": False})
+    assert not eh.score_turn(expect, trace, "", {}, existing)["pass"]
+
+
+def test_a_roster_answer_has_no_model_score():
+    s = eh.score_turn({"reply_source": "roster"},
+                      [{"step": "reply", "detail": "roster"}], "2 cameras", {})
+    assert s["pass"] and s["model"] is None
+
+
+def test_camera_id_is_also_matched_in_camera_ids():
+    expect = {"tool": "describe_camera", "args": {"camera_id": "front"}}
+    step = _step("describe_camera", camera_ids=["front", "back"])
+    assert eh.score_turn(expect, _trace(2, step), "", {})["pass"]
+
+
+# ── review round: failures speak, they do not trace back ────────────────
+
+def test_an_unreachable_agent_is_a_message_not_a_traceback(capsys):
+    status, body = eh.http_requester("http://127.0.0.1:1", None, 2)("GET", "/health", None)
+    assert status == 0 and "error" in body
+    assert eh.main(["--throwaway", "--url", "http://127.0.0.1:1", "--camera", "c"]) == 2
+    assert "is the agent up" in capsys.readouterr().err
+
+
+def test_a_case_file_with_a_yaml_error_is_a_message(tmp_path, capsys):
+    bad = tmp_path / "bad.yml"
+    bad.write_text("- id: a\n  ask: [unclosed\n")
+    assert eh.main(["--throwaway", "--cases", str(bad)]) == 2
+    assert capsys.readouterr().err.startswith("cases:")
+
+
+def test_every_traced_tool_step_says_whether_it_ran():
+    cfg = AppConfig(kaic_url="http://k", kaic_api_key="key", system_prompt="t",
+                    cameras=[CameraSpec("cam1", "http://x/f.jpg", "front")],
+                    router_tier0=False, router_hints=False)
+    rt = CameraAgentRuntime(cfg)
+    rt.ollama = _AlarmLLM()
+    body = TestClient(build_app(rt)).post("/ask", json={"text": "alarm after 6pm"}).json()
+    (step,) = [t for t in body["trace"] if t["step"] == "create_alarm"]
+    assert step["ok"] is True
+

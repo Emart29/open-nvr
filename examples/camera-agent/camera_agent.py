@@ -6034,8 +6034,8 @@ def build_app(runtime: CameraAgentRuntime) -> FastAPI:
             # when they were configured alike (Discussion #607).
             "llm_temperature": runtime.cfg.llm_temperature,
             "llm_max_tokens": runtime.cfg.llm_max_tokens,
-            "router": {"tier0": bool(getattr(runtime.cfg, "router_tier0", True)),
-                       "hints": bool(getattr(runtime.cfg, "router_hints", True))},
+            "router": {"tier0": runtime.cfg.router_tier0,
+                       "hints": runtime.cfg.router_hints},
             # For the demo header's health dot: the last describe attempt's
             # failure reason (None = last look succeeded or none ran yet) and
             # whether the events store (History) is wired.
@@ -7447,7 +7447,11 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     if note:
         detail = (detail + f" · {note}").strip(" ·")
     step: dict[str, Any] = {"step": name, "detail": detail, "by": by,
-                            "args": asked if asked is not None else {}}
+                            "args": asked if asked is not None else {},
+                            # Did the call run and complete? Structured, so an
+                            # eval need not parse ``detail`` for "ERROR" or
+                            # infer "never ran" from a missing ``ms``.
+                            "ok": ran and note != "ERROR"}
     if hinted:
         step["hinted"] = True
     if ran:

@@ -250,6 +250,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `llm_temperature`, `llm_max_tokens` and the router settings for this.
   Needs a real model, so it is not run in CI; it refuses to start without
   `--throwaway`, since cases arm real alarms and clear the chat history.
+  It only ever deletes what a case created: a collection it cannot read
+  ends the case rather than reading as empty, a turn whose `/ask` failed
+  is still diffed and cleaned up, and what is left is confirmed by
+  reading back, not by the DELETE's status. A tool call that never ran
+  does not count as the right tool; each trace step now says so in an
+  `ok` field.
 
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
