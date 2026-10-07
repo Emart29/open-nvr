@@ -254,12 +254,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ends the case rather than reading as empty, a turn whose `/ask` failed
   is still diffed and cleaned up, and what is left is confirmed by
   reading back, not by the DELETE's status. Nothing from one case runs
-  into the next: background tasks a case queues are waited for (and what
-  they create is cleaned up), and a request that times out or a task
+  into the next: a background task is waited for after the turn that
+  queued it (and what it creates is cleaned up), and a request that times
+  out, drops mid-response, or a task
   that does not finish stops the run. A case whose expected item already
   exists is not run, since the agent would reuse it. A tool call that
-  never ran, raised or answered "ERROR: …" does not count as the right
-  tool; each trace step now says so in an `ok` field. Clock times match
+  never ran, raised, answered "ERROR: …", or was a create that answered
+  with a question does not count as the right tool; each trace step now
+  says so in an `ok` field. Unquoted times in a YAML case file stay times
+  (YAML 1.1 would read `18:00` as 1080). Clock times match
   by the agent's own parsing rules ("6pm" = "18:00", but "after 6pm" as
   an `after` value does not, since the agent rejects it), and a window's
   direction must agree ("before 18:00" is not "after 18:00").

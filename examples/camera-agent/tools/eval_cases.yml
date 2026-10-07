@@ -10,8 +10,10 @@
 #   args:            fields its arguments must have, as the chooser asked
 #                    (before the handler normalises them). A list value
 #                    means any of those values; case-insensitive. A clock
-#                    time matches however it is spelled ("6pm" = "18:00").
-#                    camera_id also matches inside camera_ids.
+#                    time matches by the agent's own rules ("6pm" =
+#                    "18:00"; "after 6pm" is a window, not a time), and a
+#                    window's direction must agree. camera_id also matches
+#                    inside camera_ids.
 #   no_tool: true    no tool may run, and nothing may be created
 #   state:           an item that must be NEW afterwards, read back from
 #                    the agent: alarms / monitors / tasks / reports, each

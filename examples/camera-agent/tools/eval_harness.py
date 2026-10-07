@@ -71,6 +71,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import http.client
 import json
 import math
 import pathlib
@@ -122,9 +123,24 @@ def load_cases(path: str | pathlib.Path) -> list[dict[str, Any]]:
     if p.suffix.lower() == ".json":
         raw = json.loads(text)
     else:
-        import yaml  # an agent dependency; imported here so JSON needs none
-        raw = yaml.safe_load(text)
+        raw = _load_yaml(text)
     return normalise_cases(raw)
+
+
+def _load_yaml(text: str) -> Any:
+    """``yaml.safe_load``, except that an unquoted clock time stays a string.
+    PyYAML follows YAML 1.1, where ``after: 18:00`` is the base-60 integer
+    1080 — a case written that way would fail every repeat, silently."""
+    import yaml  # an agent dependency; imported here so JSON needs none
+
+    class _CaseLoader(yaml.SafeLoader):
+        pass
+    resolvers = {k: list(v) for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+    clock = re.compile(r"^[0-9]{1,2}(?::[0-5][0-9]){1,2}$")
+    for digit in "0123456789":
+        resolvers.setdefault(digit, []).insert(0, ("tag:yaml.org,2002:str", clock))
+    _CaseLoader.yaml_implicit_resolvers = resolvers
+    return yaml.load(text, Loader=_CaseLoader)   # a SafeLoader subclass: still safe
 
 
 def normalise_cases(raw: Any) -> list[dict[str, Any]]:
@@ -488,8 +504,13 @@ def http_requester(base: str, token: str | None = None,
                 raw = r.read()
                 status = r.status
         except urllib.error.HTTPError as exc:
-            raw, status = exc.read(), exc.code
-        except (urllib.error.URLError, OSError) as exc:
+            try:
+                raw, status = exc.read(), exc.code
+            except (http.client.HTTPException, OSError):
+                raw, status = b"", exc.code
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            # (HTTPException: the connection dropped mid-response —
+            # IncompleteRead, BadStatusLine — which is no answer either.)
             # Refused, unresolvable, timed out: status 0, the reason as the
             # body — the callers' error paths say it, not a traceback.
             reason = getattr(exc, "reason", None) or exc
@@ -557,6 +578,8 @@ def already_present(case: dict[str, Any],
     hits = []
     for turn in case["turns"]:
         for coll, want in ((turn.get("expect") or {}).get("state") or {}).items():
+            if coll == "tasks":
+                continue          # tasks are never reused, so an old one blocks nothing
             for item_id, it in before.get(coll, {}).items():
                 if it.get("active") is False:
                     continue      # disarmed / inactive: the agent reuses only active rules
@@ -576,9 +599,11 @@ def wait_for_tasks(request: Requester, task_ids: list[Any], *, timeout_s: float,
         status, body = request("GET", "/tasks", None)
         tasks = body.get("tasks") if status == 200 and isinstance(body, dict) else None
         if isinstance(tasks, list):
-            # Still pending = still listed and not stopped. A task that is no
-            # longer listed has aged out of the agent's newest-first list:
-            # finished, not lost.
+            # Still pending = still listed and not stopped. The agent keeps
+            # only its 50 most recent tasks (TaskManager drops the oldest,
+            # finished or not), so an unlisted task is taken as finished. On
+            # an agent with that many tasks a running one can be dropped —
+            # one more reason to run against a quiet throwaway agent.
             running = {t.get("id") for t in tasks
                        if isinstance(t, dict) and t.get("status") not in _TASK_DONE}
             pending = [t for t in pending if t in running]
@@ -586,6 +611,17 @@ def wait_for_tasks(request: Requester, task_ids: list[Any], *, timeout_s: float,
             break
         sleep(2.0)
     return pending
+
+
+def _collect(request: Requester, before: dict[str, dict[Any, dict[str, Any]]],
+             created_all: dict[str, list[dict]]) -> tuple[dict, dict[str, list[dict]]]:
+    """Snapshot, add what is new since ``before`` to ``created_all``, and
+    return ``(after, new)``. Raises ``SnapshotError`` like ``snapshot``."""
+    after = snapshot(request)
+    new = diff_created(before, after)
+    for coll, items in new.items():
+        created_all[coll].extend(items)
+    return after, new
 
 
 def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 300.0,
@@ -596,6 +632,7 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
     created_all: dict[str, list[dict]] = {c: [] for c in STATE}
     state_lost: str | None = None     # set when a turn's after-state is unreadable
     before: dict[str, dict[Any, dict[str, Any]]] | None = None
+    waited: set[Any] = set()          # task ids already waited for
     try:
         status, body = request("POST", "/reset", None)
         if status == 0:
@@ -624,9 +661,7 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
                 # running this turn, so nothing after it can be trusted. Clean
                 # up what it has made SO FAR, and say it may make more.
                 try:
-                    after = snapshot(request)
-                    for coll, items in diff_created(before, after).items():
-                        created_all[coll].extend(items)
+                    before, _ = _collect(request, before, created_all)
                 except SnapshotError as exc:
                     state_lost = str(exc)
                 why = resp.get("error") if isinstance(resp, dict) else resp
@@ -637,14 +672,25 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
             # then fail composing its reply, and what it created must still
             # be cleaned up (or reported as left behind).
             try:
-                after = snapshot(request)
+                before, created = _collect(request, before, created_all)
+                # A background task this turn queued runs a turn of its own:
+                # let it finish before the NEXT turn starts (it would share
+                # the model, and what it creates would land in that turn's
+                # diff), and count what it creates as this turn's doing.
+                queued = [t.get("id") for t in created["tasks"]]
+                if queued:
+                    still = wait_for_tasks(request, queued, timeout_s=task_wait_s,
+                                           sleep=sleep)
+                    waited.update(queued)
+                    if still:
+                        raise RunStopped(f"background task(s) {still} still running "
+                                         f"after {task_wait_s:.0f}s")
+                    before, extra = _collect(request, before, created_all)
+                    for coll, items in extra.items():
+                        created[coll].extend(items)
             except SnapshotError as exc:
                 state_lost = str(exc)
                 raise
-            created = diff_created(before, after)
-            for coll, items in created.items():
-                created_all[coll].extend(items)
-            before = after
             if status >= 400 or not isinstance(resp, dict):
                 err = (resp or {}).get("error") if isinstance(resp, dict) else None
                 raise RuntimeError(f"/ask answered {status}: {err or resp!r}")
@@ -669,19 +715,17 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
     except Exception as exc:  # noqa: BLE001 — one bad case must not end the run
         record["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        # Background tasks the case queued run their own turns: let them
-        # finish (and collect what they create) before the next case.
-        task_ids = [t.get("id") for t in created_all["tasks"]]
-        if task_ids and not record["stop"]:
-            still = wait_for_tasks(request, task_ids, timeout_s=task_wait_s, sleep=sleep)
+        # A task queued on a path that never reached its wait (an /ask that
+        # then answered an error): let it finish before the next case.
+        pending = [t.get("id") for t in created_all["tasks"] if t.get("id") not in waited]
+        if pending and not record["stop"]:
+            still = wait_for_tasks(request, pending, timeout_s=task_wait_s, sleep=sleep)
             if still:
                 record["stop"] = (f"background task(s) {still} still running after "
                                   f"{task_wait_s:.0f}s")
             elif before is not None:
                 try:
-                    after = snapshot(request)
-                    for coll, items in diff_created(before, after).items():
-                        created_all[coll].extend(items)
+                    before, _ = _collect(request, before, created_all)
                 except SnapshotError as exc:
                     state_lost = str(exc)
         try:

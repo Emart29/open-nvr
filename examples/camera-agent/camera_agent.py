@@ -7384,9 +7384,13 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
         return name, f"ERROR: tool '{name}' failed unexpectedly."
     result = str(result)
     # Most handlers report failure by RETURNING "ERROR: …" (an unknown
-    # camera, history not configured), not by raising: not ok either.
+    # camera, history not configured), not by raising: not ok either. A
+    # create that answers with a question ("Which camera should I watch?")
+    # created nothing — the POST routes treat that reply as a failure too.
+    failed = result.lstrip().startswith("ERROR") or (
+        name.startswith("create_") and result.rstrip().endswith("?"))
     _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked, hinted=hinted,
-                failed=result.lstrip().startswith("ERROR"))
+                failed=failed)
     if len(result) > 1200:
         result = result[:1200] + " …(truncated)"
     return name, result
@@ -7439,7 +7443,7 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     detail = str(source.get("camera_id") or source.get("camera") or "").strip()
     if by == "forced":
         detail = (detail + " · forced").strip(" ·")
-    if name == "describe_camera" and ran and note != "ERROR":
+    if name == "describe_camera" and ran and note != "ERROR" and not failed:
         # Name the path that actually answered (vlm / detector-fallback /
         # no-frame), from THIS task's describe — never the site-wide
         # last_vision_error a concurrent turn can set. Only for a call that

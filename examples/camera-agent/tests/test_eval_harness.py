@@ -585,3 +585,102 @@ def test_a_task_that_aged_out_of_the_list_counts_as_finished():
         return 200, {"tasks": [{"id": 99, "status": "running"}]}   # ours (5) not listed
     assert eh.wait_for_tasks(request, [5], timeout_s=0, sleep=lambda s: None) == []
 
+
+# ── review round 4 ─────────────────────────────────────────────────────
+
+def test_an_unquoted_clock_time_in_a_yaml_case_stays_a_time(tmp_path):
+    """YAML 1.1 reads `after: 18:00` as the integer 1080; such a case
+    would fail every repeat without saying why."""
+    p = tmp_path / "c.yml"
+    p.write_text("- id: a\n  ask: alarm\n  expect:\n    tool: create_alarm\n"
+                 "    args: {after: 18:00, minutes: 30, at: 7:05:00}\n")
+    (case,) = eh.load_cases(p)
+    args = case["turns"][0]["expect"]["args"]
+    assert args == {"after": "18:00", "minutes": 30, "at": "7:05:00"}
+
+
+def test_a_case_expecting_a_task_can_repeat():
+    """Tasks cannot be deleted; repeat 1's task must not make repeats
+    2-5 look "already present"."""
+    def ask(agent):
+        agent.tasks.append({"id": len(agent.tasks) + 1, "status": "done",
+                            "query": "summary"})
+        return 200, {"reply": "Queued.", "trace": _trace(
+            2, _step("create_background_task", query="summary"))}
+
+    class _Tasks(_Agent):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.tasks = []
+
+        def __call__(self, method, path, body):
+            if method == "GET" and path == "/tasks":
+                return 200, {"tasks": list(self.tasks)}
+            return super().__call__(method, path, body)
+    agent = _Tasks(ask=ask)
+    case = eh.normalise_cases([{"id": "t", "ask": "summarise", "expect": {
+        "tool": "create_background_task", "state": {"tasks": {"query": "summary"}}}}])[0]
+    runs = eh.run(agent, [case], repeat=3, log=lambda line: None)
+    assert [r["pass"] for r in runs] == [True, True, True]
+
+
+def test_a_task_queued_in_turn_one_finishes_before_turn_two():
+    """Its alarm belongs to turn one; turn two must not inherit it."""
+    order = []
+
+    class _Turns(_Agent):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.tasks = []
+
+        def __call__(self, method, path, body):
+            if method == "GET" and path == "/tasks":
+                if self.tasks and self.tasks[0]["status"] == "running":
+                    self.tasks[0]["status"] = "done"          # finishes on first poll
+                    self.alarms[9] = {"id": 9, "target": "person"}
+                    order.append("task done")
+                return 200, {"tasks": list(self.tasks)}
+            return super().__call__(method, path, body)
+
+    def ask(agent):
+        order.append("ask")
+        if len(order) == 1:
+            agent.tasks.append({"id": 1, "status": "running"})
+            return 200, {"reply": "Queued.", "trace": _trace(
+                2, _step("create_background_task", query="watch"))}
+        return 200, {"reply": "You're welcome.", "trace": _trace(2)}
+    agent = _Turns(ask=ask)
+    case = eh.normalise_cases([{"id": "m", "turns": [
+        {"ask": "watch cam1 in the background"},
+        {"ask": "thanks", "expect": {"no_tool": True}}]}])[0]
+    r = eh.run_case(agent, case, sleep=lambda s: None)
+    assert order == ["ask", "task done", "ask"]
+    assert r["pass"], r["turns"][-1]["score"]
+    assert 9 in agent.deleted and r["leftovers"] == []
+
+
+def test_a_create_that_answers_with_a_question_is_not_ok():
+    cfg = AppConfig(kaic_url="http://k", kaic_api_key="key", system_prompt="t",
+                    cameras=[CameraSpec("cam1", "http://x/f.jpg", "front")],
+                    router_tier0=False, router_hints=False)
+    rt = CameraAgentRuntime(cfg)
+
+    async def _ask_back(args):
+        return "Which camera should I watch?"
+    rt.tool_handlers["create_alarm"] = _ask_back
+    rt.ollama = _AlarmLLM()
+    body = TestClient(build_app(rt)).post("/ask", json={"text": "alarm after 6pm"}).json()
+    (step,) = [t for t in body["trace"] if t["step"] == "create_alarm"]
+    assert step["ok"] is False
+
+
+def test_a_connection_dropped_mid_response_is_no_answer(monkeypatch):
+    import http.client
+    import urllib.request
+
+    def _drop(*a, **kw):
+        raise http.client.IncompleteRead(b"partial")
+    monkeypatch.setattr(urllib.request, "urlopen", _drop)
+    status, body = eh.http_requester("http://agent", None, 5)("POST", "/ask", {"text": "x"})
+    assert status == 0 and "IncompleteRead" in body["error"]
+
