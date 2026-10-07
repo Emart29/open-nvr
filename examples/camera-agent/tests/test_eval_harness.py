@@ -490,12 +490,35 @@ def test_a_task_that_does_not_finish_stops_the_run():
 # ── review round: scoring is about what was meant, not how it was spelled ──
 
 def test_clock_times_match_however_they_are_spelled():
-    for spoken in ("6pm", "6 PM", "6:00pm", "06:00 pm", "18:00", "18:00:00",
-                   "after 6pm", "18"):
+    for spoken in ("6pm", "6 PM", "6:00pm", "06:00 pm", "18:00", "18"):
         assert eh.match_value("18:00", spoken), spoken
     assert not eh.match_value("18:00", "6am")
     assert eh.as_hhmm("12am") == "00:00" and eh.as_hhmm("12pm") == "12:00"
     assert eh.as_hhmm("person") is None and eh.as_hhmm("25:00") is None
+
+
+def test_time_matching_follows_the_agents_own_parser():
+    """A spelling the agent rejects is not a correct argument, however
+    readable: "after 6pm" as an ``after`` value arms an all-day alarm."""
+    import camera_agent as ca
+    for raw in ("6pm", "6:00 PM", "18:00", "18", "12am", "12:30pm", "6 pm.",
+                "18:00:00", "after 6pm", "25:00", "noon", ""):
+        agent = ca._parse_hhmm(raw)
+        harness = eh._parse_clock(raw)
+        assert agent == harness, raw
+    assert not eh.match_value("18:00", "after 6pm")
+    assert not eh.match_value("18:00", "18:00:00")
+
+
+def test_a_window_direction_must_agree():
+    assert eh.match_value("after 18:00", "after 6pm")
+    assert not eh.match_value("after 18:00", "before 18:00")
+    assert not eh.match_value("after 22:00", "at 22:00")
+
+
+def test_ids_that_look_numeric_are_not_times():
+    assert not eh.match_value("1", "01")
+    assert eh.match_value("front_door", "Front Door")
 
 
 def test_a_forced_grounding_gets_no_model_credit_on_a_reply_only_case():
@@ -518,3 +541,47 @@ def test_a_handler_that_answers_error_is_not_ok():
     body = TestClient(build_app(rt)).post("/ask", json={"text": "alarm after 6pm"}).json()
     (step,) = [t for t in body["trace"] if t["step"] == "create_alarm"]
     assert step["ok"] is False
+
+
+def test_a_case_level_camera_reaches_every_turn():
+    (case,) = eh.normalise_cases([{"id": "m", "camera": "front", "turns": [
+        {"ask": "is anyone there?"},
+        {"ask": "and now?", "camera": "back", "expect": {"no_tool": True}}]}])
+    assert [t["camera"] for t in case["turns"]] == ["front", "back"]
+
+
+def test_a_disarmed_rule_does_not_keep_a_case_from_running():
+    def ask(agent):
+        agent.alarms[3] = {"id": 3, "target": "person", "active": True}
+        return 200, {"reply": "Armed.", "trace": _trace(2, _step("create_alarm", target="person"))}
+    agent = _Agent(alarms=[{"id": 1, "target": "person", "active": False}], ask=ask)
+    case = eh.normalise_cases([{"id": "a", "ask": "alarm", "expect": {
+        "tool": "create_alarm", "state": {"alarms": {"target": "person"}}}}])[0]
+    r = eh.run_case(agent, case)
+    assert r["error"] is None and r["pass"]
+
+
+def test_a_reset_that_got_no_answer_stops_the_run():
+    def request(method, path, body):
+        if path == "/reset":
+            return 0, {"error": "TimeoutError: timed out"}
+        return _empty_collections(path) if method == "GET" else (200, {})
+    r = eh.run_case(request, _CASE)
+    assert "/reset got no answer" in r["stop"]
+
+
+def test_an_unanswered_ask_still_cleans_up_what_the_turn_made_so_far():
+    def ask(agent):
+        agent.alarms[2] = {"id": 2, "target": "person"}
+        return 0, {"error": "TimeoutError: timed out"}
+    agent = _Agent(ask=ask)
+    r = eh.run_case(agent, _CASE)
+    assert "no answer" in r["stop"]
+    assert agent.deleted == [2] and r["leftovers"] == []
+
+
+def test_a_task_that_aged_out_of_the_list_counts_as_finished():
+    def request(method, path, body):
+        return 200, {"tasks": [{"id": 99, "status": "running"}]}   # ours (5) not listed
+    assert eh.wait_for_tasks(request, [5], timeout_s=0, sleep=lambda s: None) == []
+

@@ -147,6 +147,11 @@ def normalise_cases(raw: Any) -> list[dict[str, Any]]:
             raise CaseError(f"{cid}: give either 'ask' or 'turns', not both or neither")
         turns = c["turns"] if "turns" in c else [
             {k: c[k] for k in ("ask", "camera", "expect") if k in c}]
+        if "turns" in c and c.get("camera") and isinstance(turns, list):
+            # A case-level camera is every turn's default, as it is for the
+            # one-question form — not silently dropped.
+            turns = [{**t, "camera": t.get("camera") or c["camera"]}
+                     if isinstance(t, dict) else t for t in turns]
         if not isinstance(turns, list) or not turns:
             raise CaseError(f"{cid}: 'turns' must be a non-empty list")
         norm = []
@@ -246,30 +251,67 @@ def reply_source(trace: list[dict[str, Any]]) -> str | None:
 
 
 def _norm(v: Any) -> Any:
-    return v.strip().casefold() if isinstance(v, str) else v
+    """Case-, space- and separator-insensitive: "Front Door" = "front_door"."""
+    return re.sub(r"[\s_\-]+", " ", v.strip().casefold()) if isinstance(v, str) else v
 
 
-_TIME_RE = re.compile(r"^(?:after|before|at)?\s*(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)?$")
+def _parse_clock(raw: str) -> int | None:
+    """Minutes since midnight, by EXACTLY the rules of the agent's
+    ``camera_agent._parse_hhmm`` ("18:00", "6pm", "6:00 PM", a bare "18";
+    not "18:00:00", not "after 6pm"). A copy, because this script runs
+    without the agent's dependencies; tests pin the two together."""
+    raw = raw.strip().lower()
+    if not raw:
+        return None
+    meridian = None
+    if raw.endswith(("am", "pm")):
+        meridian = raw[-2:]
+        raw = raw[:-2].strip().rstrip(".")
+    try:
+        if ":" in raw:
+            h_s, m_s = raw.split(":")
+            h, m = int(h_s), int(m_s)
+        else:
+            h, m = int(raw), 0
+    except (ValueError, AttributeError):
+        return None
+    if meridian == "am" and h == 12:
+        h = 0
+    elif meridian == "pm" and 1 <= h <= 11:
+        h += 12
+    return h * 60 + m if 0 <= h < 24 and 0 <= m < 60 else None
 
 
 def as_hhmm(value: Any) -> str | None:
-    """A spoken or written clock time as "HH:MM", or None. Accepts the
-    forms the agent's own parser does — "6pm", "6:00 PM", "18:00",
-    "18:00:00", "after 6pm", a bare "18" — so a correct time is not
-    failed on how it was spelled."""
+    """A clock time the agent would accept, as "HH:MM"; else None."""
+    mins = _parse_clock(value) if isinstance(value, str) else None
+    return None if mins is None else f"{mins // 60:02d}:{mins % 60:02d}"
+
+
+_DIRECTION_RE = re.compile(r"^(after|before|at)\s+(.+)$")
+
+
+def _as_time(value: Any) -> tuple[str | None, int] | None:
+    """(direction, minutes) for "after 18:00", "6pm", …; None if it is not a
+    time. The direction must agree in a match: "before 18:00" is not
+    "after 18:00", and an argument the agent would reject ("after 6pm" as
+    an ``after`` value) does not equal a bare "18:00"."""
     if not isinstance(value, str):
         return None
-    m = _TIME_RE.match(value.strip().casefold())
-    if not m:
-        return None
-    h, mins, meridian = int(m.group(1)), int(m.group(2) or 0), m.group(3)
-    if meridian:
-        if not 1 <= h <= 12:
-            return None
-        h = (0 if h == 12 else h) if meridian == "am" else (12 if h == 12 else h + 12)
-    if h > 23 or mins > 59:
-        return None
-    return f"{h:02d}:{mins:02d}"
+    s = value.strip().lower()
+    m = _DIRECTION_RE.match(s)
+    direction, rest = (m.group(1), m.group(2)) if m else (None, s)
+    mins = _parse_clock(rest)
+    return None if mins is None else (direction, mins)
+
+
+def _is_time_pattern(value: Any) -> bool:
+    """Only an expectation that unmistakably IS a time ("18:00", "6pm",
+    "after 18:00") is compared as one — "1" and "01" are ids, not 01:00."""
+    if not isinstance(value, str):
+        return False
+    s = value.strip().lower()
+    return ":" in s or s.endswith(("am", "pm"))
 
 
 def match_value(expected: Any, actual: Any) -> bool:
@@ -283,9 +325,10 @@ def match_value(expected: Any, actual: Any) -> bool:
         return expected is actual
     if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
         return float(expected) == float(actual)
-    t_exp, t_act = as_hhmm(expected), as_hhmm(actual)
-    if t_exp is not None and t_act is not None:
-        return t_exp == t_act
+    if _is_time_pattern(expected):
+        t_exp, t_act = _as_time(expected), _as_time(actual)
+        if t_exp is not None and t_act is not None:
+            return t_exp == t_act
     return str(_norm(expected)) == str(_norm(actual)) if actual is not None else False
 
 
@@ -515,6 +558,8 @@ def already_present(case: dict[str, Any],
     for turn in case["turns"]:
         for coll, want in ((turn.get("expect") or {}).get("state") or {}).items():
             for item_id, it in before.get(coll, {}).items():
+                if it.get("active") is False:
+                    continue      # disarmed / inactive: the agent reuses only active rules
                 if not match_fields(want, it):
                     hits.append(f"{coll}#{item_id}")
     return sorted(set(hits))
@@ -531,9 +576,12 @@ def wait_for_tasks(request: Requester, task_ids: list[Any], *, timeout_s: float,
         status, body = request("GET", "/tasks", None)
         tasks = body.get("tasks") if status == 200 and isinstance(body, dict) else None
         if isinstance(tasks, list):
-            done = {t.get("id") for t in tasks
-                    if isinstance(t, dict) and t.get("status") in _TASK_DONE}
-            pending = [t for t in pending if t not in done]
+            # Still pending = still listed and not stopped. A task that is no
+            # longer listed has aged out of the agent's newest-first list:
+            # finished, not lost.
+            running = {t.get("id") for t in tasks
+                       if isinstance(t, dict) and t.get("status") not in _TASK_DONE}
+            pending = [t for t in pending if t in running]
         if not pending or clock() >= deadline:
             break
         sleep(2.0)
@@ -550,6 +598,10 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
     before: dict[str, dict[Any, dict[str, Any]]] | None = None
     try:
         status, body = request("POST", "/reset", None)
+        if status == 0:
+            why = body.get("error") if isinstance(body, dict) else body
+            raise RunStopped(f"/reset got no answer ({why}); the agent may be busy "
+                             "with an earlier turn")
         if status >= 400:
             raise RuntimeError(f"/reset answered {status}")
         before = snapshot(request)
@@ -569,10 +621,18 @@ def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 3
             wall = int((time.perf_counter() - t0) * 1000)
             if status == 0:
                 # Timed out or the connection dropped: the agent may still be
-                # running this turn, so nothing after it can be trusted.
+                # running this turn, so nothing after it can be trusted. Clean
+                # up what it has made SO FAR, and say it may make more.
+                try:
+                    after = snapshot(request)
+                    for coll, items in diff_created(before, after).items():
+                        created_all[coll].extend(items)
+                except SnapshotError as exc:
+                    state_lost = str(exc)
                 why = resp.get("error") if isinstance(resp, dict) else resp
                 raise RunStopped(f"/ask got no answer ({why}); the agent may still be "
-                                 "running the turn — raise --timeout or check the agent")
+                                 "running the turn and creating state — raise --timeout "
+                                 "or check the agent")
             # Diff BEFORE judging the answer: a turn can arm an alarm and
             # then fail composing its reply, and what it created must still
             # be cleaned up (or reported as left behind).

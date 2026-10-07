@@ -260,7 +260,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exists is not run, since the agent would reuse it. A tool call that
   never ran, raised or answered "ERROR: …" does not count as the right
   tool; each trace step now says so in an `ok` field. Clock times match
-  however they are spelled ("6pm" = "18:00").
+  by the agent's own parsing rules ("6pm" = "18:00", but "after 6pm" as
+  an `after` value does not, since the agent rejects it), and a window's
+  direction must agree ("before 18:00" is not "after 18:00").
 
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
