@@ -9,11 +9,14 @@
 #   tool:            the tool that should run; a list means any of them
 #   args:            fields its arguments must have, as the chooser asked
 #                    (before the handler normalises them). A list value
-#                    means any of those values; case-insensitive.
+#                    means any of those values; case-insensitive. A clock
+#                    time matches however it is spelled ("6pm" = "18:00").
+#                    camera_id also matches inside camera_ids.
 #   no_tool: true    no tool may run, and nothing may be created
 #   state:           an item that must be NEW afterwards, read back from
 #                    the agent: alarms / monitors / tasks / reports, each
-#                    a mapping of fields (same matching as args)
+#                    a mapping of fields (same matching as args). A case
+#                    whose expected item already exists is not run.
 #   reply_contains:  a word (or list, any of) the reply must contain
 #   reply_source:    llm | tool_fallback | roster | none (or a list)
 #
@@ -28,7 +31,7 @@
     tool: create_alarm
     args:
       target: person
-      after: ["18:00", "6pm", "6 pm", "6:00 pm", "06:00 pm", "18"]
+      after: "18:00"
     state:
       alarms: {target: person, window: "after 18:00"}
 
@@ -89,6 +92,6 @@
         tool: create_alarm
         args:
           target: person
-          after: ["22:00", "10pm", "10 pm", "10:00 pm", "22"]
+          after: "22:00"
         state:
           alarms: {target: person, window: "after 22:00", camera_ids: "{camera}"}

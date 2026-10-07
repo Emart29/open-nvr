@@ -7383,7 +7383,10 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
                     hinted=hinted)
         return name, f"ERROR: tool '{name}' failed unexpectedly."
     result = str(result)
-    _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked, hinted=hinted)
+    # Most handlers report failure by RETURNING "ERROR: …" (an unknown
+    # camera, history not configured), not by raising: not ok either.
+    _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked, hinted=hinted,
+                failed=result.lstrip().startswith("ERROR"))
     if len(result) > 1200:
         result = result[:1200] + " …(truncated)"
     return name, result
@@ -7420,7 +7423,7 @@ def _json_safe(value: Any) -> Any:
 
 def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
                 by: str = "model", asked: Any = None, raw_args: Any = None,
-                ran: bool = True, hinted: bool = False) -> None:
+                ran: bool = True, hinted: bool = False, failed: bool = False) -> None:
     """Append one tool execution to the current turn's pipeline trace.
 
     Each tool step carries ``args`` (as the chooser asked, before the
@@ -7451,7 +7454,7 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
                             # Did the call run and complete? Structured, so an
                             # eval need not parse ``detail`` for "ERROR" or
                             # infer "never ran" from a missing ``ms``.
-                            "ok": ran and note != "ERROR"}
+                            "ok": ran and note != "ERROR" and not failed}
     if hinted:
         step["hinted"] = True
     if ran:

@@ -182,7 +182,7 @@ class _FakeAgent:
         if (method, path) == ("POST", "/ask"):
             self.alarms.append({"id": self.next_id, "target": "person",
                                 "window": "after 18:00"})
-            self.tasks.append({"id": self.next_id})
+            self.tasks.append({"id": self.next_id, "status": "done"})
             self.next_id += 1
             return 200, {"reply": "Armed.", "latency_ms": 42, "trace": _trace(
                 2, _step("create_alarm", target="person", after="6pm"))}
@@ -198,10 +198,10 @@ def test_run_case_scores_cleans_up_and_reports_leftovers():
     case = eh.normalise_cases([{"id": "alarm", "ask": "alarm after 6pm", "expect": {
         "tool": "create_alarm", "args": {"after": ["18:00", "6pm"]},
         "state": {"alarms": {"window": "after 18:00"}}}}])[0]
-    r = eh.run_case(agent, case)
+    r = eh.run_case(agent, case, sleep=lambda s: None)
     assert r["error"] is None and r["pass"] and r["model"] and r["tier"] == 2
     assert agent.alarms == [], "the alarm the case armed was deleted"
-    assert r["leftovers"] == ["tasks#1"], "tasks have no delete route: reported"
+    assert r["leftovers"] == [], "a finished task is not left behind"
     assert agent.calls[0] == ("POST", "/reset")
 
 
@@ -368,17 +368,21 @@ def test_a_tool_call_that_never_ran_is_not_the_right_tool_used():
     assert not s["pass"]
 
 
-def test_a_reused_identical_rule_is_credited():
-    """create_alarm with an identical active alarm answers "already covers
-    that" and creates nothing; the existing alarm satisfies the case."""
-    expect = {"tool": "create_alarm", "state": {"alarms": {"target": "person"}}}
-    trace = _trace(2, _step("create_alarm", target="person"))
-    existing = {"alarms": {7: {"id": 7, "target": "person"}}}
-    s = eh.score_turn(expect, trace, "Alarm #7 already covers that.", {}, existing)
-    assert s["pass"] and s["checks"]["state.alarms"]["reused"] is True
-    # Not when the create never ran.
-    trace = _trace(2, {**_step("create_alarm", target="person"), "ok": False})
-    assert not eh.score_turn(expect, trace, "", {}, existing)["pass"]
+def test_a_case_whose_expected_state_already_exists_is_not_run():
+    """The agent reuses an identical active alarm ("already covers that")
+    instead of creating one, so there is nothing to score: say so, ask
+    nothing, delete nothing."""
+    asked = []
+
+    def ask(agent):
+        asked.append(1)
+        return 200, {"reply": "x", "trace": _trace(2)}
+    agent = _Agent(alarms=[{"id": 7, "target": "person", "window": "after 18:00"}], ask=ask)
+    case = eh.normalise_cases([{"id": "a", "ask": "alarm after 6pm", "expect": {
+        "tool": "create_alarm", "state": {"alarms": {"target": "person"}}}}])[0]
+    r = eh.run_case(agent, case)
+    assert "alarms#7 already matches" in r["error"]
+    assert asked == [] and agent.deleted == [] and 7 in agent.alarms
 
 
 def test_a_roster_answer_has_no_model_score():
@@ -419,3 +423,98 @@ def test_every_traced_tool_step_says_whether_it_ran():
     (step,) = [t for t in body["trace"] if t["step"] == "create_alarm"]
     assert step["ok"] is True
 
+
+
+
+# ── review round: nothing from one case may run into the next ──────────
+
+def test_a_request_that_got_no_answer_stops_the_run():
+    """The agent may still be running the turn; the next case would share
+    the model with it and inherit what it creates."""
+    def ask(agent):
+        return 0, {"error": "TimeoutError: timed out"}
+    agent = _Agent(ask=ask)
+    case2 = eh.normalise_cases([{"id": "d", "ask": "hi", "expect": {"no_tool": True}}])[0]
+    logs = []
+    runs = eh.run(agent, [_CASE, case2], repeat=2, log=logs.append)
+    assert len(runs) == 1 and "timed out" in runs[0]["stop"]
+    assert any(line.startswith("STOPPED") for line in logs)
+
+
+def test_background_tasks_are_waited_for_and_what_they_make_is_cleaned_up():
+    polls = {"n": 0}
+
+    def ask(agent):
+        agent.tasks = [{"id": 5, "status": "running"}]
+        return 200, {"reply": "Queued.", "trace": _trace(2)}
+
+    class _TaskAgent(_Agent):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.tasks = []
+
+        def __call__(self, method, path, body):
+            if method == "GET" and path == "/tasks":
+                polls["n"] += 1
+                if polls["n"] == 4:            # the task finishes, having armed an alarm
+                    self.tasks = [{"id": 5, "status": "done"}]
+                    self.alarms[9] = {"id": 9, "target": "person"}
+                return 200, {"tasks": list(self.tasks)}
+            return super().__call__(method, path, body)
+    agent = _TaskAgent(ask=ask)
+    r = eh.run_case(agent, _CASE, sleep=lambda s: None)
+    assert r["stop"] is None and r["error"] is None
+    assert 9 in agent.deleted and 9 not in agent.alarms, "the task's alarm was cleaned up"
+    assert r["leftovers"] == []
+
+
+def test_a_task_that_does_not_finish_stops_the_run():
+    def ask(agent):
+        agent.tasks = [{"id": 5, "status": "running"}]
+        return 200, {"reply": "Queued.", "trace": _trace(2)}
+
+    class _StuckAgent(_Agent):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.tasks = []
+
+        def __call__(self, method, path, body):
+            if method == "GET" and path == "/tasks":
+                return 200, {"tasks": list(self.tasks)}
+            return super().__call__(method, path, body)
+    r = eh.run_case(_StuckAgent(ask=ask), _CASE, task_wait_s=0, sleep=lambda s: None)
+    assert "still running" in r["stop"]
+    assert r["leftovers"] == ["tasks#5"]
+
+
+# ── review round: scoring is about what was meant, not how it was spelled ──
+
+def test_clock_times_match_however_they_are_spelled():
+    for spoken in ("6pm", "6 PM", "6:00pm", "06:00 pm", "18:00", "18:00:00",
+                   "after 6pm", "18"):
+        assert eh.match_value("18:00", spoken), spoken
+    assert not eh.match_value("18:00", "6am")
+    assert eh.as_hhmm("12am") == "00:00" and eh.as_hhmm("12pm") == "12:00"
+    assert eh.as_hhmm("person") is None and eh.as_hhmm("25:00") is None
+
+
+def test_a_forced_grounding_gets_no_model_credit_on_a_reply_only_case():
+    trace = _trace(2, _step("describe_camera", by="forced", camera_id="front"))
+    s = eh.score_turn({"reply_source": "llm"}, trace, "a person", {})
+    assert s["pass"] and s["model"] is False
+
+
+def test_a_handler_that_answers_error_is_not_ok():
+    """Most handlers report failure by returning "ERROR: …", not raising."""
+    cfg = AppConfig(kaic_url="http://k", kaic_api_key="key", system_prompt="t",
+                    cameras=[CameraSpec("cam1", "http://x/f.jpg", "front")],
+                    router_tier0=False, router_hints=False)
+    rt = CameraAgentRuntime(cfg)
+
+    async def _nope(args):
+        return "ERROR: history is not configured"
+    rt.tool_handlers["create_alarm"] = _nope
+    rt.ollama = _AlarmLLM()
+    body = TestClient(build_app(rt)).post("/ask", json={"text": "alarm after 6pm"}).json()
+    (step,) = [t for t in body["trace"] if t["step"] == "create_alarm"]
+    assert step["ok"] is False

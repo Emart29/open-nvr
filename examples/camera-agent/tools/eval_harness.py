@@ -36,6 +36,15 @@ A snapshot that cannot be read ends the case. Reading a failed GET as an
 empty collection would make every existing alarm look created by the
 case — and cleanup would delete the operator's own.
 
+A case whose expected state already exists is not run: the agent would
+reuse the existing rule ("Alarm #3 already covers that") instead of
+creating one, so there is nothing the case could be scored on.
+
+Background tasks a case queues are waited for before the next case
+starts, and so is any turn the agent was still running: either would
+otherwise share the model with, and create state inside, the next case.
+A request that times out, or a task that does not finish, stops the run.
+
 Scoring is deterministic, no LLM judge. Each tool step in the trace says
 who chose it (`by`: model / router / forced) and the arguments as asked;
 a final `reply` step says where the answer came from. Arguments are
@@ -82,15 +91,8 @@ STATE = {
     "reports": ("/reports", "schedules", "/reports/{id}"),
 }
 
-# The tool that creates each collection's items. A create that reuses an
-# identical active rule ("Alarm #3 already covers that") adds nothing to
-# the diff; with this the state check can still credit it.
-CREATORS = {
-    "alarms": "create_alarm",
-    "monitors": "create_monitor",
-    "tasks": "create_background_task",
-    "reports": "create_report",
-}
+# Task states that mean the task has stopped (see /tasks).
+_TASK_DONE = {"done", "error"}
 
 _EXPECT_KEYS = {"tool", "args", "no_tool", "state", "reply_contains", "reply_source"}
 _TURN_KEYS = {"ask", "camera", "expect"}
@@ -103,6 +105,11 @@ class CaseError(ValueError):
 
 class SnapshotError(RuntimeError):
     """A collection the harness must read could not be read."""
+
+
+class RunStopped(RuntimeError):
+    """The agent may still be working on this case; the run must stop, or
+    the next case would share the model with it and inherit its state."""
 
 
 # ── cases ──────────────────────────────────────────────────────────────
@@ -213,8 +220,10 @@ def tier_of(trace: list[dict[str, Any]]) -> int | None:
 
 def tool_steps(trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every tool step, including calls that never ran (an attempted call
-    is still a choice — it fails ``no_tool``)."""
-    return [s for s in trace or () if s.get("step") not in _LABEL_STEPS]
+    is still a choice — it fails ``no_tool``). A tool step is one that
+    says who chose it (``by``); labels (route / llm / compose / reply) and
+    any label the agent adds later do not."""
+    return [s for s in trace or () if "by" in s and s.get("step") not in _LABEL_STEPS]
 
 
 def step_ran(step: dict[str, Any]) -> bool:
@@ -240,6 +249,29 @@ def _norm(v: Any) -> Any:
     return v.strip().casefold() if isinstance(v, str) else v
 
 
+_TIME_RE = re.compile(r"^(?:after|before|at)?\s*(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)?$")
+
+
+def as_hhmm(value: Any) -> str | None:
+    """A spoken or written clock time as "HH:MM", or None. Accepts the
+    forms the agent's own parser does — "6pm", "6:00 PM", "18:00",
+    "18:00:00", "after 6pm", a bare "18" — so a correct time is not
+    failed on how it was spelled."""
+    if not isinstance(value, str):
+        return None
+    m = _TIME_RE.match(value.strip().casefold())
+    if not m:
+        return None
+    h, mins, meridian = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if meridian:
+        if not 1 <= h <= 12:
+            return None
+        h = (0 if h == 12 else h) if meridian == "am" else (12 if h == 12 else h + 12)
+    if h > 23 or mins > 59:
+        return None
+    return f"{h:02d}:{mins:02d}"
+
+
 def match_value(expected: Any, actual: Any) -> bool:
     """Case-insensitive equality. An expected LIST means any of its values;
     an actual list (camera_ids) matches when it contains the value."""
@@ -251,6 +283,9 @@ def match_value(expected: Any, actual: Any) -> bool:
         return expected is actual
     if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
         return float(expected) == float(actual)
+    t_exp, t_act = as_hhmm(expected), as_hhmm(actual)
+    if t_exp is not None and t_act is not None:
+        return t_exp == t_act
     return str(_norm(expected)) == str(_norm(actual)) if actual is not None else False
 
 
@@ -271,14 +306,12 @@ def match_fields(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
 
 
 def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
-               created: dict[str, list[dict[str, Any]]],
-               existing: dict[str, dict[Any, dict[str, Any]]] | None = None) -> dict[str, Any]:
+               created: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     """Score one turn. ``created`` holds the items new in each STATE
-    collection since the case started; ``existing`` is the full snapshot
-    after the turn, so a create that reused an identical active rule can
-    still be credited. Returns the checks, ``pass`` (the agent did the
-    right thing) and ``model`` (the model chose it; None when the model
-    never decided the turn: a router (tier 0) call or a roster answer)."""
+    collection since the case started. Returns the checks, ``pass`` (the
+    agent did the right thing) and ``model`` (the model did it itself;
+    None when the model never decided the turn: a router (tier 0) call
+    or a roster answer)."""
     tier = tier_of(trace)
     steps = tool_steps(trace)
     checks: dict[str, dict[str, Any]] = {}
@@ -311,15 +344,7 @@ def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
         items = created.get(coll) or []
         hit = any(not match_fields(want, it) for it in items)
         d: dict[str, Any] = {"ok": hit, "new": len(items)}
-        if not hit and existing is not None:
-            # The creating tool ran, nothing new appeared, and an existing
-            # item matches: the agent reused an identical active rule.
-            creator_ran = any(s.get("step") == CREATORS.get(coll) and step_ran(s)
-                              for s in steps)
-            if creator_ran and any(not match_fields(want, it)
-                                   for it in (existing.get(coll) or {}).values()):
-                d.update(ok=True, reused=True)
-        if items and not d["ok"]:
+        if items and not hit:
             d["fields"] = match_fields(want, items[0])
         checks[f"state.{coll}"] = d
 
@@ -337,6 +362,11 @@ def score_turn(expect: dict[str, Any], trace: list[dict[str, Any]], reply: str,
     if "reply_source" in expect:
         src = reply_source(trace)
         checks["reply_source"] = {"ok": match_value(expect["reply_source"], src), "got": src}
+
+    if "tool" not in expect and not expect.get("no_tool"):
+        # Scored only on state or the reply: the model gets the credit only
+        # if nothing chose a tool for it (a forced grounding, a router call).
+        model_ok = all((s.get("by") or "model") == "model" for s in steps)
 
     passed = all(c["ok"] for c in checks.values())
     # The model never decided a tier-0 turn (the router did) or a roster
@@ -465,20 +495,69 @@ def cleanup(request: Requester, created: dict[str, list[dict]]) -> list[str]:
         now = snapshot(request)
     except SnapshotError as exc:
         return [f"{coll}#{item_id} (unverified: {exc})" for coll, item_id in ids]
-    return [f"{coll}#{item_id}" for coll, item_id in ids if item_id in now.get(coll, {})]
+    left = []
+    for coll, item_id in ids:
+        item = now.get(coll, {}).get(item_id)
+        if item is None:
+            continue
+        if coll == "tasks" and item.get("status") in _TASK_DONE:
+            continue      # finished: there is no delete route, and nothing to remove
+        left.append(f"{coll}#{item_id}")
+    return left
 
 
-def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
+def already_present(case: dict[str, Any],
+                    before: dict[str, dict[Any, dict[str, Any]]]) -> list[str]:
+    """Existing items that already satisfy one of the case's expected
+    states. The agent reuses an identical active rule instead of creating
+    one, so such a case has nothing to score — it is not run."""
+    hits = []
+    for turn in case["turns"]:
+        for coll, want in ((turn.get("expect") or {}).get("state") or {}).items():
+            for item_id, it in before.get(coll, {}).items():
+                if not match_fields(want, it):
+                    hits.append(f"{coll}#{item_id}")
+    return sorted(set(hits))
+
+
+def wait_for_tasks(request: Requester, task_ids: list[Any], *, timeout_s: float,
+                   sleep: Callable[[float], None] = time.sleep,
+                   clock: Callable[[], float] = time.monotonic) -> list[Any]:
+    """Wait until the given background tasks stop; return those that did
+    not within ``timeout_s`` (or could not be read)."""
+    pending = list(task_ids)
+    deadline = clock() + timeout_s
+    while pending:
+        status, body = request("GET", "/tasks", None)
+        tasks = body.get("tasks") if status == 200 and isinstance(body, dict) else None
+        if isinstance(tasks, list):
+            done = {t.get("id") for t in tasks
+                    if isinstance(t, dict) and t.get("status") in _TASK_DONE}
+            pending = [t for t in pending if t not in done]
+        if not pending or clock() >= deadline:
+            break
+        sleep(2.0)
+    return pending
+
+
+def run_case(request: Requester, case: dict[str, Any], *, task_wait_s: float = 300.0,
+             sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """One repeat of one case. Never raises: a failure is recorded."""
     record: dict[str, Any] = {"case": case["id"], "turns": [], "error": None,
-                              "leftovers": []}
+                              "leftovers": [], "stop": None}
     created_all: dict[str, list[dict]] = {c: [] for c in STATE}
     state_lost: str | None = None     # set when a turn's after-state is unreadable
+    before: dict[str, dict[Any, dict[str, Any]]] | None = None
     try:
         status, body = request("POST", "/reset", None)
         if status >= 400:
             raise RuntimeError(f"/reset answered {status}")
         before = snapshot(request)
+        present = already_present(case, before)
+        if present:
+            raise RuntimeError(
+                f"not run: {', '.join(present)} already matches what this case "
+                "expects to be created; the agent would reuse it. Remove it first.")
         scored = []
         total_ms = 0
         for turn in case["turns"]:
@@ -488,6 +567,12 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
             t0 = time.perf_counter()
             status, resp = request("POST", "/ask", body_in)
             wall = int((time.perf_counter() - t0) * 1000)
+            if status == 0:
+                # Timed out or the connection dropped: the agent may still be
+                # running this turn, so nothing after it can be trusted.
+                why = resp.get("error") if isinstance(resp, dict) else resp
+                raise RunStopped(f"/ask got no answer ({why}); the agent may still be "
+                                 "running the turn — raise --timeout or check the agent")
             # Diff BEFORE judging the answer: a turn can arm an alarm and
             # then fail composing its reply, and what it created must still
             # be cleaned up (or reported as left behind).
@@ -509,7 +594,7 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
             t_rec: dict[str, Any] = {"ask": turn["ask"], "reply": reply, "trace": trace,
                                      "latency_ms": resp.get("latency_ms"), "wall_ms": wall}
             if turn.get("expect"):
-                t_rec["score"] = score_turn(turn["expect"], trace, reply, created, after)
+                t_rec["score"] = score_turn(turn["expect"], trace, reply, created)
                 scored.append(t_rec["score"])
             record["turns"].append(t_rec)
         last = scored[-1]
@@ -519,9 +604,26 @@ def run_case(request: Requester, case: dict[str, Any]) -> dict[str, Any]:
                       else all(s["model"] for s in scored)),
             "tier": last["tier"], "latency_ms": total_ms,
         })
+    except RunStopped as exc:
+        record["error"] = record["stop"] = str(exc)
     except Exception as exc:  # noqa: BLE001 — one bad case must not end the run
         record["error"] = f"{type(exc).__name__}: {exc}"
     finally:
+        # Background tasks the case queued run their own turns: let them
+        # finish (and collect what they create) before the next case.
+        task_ids = [t.get("id") for t in created_all["tasks"]]
+        if task_ids and not record["stop"]:
+            still = wait_for_tasks(request, task_ids, timeout_s=task_wait_s, sleep=sleep)
+            if still:
+                record["stop"] = (f"background task(s) {still} still running after "
+                                  f"{task_wait_s:.0f}s")
+            elif before is not None:
+                try:
+                    after = snapshot(request)
+                    for coll, items in diff_created(before, after).items():
+                        created_all[coll].extend(items)
+                except SnapshotError as exc:
+                    state_lost = str(exc)
         try:
             record["leftovers"] = cleanup(request, created_all)
         except Exception as exc:  # noqa: BLE001
@@ -547,6 +649,10 @@ def run(request: Requester, cases: list[dict[str, Any]], repeat: int,
             log(f"  {case['id']} [{i + 1}/{repeat}] {mark}")
             if r["leftovers"]:
                 log(f"    left behind (remove by hand): {', '.join(r['leftovers'])}")
+            if r.get("stop"):
+                log(f"STOPPED: {r['stop']}. The agent may still be working on "
+                    f"{case['id']}; later cases would inherit it, so the run ends here.")
+                return runs
     return runs
 
 

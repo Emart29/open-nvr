@@ -253,9 +253,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   It only ever deletes what a case created: a collection it cannot read
   ends the case rather than reading as empty, a turn whose `/ask` failed
   is still diffed and cleaned up, and what is left is confirmed by
-  reading back, not by the DELETE's status. A tool call that never ran
-  does not count as the right tool; each trace step now says so in an
-  `ok` field.
+  reading back, not by the DELETE's status. Nothing from one case runs
+  into the next: background tasks a case queues are waited for (and what
+  they create is cleaned up), and a request that times out or a task
+  that does not finish stops the run. A case whose expected item already
+  exists is not run, since the agent would reuse it. A tool call that
+  never ran, raised or answered "ERROR: …" does not count as the right
+  tool; each trace step now says so in an `ok` field. Clock times match
+  however they are spelled ("6pm" = "18:00").
 
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
