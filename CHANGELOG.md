@@ -238,6 +238,35 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A live-eval harness for the camera agent.** `tools/eval_harness.py`
+  runs a case file (`tools/eval_cases.yml`: the five cases in
+  `AGENT_DESIGN.md` plus multi-turn and past-tense ones) against a running
+  agent and scores, without an LLM judge, whether the right tool ran with
+  the right arguments, who chose it, what it created and where the reply
+  came from. Each case reports a pass rate and a model-only rate with a
+  95% interval over `--repeat` runs, grouped by router tier, and `--out`
+  writes the raw turns plus the model and router settings as JSON, so
+  runs are only compared when configured alike. `/health` now reports
+  `llm_temperature`, `llm_max_tokens` and the router settings for this.
+  Needs a real model, so it is not run in CI; it refuses to start without
+  `--throwaway`, since cases arm real alarms and clear the chat history.
+  It only ever deletes what a case created: a collection it cannot read
+  ends the case rather than reading as empty, a turn whose `/ask` failed
+  is still diffed and cleaned up, and what is left is confirmed by
+  reading back, not by the DELETE's status. Nothing from one case runs
+  into the next: a background task is waited for after the turn that
+  queued it (and what it creates is cleaned up), and a request that times
+  out, drops mid-response, or a task
+  that does not finish stops the run. A case whose expected item already
+  exists is not run, since the agent would reuse it. A tool call that
+  never ran, raised, answered "ERROR: …", or was a create that answered
+  with a question does not count as the right tool; each trace step now
+  says so in an `ok` field. Unquoted times in a YAML case file stay times
+  (YAML 1.1 would read `18:00` as 1080). Clock times match
+  by the agent's own parsing rules ("6pm" = "18:00", but "after 6pm" as
+  an `after` value does not, since the agent rejects it), and a window's
+  direction must agree ("before 18:00" is not "after 18:00").
+
 - **The camera agent's turn trace says who chose each tool.** Every tool
   step in the trace `/ask` returns now carries `args` (as asked, before
   the handler normalises them) and `by`: `model`, `router` or `forced`

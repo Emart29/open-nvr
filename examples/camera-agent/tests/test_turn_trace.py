@@ -510,3 +510,23 @@ def test_raw_args_that_arrived_parsed_are_recorded_as_json(direct_trace):
     (step,) = direct_trace
     assert step["raw_args"] == "[true, null]"
 
+
+def test_a_describe_that_answered_error_names_no_vision_path(direct_trace):
+    """ok is false, and the detail must not borrow an earlier describe's path."""
+    rt = _runtime(router=False)
+    call = {"function": {"name": "describe_camera", "arguments": {"camera_id": "cam1"}}}
+
+    async def _err(args):
+        return "ERROR: the vision adapter refused the frame"
+
+    async def _both():
+        # One task, as in a real turn: the first describe's path is still
+        # set when the second (which never describes) is traced.
+        await ca._invoke_tool(rt, call)
+        rt.tool_handlers["describe_camera"] = _err
+        await ca._invoke_tool(rt, call)
+    asyncio.run(_both())
+    good, failed = direct_trace
+    assert good["detail"] == "cam1 · vlm" and good["ok"] is True
+    assert failed["detail"] == "cam1" and failed["ok"] is False
+

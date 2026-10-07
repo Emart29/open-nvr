@@ -6029,6 +6029,13 @@ def build_app(runtime: CameraAgentRuntime) -> FastAPI:
             # not every registered handler (test-report #4).
             "tools": [t["function"]["name"] for t in runtime.tool_definitions],
             "llm_model": runtime.cfg.llm_model,
+            # What decides a turn besides the model — tools/eval_harness.py
+            # records these with every run, so two runs are only compared
+            # when they were configured alike (Discussion #607).
+            "llm_temperature": runtime.cfg.llm_temperature,
+            "llm_max_tokens": runtime.cfg.llm_max_tokens,
+            "router": {"tier0": runtime.cfg.router_tier0,
+                       "hints": runtime.cfg.router_hints},
             # For the demo header's health dot: the last describe attempt's
             # failure reason (None = last look succeeded or none ran yet) and
             # whether the events store (History) is wired.
@@ -7376,7 +7383,14 @@ async def _invoke_tool(runtime: "CameraAgentRuntime", call: dict[str, Any], *,
                     hinted=hinted)
         return name, f"ERROR: tool '{name}' failed unexpectedly."
     result = str(result)
-    _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked, hinted=hinted)
+    # Most handlers report failure by RETURNING "ERROR: …" (an unknown
+    # camera, history not configured), not by raising: not ok either. A
+    # create that answers with a question ("Which camera should I watch?")
+    # created nothing — the POST routes treat that reply as a failure too.
+    failed = result.lstrip().startswith("ERROR") or (
+        name.startswith("create_") and result.rstrip().endswith("?"))
+    _trace_tool(runtime, name, args, None, _tool_t0, by=by, asked=asked, hinted=hinted,
+                failed=failed)
     if len(result) > 1200:
         result = result[:1200] + " …(truncated)"
     return name, result
@@ -7413,7 +7427,7 @@ def _json_safe(value: Any) -> Any:
 
 def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
                 by: str = "model", asked: Any = None, raw_args: Any = None,
-                ran: bool = True, hinted: bool = False) -> None:
+                ran: bool = True, hinted: bool = False, failed: bool = False) -> None:
     """Append one tool execution to the current turn's pipeline trace.
 
     Each tool step carries ``args`` (as the chooser asked, before the
@@ -7429,7 +7443,7 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     detail = str(source.get("camera_id") or source.get("camera") or "").strip()
     if by == "forced":
         detail = (detail + " · forced").strip(" ·")
-    if name == "describe_camera" and ran and note != "ERROR":
+    if name == "describe_camera" and ran and note != "ERROR" and not failed:
         # Name the path that actually answered (vlm / detector-fallback /
         # no-frame), from THIS task's describe — never the site-wide
         # last_vision_error a concurrent turn can set. Only for a call that
@@ -7440,7 +7454,11 @@ def _trace_tool(runtime, name: str, args: dict, note: str | None, t0: float, *,
     if note:
         detail = (detail + f" · {note}").strip(" ·")
     step: dict[str, Any] = {"step": name, "detail": detail, "by": by,
-                            "args": asked if asked is not None else {}}
+                            "args": asked if asked is not None else {},
+                            # Did the call run and complete? Structured, so an
+                            # eval need not parse ``detail`` for "ERROR" or
+                            # infer "never ran" from a missing ``ms``.
+                            "ok": ran and note != "ERROR" and not failed}
     if hinted:
         step["hinted"] = True
     if ran:
