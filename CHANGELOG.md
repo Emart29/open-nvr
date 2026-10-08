@@ -8,6 +8,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Camera-agent model advice is measured, not remembered.** Ten small
+  LLMs (qwen2.5 0.5–3b, qwen3 0.6–4b, llama3.2 1–3b, granite3.3:2b,
+  phi4-mini) ran the live-eval harness on a 4-vCPU CPU-only VM, router on
+  and off; `MODELS_AND_LATENCY.md` carries the table and
+  `examples/camera-agent/benchmarks/` the numbers. The catalog notes follow
+  them: `qwen2.5:1.5b` loses "reliable tool routing" (it chose the right tool
+  itself 8/45 and never armed an alarm), `llama3.2:3b` becomes tested (30/45,
+  the best at choosing tools itself — the pick for an accelerator), and
+  `qwen3:4b` is recorded as unusable as Ollama ships it (it reasons in its
+  answer with thinking off). The installer's choices are unchanged.
+
 - **Enrichment never slows the box (#583).** A CPU captioner taking
   seconds per image was outrun by one busy camera; core timed out at
   15 s, released its slot and kept feeding the model, and the box lost

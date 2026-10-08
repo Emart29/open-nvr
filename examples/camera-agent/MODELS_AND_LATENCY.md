@@ -109,8 +109,9 @@ So, in order, for limited hardware:
    skips the CPU-heavy Piper TTS (and Whisper) entirely — the single biggest
    CPU win on a weak box.
 2. **Use a smaller LLM:** `OLLAMA_MODEL=qwen2.5:0.5b examples/camera-agent/quickstart.sh --chat`
-   (~0.5 GB, the smallest model that still tool-calls reliably). Default is
-   `qwen2.5:1.5b` (~1 GB); below `0.5b` grounding gets unreliable, so that's the floor.
+   (~0.5 GB, the floor). It answers fastest but leans on the router and the
+   grounding guard — see the measured table below for what each size gives up;
+   below `0.5b` grounding gets unreliable.
 3. **Cap CPU + context in config** so the LLM doesn't peg the box:
    ```yaml
    llm_num_threads: 2     # leave cores for the rest of the machine
@@ -325,7 +326,7 @@ itself — worth trying with your model; the template is the safe default.
 
 | Role | Default (snappy) | Upgrade (quality, slower) | Why |
 |------|------------------|---------------------------|-----|
-| LLM | `qwen2.5:1.5b` (non-thinking) | `qwen2.5:3b` / `llama3.1:8b-instruct` | Must support tool-calling. 1.5B answers tool calls in ~1–2 s warm on CPU; bigger is slower. Qwen2.5 dense models are Apache-2.0. `qwen2.5:0.5b` is the low-RAM floor. |
+| LLM | sized by the installer: `qwen2.5:1.5b` on a modest CPU, `qwen3:1.7b` (thinking off) with 8+ cores, `qwen2.5:3b` on a GPU | `llama3.2:3b` with an accelerator | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
 | TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
 | Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
@@ -476,6 +477,61 @@ Machines with headroom (≥ 32 GB GPU-backed) are told at the prompt that
 defaults should follow the same testing route, not RAM arithmetic.
 
 
+## Measured: which small LLM picks the right tool
+
+`tools/eval_harness.py` run over its nine cases, five repeats each, once with
+the router on (as shipped) and once with both router settings off (the model
+on its own). One 4-vCPU cloud VM (Intel Xeon 2.1 GHz, 17 GB, **no GPU**),
+Ollama 0.40, text mode, the `config.docker.chat.yml` prompt and tools, one
+still-image camera and **no vision adapters** — so this scores tool choice
+and arguments, not the quality of a description. Raw numbers per case:
+[`benchmarks/llm-tool-choice-cpu-4vcpu-2026-10.json`](benchmarks/llm-tool-choice-cpu-4vcpu-2026-10.json).
+
+| Model | Resident | Pass, router on | Pass, router off | **Model chose it** (off) | Alarms armed | Quiet on "thanks" / "hi" | p50 per turn (on / off) |
+|---|---|---|---|---|---|---|---|
+| `llama3.2:3b` | 3.5 GB | 29/45 | 30/45 | **30/45** | **10/10** | 4/10 | 36 s / 40 s |
+| `qwen3:1.7b` | 2.4 GB | **30/45** | **30/45** | 10/45 | **10/10** | 0/10 | 8 s / 9 s |
+| `qwen2.5:3b` | 2.7 GB | 25/45 | 25/45 | 25/45 | 5/10 | 0/10 | 9 s / 13 s |
+| `qwen2.5:1.5b` | 1.6 GB | 21/45 | 23/45 | 8/45 | 0/10 | 2/10 | 5 s / 6 s |
+| `qwen2.5:0.5b` | 0.7 GB | 23/45 | 13/45 | 12/45 | 0/10 | 2/10 | 2.5 s / 8 s |
+| `phi4-mini` | 4.3 GB | 23/45 | 22/45 | 2/45 | 0/10 | 2/10 | 17 s / 18 s |
+| `granite3.3:2b` | 2.4 GB | 20/45 | 21/45 | 1/45 | 0/10 | 0/10 | 13 s / 15 s |
+| `qwen3:0.6b` | 1.5 GB | 20/45 | 20/45 | 0/45 | 0/10 | 0/10 | 7 s / 8 s |
+| `llama3.2:1b` | 2.2 GB | 16/45 | 5/45 | 5/45 | 0/10 | 0/10 | 16 s / 19 s |
+| `qwen3:4b` | 4.3 GB | — | 20/45 | 0/45 | 0/10 | 0/10 | — / 103 s |
+
+*Resident* is what Ollama reports loaded, KV cache for `llm_num_ctx: 8192`
+included. *Model chose it* counts the turns where the model itself called
+the right tool with the right arguments — not the router (tier 0) and not the
+anti-fabrication guard's forced call. *Alarms armed*: the two alarm cases,
+where the alarm must exist afterwards with the right target and window.
+
+What it says:
+
+- **The model rarely does the camera work itself.** With the router off,
+  most passes on camera questions are the forced grounding's, not the
+  model's: the guard, not the model, is what keeps small models honest.
+- **`llama3.2:3b` is the only model that does most of it itself** (30/45,
+  every alarm armed) — the pick where an accelerator pays for its size; on
+  this CPU it is ~4× slower per turn than `qwen3:1.7b`.
+- **`qwen3:1.7b` is the CPU pick**: the best end result at ~9 s a turn, and
+  it arms alarms. `qwen2.5:1.5b` and `0.5b` never armed one — they leave out
+  `target`, so the agent asks back and nothing is created.
+- **Size alone does not buy tool use:** `phi4-mini`, `granite3.3:2b`,
+  `qwen3:0.6b` and `llama3.2:1b` almost never chose a tool themselves.
+- **`qwen3:4b` as Ollama ships it reasons in its answer even with
+  `think: false`** (~100 s a turn, no tool calls). Leave it out until that
+  changes.
+- **Two failures do not depend on the model**, so they are agent fixes, not
+  model picks: the forced grounding fires on "thanks" / "hi" (it also reads
+  the model's reply for camera words), and "notify me when more than 3 people
+  gather" puts the camera in `target` for nearly every model.
+
+One CPU, five repeats: read differences of a case or two as noise (the JSON
+carries a 95% interval per case). To add your hardware, run the same
+harness against your agent (see `AGENT_DESIGN.md`, "Measuring better") with
+the router on and off.
+
 ## Model catalog (what each option is actually good at)
 
 The installer renders this catalog as the model-selection menu, annotated
@@ -484,18 +540,18 @@ for your detected hardware. **Canonical source:**
 in sync by hand. "Tested" means exercised with THIS agent's tool prompts
 and voice loop; "untested" entries are known-good models that nobody has
 validated with this agent yet — trying one and reporting back is a great
-first contribution.
+first contribution. The LLM notes quote the measurements above.
 
 ### LLMs (the agent's brain — tool calling is what matters)
 
 | Model | ~RAM | Speed | Status | Good at |
 |---|---|---|---|---|
-| `qwen2.5:0.5b` | 1 GB | fastest | tested | Any CPU; simple questions; weakest at multi-step tool use |
-| `qwen2.5:1.5b` | 2 GB | fast | tested | The balanced low-RAM default: reliable tool routing |
-| `qwen3:1.7b` | 3 GB | fast | tested | Field-tested: better answers than the qwen2.5 set at similar speed; the default on CPU-only boxes with 8+ cores |
-| `qwen2.5:3b` | 4 GB | medium | tested | Best of the qwen2.5 family; the default on a GPU (CUDA or Apple Silicon) with RAM to spare |
+| `qwen2.5:0.5b` | 1 GB | fastest | tested | Any CPU, fastest answers; leans on the router — alone it chose the right tool 12/45 and armed no alarm |
+| `qwen2.5:1.5b` | 2 GB | fast | tested | Low-RAM pick with quick turns; measured weak at tool use alone (8/45) and drops the alarm `target` (0/10 armed) |
+| `qwen3:1.7b` | 3 GB | fast | tested | Best measured end result on CPU (30/45, ~9 s a turn on 4 vCPU) and arms alarms; camera questions lean on the router and guard; the default on CPU-only boxes with 8+ cores |
+| `qwen2.5:3b` | 4 GB | medium | tested | Chose the right tool itself 25/45; the default on a GPU (CUDA or Apple Silicon) with RAM to spare |
 | `qwen2.5:7b` | 8 GB | slower | untested | Strongest family reasoning; ~2× slower per answer |
-| `llama3.2:3b` | 4 GB | medium | untested | Different family; conversational tone, solid tool calling |
+| `llama3.2:3b` | 4 GB | slower | tested | Best measured at choosing tools itself (30/45) and arms every alarm; ~4× slower than `qwen3:1.7b` on CPU — the pick for an accelerator |
 
 ### VLMs (the agent's eyes — used via `CAPTION_ADAPTER=ollamavlm`)
 
