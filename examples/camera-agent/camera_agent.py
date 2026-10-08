@@ -125,6 +125,8 @@ from router import (  # noqa: F401 — re-exported
     _CONFIG_RE,
     _is_config_question,
     _pick_camera,
+    _is_small_talk,
+    _should_force_grounding,
 )
 
 logger = logging.getLogger("camera-agent")
@@ -7776,13 +7778,15 @@ async def _conversation_turn_body(
             # model's own reply mentioning a camera/scene — force a grounding
             # detection and re-ask. Checking the reply too catches cases where
             # STT garbled the camera word (e.g. "what's on hammer 2") but the
-            # model still fabricated "camera 2 is ...".
+            # model still fabricated "camera 2 is ...". After pure small talk
+            # ("thanks", "hi, what can you do?") the reply must claim a
+            # sighting, not just mention cameras: small models answer "thanks"
+            # with "happy to help you monitor the cameras", and looking then
+            # turned a goodbye into "I can't see anything right now"
+            # (router._should_force_grounding; measured in MODELS_AND_LATENCY).
             if (
                 not grounded and not forced and cameras
-                and (
-                    _looks_like_camera_question(user_text)
-                    or _looks_like_camera_question(content)
-                )
+                and _should_force_grounding(user_text, content)
             ):
                 forced = True
                 grounded = True

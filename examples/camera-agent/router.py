@@ -89,6 +89,59 @@ def _looks_like_camera_question(text: str) -> bool:
     return bool(_CAMERA_RE.search(text or ""))
 
 
+# Greetings, thanks, closings and "what are you" — an utterance made ONLY of
+# these is small talk, whatever the model replies. Anchored: one real word
+# outside the list ("thanks, and is anyone at the door?") makes it not small
+# talk.
+_SMALL_TALK_RE = re.compile(
+    r"^(?:\s*(?:hi|hello|hey|yo|good (?:morning|afternoon|evening|night)"
+    r"|thanks|thank you|thx|cheers|ok|okay|great|cool|nice|perfect|got it"
+    r"|bye|goodbye|good ?bye|later|that'?s all|that is all|nothing else"
+    r"|no thanks|no thank you|all good|who are you|what are you"
+    r"|what can you do|what do you do|how are you|how'?s it going|help"
+    r"|very much|a lot|so much|for now|again|there|then|and|so)"
+    r"\s*[,.!?]*)+\s*$",
+    re.IGNORECASE,
+)
+
+# The model's reply claims to have LOOKED ("I see the front door. It's dark
+# outside", "there's a person at the gate") — as opposed to offering to look
+# ("I can watch the cameras for you"). "I see..." / "I see," is the filler
+# acknowledgement, not a sighting.
+_SIGHTING_RE = re.compile(
+    r"\b(?:i (?:can )?see\b(?!\s*(?:\.|,|!|…))|i notice|i spot|i observe|i'?m seeing"
+    r"|there (?:is|are)|there'?s|is visible|are visible|no ?one is|nobody is"
+    r"|it'?s (?:currently |now )?(?:dark|light|bright|empty|quiet|clear|raining))\b",
+    re.IGNORECASE,
+)
+
+
+def _is_small_talk(text: str) -> bool:
+    """True for an utterance that is only greeting / thanks / closing /
+    "what can you do" — nothing a camera could answer."""
+    return bool(_SMALL_TALK_RE.match((text or "").strip()))
+
+
+def _should_force_grounding(user_text: str, reply: str) -> bool:
+    """Should the anti-fabrication guard force a look, given a turn where the
+    model answered without calling a tool?
+
+    The question names the camera or the scene → yes. Otherwise the reply
+    decides: it mentions the camera or scene, which catches a question STT
+    garbled ("what's on hammer 2") that the model still answered about
+    "camera 2". After small talk, though, a reply mentioning cameras is
+    usually an offer ("happy to help you monitor the cameras"), so there
+    the reply must claim a sighting to trigger the look.
+    """
+    if _looks_like_camera_question(user_text):
+        return True
+    if not _looks_like_camera_question(reply):
+        return False
+    if _is_small_talk(user_text):
+        return bool(_SIGHTING_RE.search(reply or ""))
+    return True
+
+
 # Presence/count questions about concrete objects ("is anyone there?",
 # "how many cars?", "any people?") must be answered by the object DETECTOR
 # (yolov8), NOT a scene caption — BLIP describes the scene ("a table with a
