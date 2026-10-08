@@ -92,6 +92,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **"Thanks" no longer makes the camera agent look at a camera.** When the
+  model answered without calling a tool, the anti-fabrication guard forced a
+  look if the model's reply mentioned the camera or the scene — so small
+  models answering "thanks, that's all" or "hi, what can you do?" with "I can
+  watch the cameras for you…" got a forced look, and a goodbye came back as
+  "I can't see anything right now". After pure small talk the reply now has
+  to claim a sighting ("I see the front door…", "there's a person…") to
+  trigger the look; a question about the scene, or a reply to anything else
+  that mentions it (the STT-garbled "what's on hammer 2" case), still does.
+
 - **The installer's vision-model menu no longer opens blank.** On a
   machine where vision through Ollama is not suggested (no CUDA GPU, or
   no RAM left beside the LLM), choosing `ollamavlm` anyway showed
