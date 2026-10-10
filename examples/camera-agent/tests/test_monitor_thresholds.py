@@ -83,6 +83,7 @@ async def test_a_threshold_turns_notify_into_count():
 
 
 @pytest.mark.parametrize("args,expect", [
+    # A real line plus a threshold: ambiguous, so ask.
     ({"kind": "crossing", "line": [0, 0, 1, 1], "max_count": 3}, "threshold"),
     ({"kind": "count", "max_count": "many"}, "whole number"),
     ({"kind": "count", "min_count": -1}, "negative"),
@@ -156,3 +157,55 @@ def test_thresholds_survive_a_restart(tmp_path):
             rt.monitors.stop_all()
     mon = asyncio.run(restart())
     assert (mon["max_count"], mon["min_count"]) == (3, 1)
+
+
+# ── The question as a backstop: small models drop max_count ──────────────
+
+@pytest.mark.parametrize("text,want", [
+    ("notify me when more than 3 people gather on cam1", {"max_count": 3}),
+    ("tell me if there are over five cars in the lot", {"max_count": 5}),
+    ("alert when fewer than 2 guards are at the gate", {"min_count": 2}),
+    ("count cars over 10 minutes", {}),
+    ("notify me when you see a person after 6pm", {}),
+    ("watch the door over the next hour", {}),
+])
+def test_count_thresholds_from_text(text, want):
+    assert ca._count_thresholds_from_text(text) == want
+
+
+async def test_a_dropped_threshold_is_taken_from_the_question():
+    """qwen2.5:1.5b: kind='count', target='person', no max_count — then
+    replied "watching for more than 3 people" over a silent tally."""
+    rt = _runtime()
+    rt.tools.current_question = "notify me when more than 3 people gather on cam1"
+    try:
+        reply = await rt._handle_create_monitor(
+            {"kind": "count", "target": "person", "camera_id": "cam1"})
+        (mon,) = rt.monitors.list()
+        assert mon["max_count"] == 3 and "more than 3" in reply
+    finally:
+        rt.monitors.stop_all()
+
+
+async def test_a_crossing_with_a_threshold_and_no_line_is_a_count():
+    """qwen2.5:1.5b also tried kind='crossing', max_count=3, a junk line."""
+    rt = _runtime()
+    try:
+        await rt._handle_create_monitor(
+            {"kind": "crossing", "target": "person", "camera_id": "cam1",
+             "max_count": 3, "line": "[0.5, 0.5, 0.5, 0.5]"})
+        (mon,) = rt.monitors.list()
+        assert (mon["kind"], mon["max_count"]) == ("count", 3)
+    finally:
+        rt.monitors.stop_all()
+
+
+async def test_a_plain_count_question_stays_a_plain_count():
+    rt = _runtime()
+    rt.tools.current_question = "count people on cam1 over 10 minutes"
+    try:
+        await rt._handle_create_monitor({"kind": "count", "target": "person", "camera_id": "cam1"})
+        (mon,) = rt.monitors.list()
+        assert "max_count" not in mon
+    finally:
+        rt.monitors.stop_all()

@@ -127,6 +127,7 @@ from router import (  # noqa: F401 — re-exported
     _pick_camera,
     _is_small_talk,
     _should_force_grounding,
+    _count_thresholds_from_text,
 )
 
 logger = logging.getLogger("camera-agent")
@@ -4419,6 +4420,16 @@ class CameraAgentRuntime:
             if value < 0:
                 return f"'{key}' can't be negative — how many did you mean?"
             thresholds[key] = value
+        if not thresholds and kind in ("count", "notify"):
+            # The model dropped the number the operator said ("more than 3
+            # people"): take it from the question, so the watch alerts as
+            # promised instead of tallying in silence.
+            thresholds = _count_thresholds_from_text(self.tools.current_question or "")
+        line_given = isinstance(args.get("line"), (list, tuple)) and len(args["line"]) == 4
+        if thresholds and kind == "crossing" and not line_given:
+            # "More than 3 people" with no line to cross is a count request
+            # that picked the wrong kind.
+            kind = "count"
         if thresholds and kind == "notify":
             # "Notify me when more than 3 people…": only a count watch can
             # alert on a number, so a threshold makes it one.
