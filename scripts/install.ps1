@@ -739,7 +739,7 @@ function Choose-Example {
         # Ceiling = the tested envelope; never suggest past what this agent
         # has been exercised with. Speed ceiling too: a model that fits can
         # still be unusable, so CPU-only boxes are tiered by cores.
-        $capLlm = if ($accel -ne 'cpu') { 4 } elseif ($cores -ge 8) { 3 } elseif ($cores -ge 4) { 2 } else { 1 }
+        $capLlm = if ($accel -ne 'cpu') { 4 } elseif ($cores -ge 4) { 3 } else { 1 }   # 4+ cores: qwen3:1.7b (measured; see install.sh)
         if ($capLlm -gt $budgetGb) { $capLlm = $budgetGb }
 
         # The catalog's speed column is editorial prose; this is the only

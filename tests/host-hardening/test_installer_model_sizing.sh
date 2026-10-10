@@ -97,10 +97,38 @@ strong=$(size 32 16 cpu)
     || fail "same suggestion for a 4 GB mini PC and a 32 GB server: ${weak}"
 
 start_test "cores matter on CPU-only, not just RAM"
-a=$(cut -d'|' -f1 <<<"$(size 16 4 cpu)")
-b=$(cut -d'|' -f1 <<<"$(size 16 8 cpu)")
+# 4 and 8 cores share the LLM tier now (below); the speech model still
+# scales with cores, so the two boxes must not get the same suggestion.
+a=$(size 16 4 cpu)
+b=$(size 16 8 cpu)
 [[ "$a" != "$b" ]] && pass \
-    || fail "4-core and 8-core 16 GB boxes both got '${a}'"
+    || fail "4-core and 8-core 16 GB boxes got the same suggestion: ${a}"
+
+start_test "a 4-core CPU gets qwen3:1.7b, not qwen2.5:1.5b"
+# Measured on 4 vCPU (MODELS_AND_LATENCY.md, "Measured"): qwen3:1.7b armed
+# 10/10 alarms at ~9 s a turn; qwen2.5:1.5b armed none.
+bad=""
+for spec in "8 4 cpu" "16 4 cpu" "16 6 cpu"; do
+    read -r ram cores accel <<<"$spec"
+    llm=$(cut -d'|' -f1 <<<"$(size "$ram" "$cores" "$accel")")
+    [[ "$llm" == "qwen3:1.7b" ]] || bad="${bad} [${spec} → ${llm}]"
+done
+[[ -z "$bad" ]] && pass || fail "4-7 core CPU boxes:${bad}"
+
+start_test "install.ps1 mirrors the 4-core tier"
+if grep -q "elseif (\$cores -ge 4) { 3 } else { 1 }" scripts/install.ps1 \
+   && ! grep -q "elseif (\$cores -ge 4) { 2 }" scripts/install.ps1; then
+    pass
+else
+    fail "install.ps1 does not give 4+ core CPUs the qwen3:1.7b tier (cap 3)"
+fi
+
+start_test "a 4-core box too small for qwen3:1.7b still gets a model that fits"
+HW_RAM_GB=7; compute_model_budget
+llm=$(cut -d'|' -f1 <<<"$(size 7 4 cpu)")
+llm_ram=$(ram_of "$llm")
+(( llm_ram <= HW_MODEL_BUDGET_GB )) && pass \
+    || fail "7 GB / 4 cores got ${llm} (${llm_ram} GB) over a ${HW_MODEL_BUDGET_GB} GB budget"
 
 start_test "a GPU lifts the tier above the CPU-only answer"
 cpu=$(cut -d'|' -f1 <<<"$(size 16 8 cpu)")

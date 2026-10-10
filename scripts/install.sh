@@ -499,8 +499,10 @@ suggest_models() {
     compute_model_budget
     local cap_llm
     if [[ "$HW_ACCEL" != "cpu" ]]; then cap_llm=4        # GPU: up to qwen2.5:3b
-    elif (( HW_CORES >= 8 )); then      cap_llm=3        # strong CPU: qwen3:1.7b
-    elif (( HW_CORES >= 4 )); then      cap_llm=2        # modest CPU: qwen2.5:1.5b
+    # 4+ cores: qwen3:1.7b. Measured on 4 vCPU (MODELS_AND_LATENCY.md,
+    # "Measured"): it armed 10/10 alarms at ~9 s a turn where qwen2.5:1.5b
+    # armed none at ~6 s, so the faster model was not the better default.
+    elif (( HW_CORES >= 4 )); then      cap_llm=3        # CPU: qwen3:1.7b
     else                                cap_llm=1        # weak CPU: the tiny tier
     fi
     (( cap_llm > HW_MODEL_BUDGET_GB )) && cap_llm=$HW_MODEL_BUDGET_GB
