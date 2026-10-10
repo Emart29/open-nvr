@@ -326,7 +326,7 @@ itself — worth trying with your model; the template is the safe default.
 
 | Role | Default (snappy) | Upgrade (quality, slower) | Why |
 |------|------------------|---------------------------|-----|
-| LLM | sized by the installer: `qwen2.5:1.5b` on a modest CPU, `qwen3:1.7b` (thinking off) with 8+ cores, `qwen2.5:3b` on a GPU | `llama3.2:3b` with an accelerator | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
+| LLM | sized by the installer: `qwen3:1.7b` (thinking off) on a CPU with 4+ cores, `qwen2.5:1.5b` where RAM is short, `qwen2.5:3b` on a GPU | `llama3.2:3b` with an accelerator | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
 | TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
 | Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
@@ -427,10 +427,10 @@ machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
 | Machine | LLM | Vision | Adapter | Whisper |
 |---|---|---|---|---|
 | 4 GB / 2 cores, CPU | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
-| 8 GB / 4 cores, CPU | `qwen2.5:1.5b` | — | `moondream` | `base.en` |
+| 8 GB / 4 cores, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
 | 8 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
 | 16 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
-| 16 GB / 4 cores, CPU | `qwen2.5:1.5b` | — | `moondream` | `base.en` |
+| 16 GB / 4 cores, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
 | 32 GB / 16 cores, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
 | 8 GB, GPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
 | 16 GB, GPU | `qwen2.5:3b` | `gemma3:4b` | `ollamavlm` | `small.en` |
@@ -548,7 +548,7 @@ first contribution. The LLM notes quote the measurements above.
 |---|---|---|---|---|
 | `qwen2.5:0.5b` | 1 GB | fastest | tested | Any CPU, fastest answers; leans on the router — alone it chose the right tool 12/45 and armed no alarm |
 | `qwen2.5:1.5b` | 2 GB | fast | tested | Low-RAM pick with quick turns; measured weak at tool use alone (8/45) and drops the alarm `target` (0/10 armed) |
-| `qwen3:1.7b` | 3 GB | fast | tested | Best measured end result on CPU (30/45, ~9 s a turn on 4 vCPU) and arms alarms; camera questions lean on the router and guard; the default on CPU-only boxes with 8+ cores |
+| `qwen3:1.7b` | 3 GB | fast | tested | Best measured end result on CPU (30/45, ~9 s a turn on 4 vCPU) and arms alarms; camera questions lean on the router and guard; the default on CPU-only boxes with 4+ cores |
 | `qwen2.5:3b` | 4 GB | medium | tested | Chose the right tool itself 25/45; the default on a GPU (CUDA or Apple Silicon) with RAM to spare |
 | `qwen2.5:7b` | 8 GB | slower | untested | Strongest family reasoning; ~2× slower per answer |
 | `llama3.2:3b` | 4 GB | slower | tested | Best measured at choosing tools itself (30/45) and arms every alarm; ~4× slower than `qwen3:1.7b` on CPU — the pick for an accelerator |
