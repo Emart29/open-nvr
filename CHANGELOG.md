@@ -8,6 +8,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A 4-core CPU box now defaults to `qwen3:1.7b`.** The installer gave
+  4–7 core CPU-only machines `qwen2.5:1.5b` and kept `qwen3:1.7b` for 8+
+  cores. Measured on 4 vCPU (`MODELS_AND_LATENCY.md`, "Measured"),
+  `qwen3:1.7b` armed 10/10 alarms at ~9 s a turn where `qwen2.5:1.5b` armed
+  none at ~6 s, so every CPU box with 4+ cores and the RAM for it now gets
+  `qwen3:1.7b` (`install.sh` and `install.ps1`). A box whose model budget is
+  under 3 GB still falls back to `qwen2.5:1.5b`.
+
 - **Camera-agent model advice is measured, not remembered.** Ten small
   LLMs (qwen2.5 0.5–3b, qwen3 0.6–4b, llama3.2 1–3b, granite3.3:2b,
   phi4-mini) ran the live-eval harness on a 4-vCPU CPU-only VM, router on
