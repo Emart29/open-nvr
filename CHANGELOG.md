@@ -6,6 +6,489 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-10-11
+
+Search your footage in a sentence, and apps that became products. The
+event store every visit lands in can now be searched in plain words, by a
+person's name, by colour and vehicle type, and across cameras ("where did
+it go?"), with semantic ranking once a CLIP adapter is installed. Nine
+catalog apps gained their own pages (Tripwires, Loitering, Perimeter,
+Left Items, Deliveries, Gates, Notifications, People, Entry Screening),
+Guard Scan Compliance is new, and a camera's AI skills now follow the apps
+selected for it.
+
+Each component keeps its own version line: the platform and the adapter
+images at 0.1.6, `opennvr-app-sdk` at **0.7.0** (its first publish since
+0.5.0) and `opennvr-adapter-sdk` at **1.3.0** (its first publish since
+1.2.0, with the `opennvr-adapter` CLI).
+
+Upgrading: `.env.example` pins `CORE_TAG=0.1.6`, `ADAPTER_TAG=0.1.6` and
+`YOLO_POSE_ADAPTER_TAG=0.1.6`; copy those three lines into your `.env`,
+then `docker compose pull && ./start.sh up`. Footage Search 2.0 no longer
+keeps its own index: reclaim the old volume with `docker volume rm
+opennvr_footage_search_data`. PTZ now needs `ptz.control`, granted on
+upgrade to every role that can view live.
+
+The headline work, at a glance — every entry is below:
+
+- **Search your footage in a sentence.** A Search page over the event
+  store, people by name, routes across cameras, and semantic ranking.
+- **Visits are described.** Captions, colours, vehicle types and plates
+  become searchable; enrichment backs off when the box is busy, and search
+  says "not yet" instead of "no".
+- **Apps became products,** each with its own page, configured there
+  rather than in the catalog, running only on the cameras picked for it.
+- **Home Assistant, two ways:** a native integration and built-in MQTT
+  discovery.
+- **Detections on the live view,** one box per object.
+- **A faster, measured camera agent:** simple questions routed before the
+  model, quicker CPU turns, Pipecat 1.12, `qwen3:1.7b` on 4-core CPUs.
+- **A redesigned dashboard and interface, in English or French.**
+- **Security:** MediaMTX's control plane authenticated, forged
+  `X-Forwarded-For` ignored, integration secrets encrypted at rest.
+
+### Security
+
+- **MediaMTX's Control API and playback require a token.** They were
+  exempt from JWT auth "behind localhost" while listening on all
+  interfaces. Once MediaMTX joined the apps network, any app container
+  could read hook secrets, add paths with `runOnInit` commands, or
+  fetch any camera's footage. Core now sends a short-lived admin JWT,
+  and playback URLs carry `?jwt=`. (#471)
+
+- **A forged `X-Forwarded-For` no longer chooses the client IP.** The
+  left-most hop, which the client writes, was trusted. That bypassed
+  the device firewall, defeated the WebSocket ticket's IP binding and
+  set the IP in audit rows. The header is now read from the right,
+  past trusted proxies. The device firewall now also covers the events
+  WebSocket handshake. (#491)
+
+- **Integration secrets are encrypted at rest and masked.** MQTT, SMTP
+  and webhook secrets in `integrations.config` were stored as plain
+  JSON and returned verbatim by `GET /api/v1/integrations`. They are now
+  encrypted with `CREDENTIAL_ENCRYPTION_KEY` and shown as `••••••••`.
+  An edit that echoes the mask keeps the stored value, and existing
+  rows are sealed at start-up. (#578)
+
+- **An app could attach a claim to any visit.** `POST
+  /internal/camera-agent/events/descriptors` accepted app keys without
+  checking the app's cameras, and a claim can be a person's name. An
+  app is now limited to its own cameras. (#542)
+
+### Added
+
+- **A live-eval harness for the camera agent.** `tools/eval_harness.py`
+  runs a case file (`tools/eval_cases.yml`: the five cases in
+  `AGENT_DESIGN.md` plus multi-turn and past-tense ones) against a running
+  agent and scores, without an LLM judge, whether the right tool ran with
+  the right arguments, who chose it, what it created and where the reply
+  came from. Each case reports a pass rate and a model-only rate with a
+  95% interval over `--repeat` runs, grouped by router tier, and `--out`
+  writes the raw turns plus the model and router settings as JSON, so
+  runs are only compared when configured alike. `/health` now reports
+  `llm_temperature`, `llm_max_tokens` and the router settings for this.
+  Needs a real model, so it is not run in CI; it refuses to start without
+  `--throwaway`, since cases arm real alarms and clear the chat history.
+  It only ever deletes what a case created: a collection it cannot read
+  ends the case rather than reading as empty, a turn whose `/ask` failed
+  is still diffed and cleaned up, and what is left is confirmed by
+  reading back, not by the DELETE's status. Nothing from one case runs
+  into the next: a background task is waited for after the turn that
+  queued it (and what it creates is cleaned up), and a request that times
+  out, drops mid-response, or a task
+  that does not finish stops the run. A case whose expected item already
+  exists is not run, since the agent would reuse it. A tool call that
+  never ran, raised, answered "ERROR: …", or was a create that answered
+  with a question does not count as the right tool; each trace step now
+  says so in an `ok` field. Unquoted times in a YAML case file stay times
+  (YAML 1.1 would read `18:00` as 1080). Clock times match
+  by the agent's own parsing rules ("6pm" = "18:00", but "after 6pm" as
+  an `after` value does not, since the agent rejects it), and a window's
+  direction must agree ("before 18:00" is not "after 18:00").
+
+- **The camera agent's turn trace says who chose each tool.** Every tool
+  step in the trace `/ask` returns now carries `args` (as asked, before
+  the handler normalises them) and `by`: `model`, `router` or `forced`
+  (the anti-fabrication grounding, also marked in `detail`); a model
+  call to the tool a tier-1 router hint named is also marked `hinted`,
+  so an eval does not credit the model with a choice it was nudged to.
+  Traced arguments are bounded: strings at 500 characters, lists and
+  objects at 50 entries. A final `reply` step names where the answer
+  came from (`llm`, `tool_fallback`, `roster` or `none`). A malformed or
+  unregistered tool call — including arguments that arrive as a
+  non-empty list or a number — is now traced instead of vanishing; an
+  empty map sent as `[]` or `null` still runs. A `describe_camera` step
+  names how it was answered (`vlm`, `detector-fallback` or `no-frame`)
+  from that call alone, every path for a multi-camera call
+  (`detector-fallback+vlm`), and none for a call that raised, never ran
+  or named an unknown camera.
+  Each turn now owns its trace: a background task or scheduled report
+  running alongside a person's turn used to share one trace slot, so
+  tool steps — and the vision label — could land in the wrong turn.
+  `/ask` and `/converse` now return, and feed the latency medians from,
+  their own turn's trace, and a bare wake word no longer re-records the
+  previous turn's stages. Groundwork for the live-eval harness
+  (Discussion #607).
+
+- **ANPR scan mode: accurate, fast or auto, per camera.** The plate
+  sweep OCRs up to four looks per visit and writes only when two agree
+  — right for a gate, a minutes-long backlog on a road camera or a weak
+  CPU, where the ANPR app had already alarmed on the first read while
+  the Plates Read table stayed empty or late. The app's config form now
+  carries `scan_mode` (`accurate` | `fast` | `auto`) and per-camera
+  `scan_mode_overrides`; core's sweep reads them from the registry
+  (`services/plate_policy.py`). `fast` = first accepted read wins, two
+  looks at most, an 8 s re-sighting window, and the bus consumer writes
+  the read at once instead of deferring to the sweep. `auto` is
+  accurate while the sweep keeps up and fast while more visits are
+  waiting for OCR than the box can run at once
+  (`OPENNVR_PLATE_AUTO_BACKLOG`, default 3). Nothing changes for an
+  install that does not touch the form.
+
+- **Home Assistant.** OpenNVR now works with Home Assistant in two ways
+  ([docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)):
+  - a **native integration** plus its `pyopennvr` client library, under
+    `integrations/home-assistant/` and not yet on HACS or PyPI. It offers
+    cameras with WebRTC live view, controls, health sensors, alerts, the
+    media browser, actions, notifications (media relayed through Home
+    Assistant) and a dashboard card session;
+  - **built-in MQTT discovery**: the MQTT integration type now works. With
+    discovery on, it publishes the same devices and entities to Home
+    Assistant's MQTT integration and runs commands as the API token it is
+    bound to.
+
+  The core changes behind them:
+  - **API tokens** (`onvr_…`), limited by scopes, cameras and source
+    addresses. A token never passes as a superuser;
+  - correlation ids on requests and audit rows;
+  - `/system/info` and a versioned contract (`server/contract/`);
+  - camera stats, zones, live state, events WebSocket v2 with resume;
+  - signed media links, and entity descriptors with typed commands;
+  - site mode, search, PTZ presets and manual events;
+  - recording pause, behind a site flag that is off by default.
+  Design: `docs/design/home-assistant-integration.md`.
+
+- **Bounding boxes on the live view.** Tracked objects are outlined over
+  the video with their label, confidence and track id, one colour per
+  class, drawn client-side on a canvas over the player — the stream is
+  untouched and the recording stays clean. Toggled with a **Detections**
+  button in the Live View toolbar (off by default; remembered per
+  browser). Live only. Behind it, Tier-0's per-frame tracks now reach
+  the browser at all: a new `tier0_track_consumer` bridges the NATS
+  `opennvr.inference.tier0.<cam>.completed` subject onto the in-process
+  bus as a `tracks` WebSocket event with boxes normalized to 0..1, and
+  those events are subject to the same per-camera entitlement as the
+  video. One shared socket serves every tile on the page.
+
+  Three controls, at three grains. **Viewer:** the Boxes button, per
+  browser. **Site:** `DETECTION_OVERLAY_ENABLED` (default on) gates the
+  bridge for every consumer at once and is logged with the boot posture.
+  **Per app:** apps can publish `overlay.boxes.v1` (SDK
+  `publish_overlay`) — plate outlines, zones — and the catalog shows an
+  Overlay switch for apps that declare it, off by default; the bridge
+  forwards an app's boxes only when that switch is on. The camera-agent
+  demo draws the same boxes over its own player (Boxes button on the
+  camera screen): the agent consumes core's `/events/ws` as a platform
+  service — so the site switch, each app's permission and the box maths
+  are decided in exactly one place — and re-scopes every frame to the
+  viewer's own cameras before it reaches the page. `POST
+  /events/ws-ticket` now mints an unscoped *service* ticket for the
+  `INTERNAL_API_KEY`; user tickets are unchanged and an app key is
+  refused.
+
+- **App SDK: the `App` facade — apps in one function.** Writing a first
+  app required knowing about NATS subjects, inference envelopes,
+  normalized bboxes, alert dispatchers and keyed TTL state before
+  writing a line of the rule. `App` collapses that into a declaration
+  and a decorated function:
+
+  ```python
+  app = App("driveway-watch", name="Driveway Watch", category="perimeter")
+
+  @app.on_detection("person", zone="driveway", dwell=30)
+  def loitering(event):
+      event.alert(f"Person loitering on {event.camera}", severity="high")
+  ```
+
+  The facade owns the manifest (a `zone=` anywhere adds the per-camera
+  zone editor on the app's page), the config dataclass (from
+  `app.param(...)`, so `config.yml` and `event.config` cannot drift),
+  per-detection fan-out, `dwell=`/`cooldown=` keyed per
+  camera/label/track, and an `event.alert()` that fills in camera,
+  correlation id, label, confidence, track, zone and dwell.
+  `@app.on_event()` is the whole-frame escape hatch; `@app.on_setup()`
+  runs once with the parsed config.
+
+  It is additive: `App.detector_class()` compiles to an ordinary
+  `Detector`, so the process, the manifest, the alerts and the contract
+  surface are unchanged, and `Detector`, `FrameApp`, `AlertSubscriber`
+  and `DomainEventSubscriber` remain the documented path for rules that
+  outgrow the decorators. Every app already in the catalog keeps working
+  without a change.
+
+- **`opennvr-app dev` — run an app against a simulated camera.** Between
+  `opennvr-app new` and a working stack there used to be Docker, a NATS
+  broker, a KAI-C adapter and a real camera, which is a long way to go
+  to find out whether a rule fires. `opennvr-app dev` walks a simulated
+  object across the frame in-process and prints the alerts as they fire,
+  annotating zone entry and exit, with `--label`, `--camera`, `--rate`,
+  `--count`, `--still` and `--fast`. It drives the same `handle_event`
+  path a real subscription uses, so what fires there fires in
+  production. Works for facade apps and for plain `Detector` apps alike.
+
+- **Every app now self-describes in OpenAPI 3.1 and AsyncAPI 3.0.** Core,
+  KAI-C and the AI adapters are FastAPI and have always published
+  OpenAPI at `/openapi.json`; the two surfaces that had no machine-
+  readable spec were the app contract server (a stdlib HTTP server) and
+  the event bus (not HTTP at all). Both are now generated from the app's
+  own `AppManifest`, so they cannot drift from the app: a declared
+  `Action` is a `POST /actions/{name}` path with a typed request body, a
+  declared `Param` is a JSON Schema (with `x-opennvr-ui` for the
+  catalog's geometry types), `has_ui` adds `GET /ui`, and
+  `entitlement: license_key` adds `POST /entitlement/verify`. The
+  contract server serves them at `/openapi.json` and `/asyncapi.json`,
+  and `opennvr-app spec [--format asyncapi] [--yaml] [-o FILE]` prints
+  them without running the app. Every example app in this repository
+  generates a document that passes `openapi-spec-validator`.
+
+- **A published API reference — [opennvr.org/sdk](https://opennvr.org/sdk).**
+  mkdocs-material + mkdocstrings, so the site *is* the docstrings: there
+  is no second copy of the API to keep current. `make sdk-site` builds
+  it, `make sdk-site-serve` serves it with live reload. Alongside the
+  generated reference it carries a quickstart, a concepts page (the four
+  archetypes and how to pick one), six guides (rules, platform,
+  surfaces, events, testing, selling), the cookbook index, the specs
+  page and the licensing statement.
+
+- **The SDK's 98 exports now have a documented front door.**
+  `opennvr_app_sdk.API_TIERS` orders the public surface into seven tiers
+  — front door (six names, the whole of a first app), archetypes, rules,
+  platform, surfaces, events, config — and `__all__` is *assembled from
+  it*, so the tiers cannot fall out of step with the exports. The site's
+  navigation and its reference pages are generated from the same tuples
+  by `scripts/gen_reference.py`. `tests/test_public_api.py` fails on a
+  name in two tiers, in none, reachable but untiered, or exported
+  without a docstring; `tests/test_docs_site.py` fails on a stale
+  generated page, a dead nav link, an orphaned page or a broken code
+  snippet.
+
+- **A runnable example per SDK class** —
+  [`sdk/opennvr-app-sdk/cookbook/`](sdk/opennvr-app-sdk/cookbook/), 19
+  files covering `App`, `Detector`, `FrameApp`, `AlertSubscriber`,
+  `DomainEventSubscriber`, `OpenNVR`, `AsyncOpenNVR`, `EventsClient`,
+  `InferStream`, `ContractServer`, `DomainEventPublisher`, Tier-0,
+  `keyed_state` / `Zone` / `Tripwire`, alerts and channels, the
+  manifest's full vocabulary, selling an app, credentials and the
+  roster, egress, and the testing helpers. Each says in its docstring
+  what it demonstrates, and every one is imported and exercised by
+  `tests/test_cookbook.py` — an example that references a name the SDK
+  no longer exports fails in CI rather than misleading a reader.
+
+- `AlertDispatcher.channels` — a read-only view of the delivery chain,
+  for tests and for a "where do my alerts go?" state view.
+
+- **[API_STANDARDS.md](docs/API_STANDARDS.md)** — the map of every API
+  surface and the open specification that describes it, including what
+  is deliberately *not* adopted and why.
+
+- **Licensing is now legible from inside the SDK package.**
+  `sdk/opennvr-app-sdk/LICENSING.md` and a `NOTICE` state the app
+  boundary — an app talks to the AGPL core over NATS and HTTP and never
+  links it, so a closed app carries no AGPL obligation — and both are
+  installed with the wheel rather than living only on GitHub.
+
+- **Footage search over the event store, with a Search page.** A
+  sentence ("red truck at the dock yesterday") becomes editable chips —
+  classes, window, cameras, plate — and is answered from the visit rows
+  Tier-0 already writes, scoped to the operator's cameras
+  (`GET /api/v1/search`; `parse=false` for chip-driven callers). Results
+  are evidence thumbnails that open Recordings at that instant
+  (`?camera=&at=`), every skill claim is a one-click filter, and an
+  answer block counts the cameras, claims and plates on the page.
+  (#490, #500, #525, #544)
+
+- **An empty search says why.** It names the chip that emptied it
+  ("Without the words (chartreuse): 126 results"). Leftover question
+  words that would empty the page ("did you see", "number") are set
+  aside and reported, with one click back to the strict search. The
+  empty state names the descriptions this box can actually produce.
+  (#500, #550, #556, #560)
+
+- **Search finds a person by name.** Names are kept out of the search
+  words on purpose, so typing one used to match nothing. `GET
+  /search/people` lists the names visits in scope were attributed to,
+  and the Search page offers them as a picker, one person at a time. The
+  parser also turns a known name, or a plate question ("what is the
+  plate of the white car"), into the right filter. Words that need a
+  skill this box lacks are listed under the chips. (#559, #560, #572)
+
+- **Semantic search, once an embedding adapter is installed.** Word
+  matches and image–text similarity over a new `event_embeddings` table
+  are ranked together with Reciprocal Rank Fusion. Nothing changes
+  without an adapter that advertises `embed`; the CLIP adapter is now in
+  the adapter catalog. `EVENTS_EMBED_ENRICHMENT` (default off) embeds
+  visits, the backfill covers history too, and
+  `SEARCH_VECTOR_MIN_SIMILARITY` (0.22) stops unrelated near-misses
+  being returned. (#544, #546, #566, #572)
+
+- **"Where did it go?" on every search result.** A side panel follows a
+  visit across cameras (`GET /search/journey`). Each hop shows its
+  score, its method (exact identity, inferred or time only) and every
+  reason for and against it. The camera graph behind it is relearnt
+  nightly from plate and face claims, with no inference
+  (`JOURNEY_TRANSITION_LEARNING`, default on). Routes nothing supports
+  any more are dropped. (#490, #512, #513)
+
+- **Visits are described, and the descriptions are searchable.** Core
+  captions each visit's best frame and asks a VQA skill for `colour` and
+  `vehicle_type` on vehicles (`EVENTS_CAPTION_ENRICHMENT`,
+  `EVENTS_DESCRIPTOR_ENRICHMENT`). With `EVENTS_DESCRIPTOR_PEOPLE`
+  (default off) it also asks people's top colour and what they carry.
+  Answers are reduced to a fixed vocabulary and become search words.
+  Every plate read becomes a claim with its measured confidence.
+  `EVENTS_ENRICHMENT_BACKFILL` (default off) works through history,
+  newest first. (#503, #506, #508, #509, #510, #511, #570)
+
+- **Compose profiles start the enrichment adapters.** `enrichment`
+  starts the captioner and the CLIP embedder, `descriptions` the
+  captioner alone (it also answers `visual_qa`), and `embeddings` CLIP
+  alone. Each profile registers its adapters with KAI-C, and no profile
+  starts two adapters for one task; `CAPTION_ADAPTER` picks the
+  captioner. Most catalogued adapters previously had no compose service
+  at all. `docs/ENRICHMENT.md` is the operator recipe. (#562, #564, #565)
+
+- **An adapter catalog.** `server/config/adapters_index.yml` lists the
+  first-party adapters with their tasks, hardware, egress and
+  scheduling. `GET /api/v1/adapters/index` serves it, with `?task=`
+  matched by canonical name or alias. `tasks.yml` gains the aliases that
+  make the Whisper and Moondream adapters routable. (#463)
+
+- **Smart Doorbell: a People page, durable visits and a real chime.**
+  The People page enrols faces from an upload, a door snapshot or this
+  browser's camera (four poses), several photos per person. It holds
+  categories (family to watchlist), notes, `valid_until`, and a
+  strangers wall to enrol from, even after a restart. Visits are kept
+  (`history_days`, `history_max`), and each name is written to the
+  visit as a `face_id` claim. A chime decision rides each alert, by
+  category with `quiet_hours` and `rechime_seconds`.
+  `unknown_severity` / `known_severity` set how loud a face is.
+  (#475, #476, #478, #502, #514, #515, #518, #542, #554)
+
+- **Line Crossing 1.1 and a Tripwires page.** The app now runs on
+  Tier-0, so it fires on a stock install; before, it waited for a
+  ByteTrack adapter that nothing started. It counts in, out and net per
+  camera and direction, publishes `occupancy.footfall.v1`, and gains
+  `alert_mode`, `active_hours`, `alert_cooldown` and size filters. The
+  Tripwires page shows today by hour or seven days, the alarms and a
+  CSV export. (#477)
+
+- **Loitering Detection 1.1 and a Loitering page.** Dwell is measured
+  per tracked object off Tier-0, so two people taking turns at a door
+  are no longer one stay. Alerts are staged: a first one at
+  `threshold_seconds`, an escalation after `escalate_after_seconds`, an
+  after-hours threshold, a `gathering` alert at `group_size`, and a
+  Dismiss action. The page shows who is dwelling now, per-camera
+  statistics and seven days of history. (#486)
+
+- **Intrusion Detection 1.1: an arming panel and a Perimeter page.**
+  The app runs on Tier-0 instead of its own poll, so nothing crossing
+  between polls is missed. Each camera holds a state — disarmed, arming,
+  armed, breach, alarm or bypassed — with exit and entry delays and
+  schedule, always or manual arming. Operators arm, disarm, bypass and
+  acknowledge from the page, and overrides expire on their own. An
+  alarm raised during a status poll or an operator action is delivered,
+  not dropped. (#488, #516)
+
+- **Abandoned Object 1.1: owner attribution and a Left Items page.**
+  Each item is followed through moving, with owner, unattended,
+  abandoned, escalated and reclaimed, and the alert says who left it and
+  when they walked off. A spot can be marked as a fixture (a bin, a
+  planter) so it stops alerting there. Distances are fractions of the
+  frame width. The page is a triage queue: acknowledge, resolve or
+  fixture each row. (#489)
+
+- **Package Delivery 1.1, a Deliveries page and a parcel detector.**
+  Tier-0 decides who came and when, and a KAI-C skill counts parcels on
+  demand. The new events are `package_delivered`, `package_picked_up`,
+  `package_taken` and `package_reminder`. The package-detection adapter
+  (`package_detection` task) runs on the `package-delivery` profile with
+  a weights volume (`PACKAGE_DETECTION_MODEL_URL`). With it, counts grade
+  "good" rather than a VQA model's "fair". (#492, #496, #501)
+
+- **Gate Controller 1.1: five transports, gate state and a Gates
+  page.** Dry contact (GPIO), HTTP with vendor profiles (Shelly,
+  Tasmota, ESPHome, ControlByWeb), Modbus TCP, ONVIF Profile C and MQTT.
+  The gate's position is read back where the wiring reports one. Holds
+  are refused on momentary-only wiring and always capped. Optional
+  guards: a confidence floor and a repeat-plate rate limit. The 1.0
+  config still loads, and `HARDWARE.md` carries per-vendor terminal
+  tables. (#498)
+
+- **Alert Notifier 2.0: ten channels, ordered routing, burst
+  grouping.** 1.0 subscribed to a subject nothing publishes and never
+  delivered an alert; 2.0 listens on `opennvr.alerts.>`. Channels:
+  ntfy, Telegram, Pushover, Discord, Slack, Teams (Workflows webhook),
+  Gotify, Matrix, SMTP and webhooks. Rules are a first-match list with
+  backtest counts, alongside grouping, inhibition and quiet hours that
+  hold and summarise. A Notifications page shows channel health and why
+  an alert was held. 1.0 config still loads. (#499, #542, #568)
+
+- **Guard Scan Compliance, an Entry Screening page and a pose
+  adapter.** The new app (0.1.0) checks that a guard actually wanded
+  each person, from pose keypoints, and raises `scanner_flag`,
+  `improper_scan` and `no_scan`. The Entry Screening page lists
+  screenings with clips, a report, a print sheet and CSV export. A
+  `yolo-pose` adapter (`pose_estimation` task) and its weights image
+  join the compose files. (#471, #485)
+
+- **Alerts carry evidence photos.** An app can store a JPEG
+  (`POST /internal/app/evidence`, SDK `save_evidence`) and cite it on an
+  alert with `images` and an `alert_type`. The Alarms table shows a
+  thumbnail and an evidence viewer. The inbox filters by `alert_type`,
+  camera, time and text, and arriving alerts are pushed on the event
+  bus. (#471)
+
+- **The web app in French.** English and French catalogues cover the
+  main views, shared components, alerts, RBAC and configuration screens,
+  with a language switcher. Dates, times and numbers follow the chosen
+  language, not the browser; two Recordings views had `en-US`
+  hard-coded. A server test fails on a `t()` key missing from either
+  language or a dropped `{{placeholder}}`. (#474, #522, #526, #527,
+  #528, #581)
+
+- **The installer offers the App Catalog.** The app step of `install.sh`
+  and `install.ps1` lists every catalog app with a compose service, plus
+  the Camera Agent, and several can be picked at once
+  (`OPENNVR_EXAMPLE` and friends take comma-separated lists). Each app
+  service also carries its own id as a compose profile, for example
+  `--profile license-plate-recognition`. (#475)
+
+- **Fake cameras for development and demos.** `docker-compose.fakecams.yml`
+  (profile `fakecams`) loops the MP4s in `data/fake-cameras/` as RTSP
+  cameras, one per subfolder, and can register them with core. Folders
+  of mismatched clips, and clips with B-frames, are rendered once, so
+  they play over WebRTC instead of being transcoded live.
+  `docs/FAKE_CAMERAS.md` lists the `FAKECAM_*` settings. (#472, #479,
+  #585)
+
+- **Apps can search the event store, read back photos and attach
+  claims to visits.** New app routes are scoped to the app's cameras
+  and wrapped in both SDK clients: `timeline.find` (search),
+  `plates_inside` (who is inside, with entry times), `read_evidence`, and
+  RFC-0003's `visit_at` / `add_claims`. Those last two bind a frame to a
+  visit and record how (`direct`, `window` or `nearest`); an ambiguous
+  bind attaches nothing. `site_mode()`, `attrs` on search, and
+  `AppManifest.tier0_labels` (widen Tier-0's classes) are new as well.
+  (#492, #517, #534, #537, #542, #544, #552)
+
+- **The camera agent can ask for a blue car, or for a person by
+  name.** `search_history` takes `attr` — a bare value such as `blue`,
+  or `face_id:<name>` — and "did you see a blue car" questions now carry
+  the colour. A bare attribute word also matches captions. An empty
+  answer says whether nothing matched or nothing was ever described,
+  and a car on camera now is no longer offered as an answer about a red
+  one. (#552, #553, #561, #577)
+
 ### Changed
 
 - **A 4-core CPU box now defaults to `qwen3:1.7b`.** The installer gave
@@ -25,7 +508,8 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   itself 8/45 and never armed an alarm), `llama3.2:3b` becomes tested (30/45,
   the best at choosing tools itself — the pick for an accelerator), and
   `qwen3:4b` is recorded as unusable as Ollama ships it (it reasons in its
-  answer with thinking off). The installer's choices are unchanged.
+  answer with thinking off). The installer's 4-core default follows the measurement (see the entry
+  above); the other tiers are unchanged.
 
 - **Enrichment never slows the box (#583).** A CPU captioner taking
   seconds per image was outrun by one busy camera; core timed out at
@@ -94,20 +578,172 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   later registration, and a migration switches on the apps that
   registered under the old meaning so an upgrade does not stop them.
 
-- **App SDK 0.6.0.** Not a patch: `rtsp.py` is a new module, `PLATFORM`
-  gained five names, `OpenNVR` gained `save_evidence` / `stream` /
-  `stream_grant` (and their async twins), `Alert` gained `alert_type`
-  and `images`, `Param` gained `label` / `group` / `advanced` /
-  `choices`, and `ContractMixin` gained `not_ready_reason`. Two wheels
-  claiming 0.5.0 with different public surfaces is what leaves an app
-  that calls `nvr.stream()` with an AttributeError and no way to say
-  what it needed — `scaffold.sdk_requirement()` pins the floor from this
+- **App SDK 0.7.0, its first publish since 0.5.0.** 0.6.0 was cut on
+  `main` but never published, so both versions' additions reach PyPI
+  together. Not a patch. From 0.6.0: `rtsp.py` is a new module,
+  `PLATFORM` gained five names, and `OpenNVR` gained `save_evidence` /
+  `stream` / `stream_grant` (with async twins). `Alert` gained
+  `alert_type` and `images`, `Param` gained `label` / `group` /
+  `advanced` / `choices`, and `ContractMixin` gained
+  `not_ready_reason`. 0.7.0 adds `Entity` and `AppManifest.entities`
+  for Home Assistant. The same release also brings the per-app camera
+  roster (`roster()`, `on_cameras_update()`, `camera_picked()`,
+  `AppManifest.camera_picker`), `site_mode()`,
+  `AppManifest.tier0_labels`, `enrich_tasks` and `all_cameras`, and the
+  timeline calls `find`, `plates_inside`, `visit_at`, `add_claims` and
+  `read_evidence`. Search gains `attrs`, `SearchResult` gains
+  `pending`, and `ContractApp` is new. The App facade, `opennvr-app
+  dev` and the specs are listed separately. Two wheels claiming one
+  version with different public surfaces leave an app that calls
+  `nvr.stream()` with an AttributeError and no way to say what it
+  needed. `scaffold.sdk_requirement()` pins the floor from this
   string, and `installed_apps.sdk_version` records it per app.
+
 - **`build_frame_source("rtsp://…")` now returns a source instead of
   raising.** Behavioural change on a public function: an app that caught
   `FrameSourceError` to fall back to a snapshot URL now silently takes
   the RTSP path, which needs **ffmpeg on PATH in its image**. Older app
   images have no reason to have it.
+
+- **The facade now covers a whole app, not just its rule.** Every
+  surface that used to be a base-class method override — and so could be
+  *declared* through the facade but never *implemented* — has a
+  decorator that registers the manifest entry and the implementation
+  together: `@app.state` with `app.metric` / `gauge` / `table` / `log` /
+  `gallery` (all fourteen example apps declare a dashboard),
+  `@app.action`, `@app.ui`, `@app.on_license` (so a facade app can be a
+  paid app at all — `validate` errors on a licence gate with no
+  verifier), `@app.on_config`, `@app.on_setup`, `@app.on_shutdown`.
+  `app.store` is a plain dict merged into `GET /state`, so a counter and
+  one `app.metric(...)` are a complete dashboard.
+- **A rule can reach the platform and the bus.** `event.nvr` /
+  `app.nvr` is the `OpenNVR` client, built once from the app's own
+  config and credential and closed at shutdown; `event.snapshot()` is
+  this event's camera; `event.publish(schema, payload)` emits a
+  contracted domain event with the envelope, producer and correlation id
+  filled in, and `app.publishes(...)` puts it in the app's AsyncAPI
+  document.
+- **Rule filters can read operator config.** A decorator argument is
+  fixed at import, which made the config form useless for the one number
+  an app is about. `dwell="$dwell_s"` (or `setting("dwell_s")`) resolves
+  from the declared param at start-up.
+- **The hidden 0.35 confidence floor is gone.** A rule that declares no
+  `min_confidence` now sees every detection, so the only threshold in an
+  app is the one it wrote down.
+- **`config.yml` no longer has to restate what the deployment knows.**
+  `BaseAppConfig` reads `NATS_URL`, `OPENNVR_URL` and
+  `OPENNVR_INTERNAL_API_KEY` — which the app installer already exports
+  into every app container — so `nats_url` is optional and a config file
+  reduces to the app's own params. An explicit value in the file always
+  wins; an empty one is still an error.
+- **A scaffolded app sees events on a stock install.** Tier-0 is the
+  only detection stream on the bus out of the box, so an app that
+  ignored it registered, showed a green dot and fired nothing, forever.
+  `consume_tier0` is a real `BaseAppConfig` field now (setting it in
+  `config.yml` used to do nothing) and the facade turns it on by
+  default; `App(consume_tier0=False)` opts out.
+- **`opennvr-app dev` draws a stand-in polygon** for a zone the app
+  declares but nobody has configured, so the `zone=` example every
+  quickstart leads with is reproducible from `opennvr-app new`
+  (`--no-zones` to skip). A zone with no polygon in a real deployment
+  now logs one actionable warning per rule per camera instead of going
+  silent.
+- The scaffold template, its README and its smoke tests lead with the
+  facade, and `opennvr-app validate` discovers a facade app (its
+  manifest, compiled class and generated config class) alongside the
+  existing archetypes.
+
+- **An app runs only on the cameras selected in its own settings.**
+  Each app's form gains a Cameras section with a thumbnail picker.
+  Several apps can share a camera, and an app with none selected does
+  not run. The camera form refuses an assignment that names an
+  installed app (422). `GET /apps/{app_id}/cameras` and
+  `GET /cameras/{camera_id}/used-by` say who uses what. Zones,
+  tripwires and ROIs are drawn per camera from the camera card's Set up
+  dialog. (#482, #485)
+
+- **A camera's AI skills are the ones its apps bring.** Selecting
+  cameras for an enabled app adds the tasks its manifest declares
+  (`requires_tasks`, and the new soft `enrich_tasks`). Disabling or
+  unselecting removes them unless another app still brings them, and an
+  `all_cameras` app (the agent) covers every camera. The camera page's
+  Skills editor and `GET /cameras/assignable-skills` are removed; old
+  rows are retired at start-up. Captions, VQA, faces and plates now
+  switch on from the apps that need them. (#573)
+
+- **An app is configured on its own page, not in the catalog.** Every
+  app page has Configure at top right, a cameras card listing its
+  cameras and the skills it brings, and one "No camera selected" notice.
+  The catalog installs, enables and removes; its card's Configure
+  becomes Open & configure. (#555, #574)
+
+- **Footage Search 2.0 and the camera agent search the event store.**
+  The app's private SQLite index is deleted (`db_path`,
+  `retention_days` and the other index keys are gone; `opennvr_url` is
+  required). The agent's `search_footage` asks core and, when core is
+  unreachable, says it cannot tell rather than answer from a frozen
+  copy. `footage_index_path` is ignored with a warning. Reclaim the old
+  volume with `docker volume rm opennvr_footage_search_data`. (#504,
+  #524, #533, #534, #535, #536)
+
+- **Visit rows and the alert inbox now age out.** Visits, with their
+  text, embeddings and claims, follow the recordings window
+  (`EVENTS_RETENTION_DAYS` overrides it). The inbox keeps
+  `ALERTS_INBOX_RETENTION_DAYS` (90) under a row cap. Before, evidence
+  files were deleted but the rows that pointed at them stayed for ever.
+  Plate reads keep their `correlation_id`, which joins them to KAI-C's
+  audit log. (#571)
+
+- **The dashboard fits one screen and can be rearranged.** A pinned
+  health bar covers core, the media server, the AI engine, live events,
+  recording and storage. Below it is a widget grid: vitals, a live
+  camera wall (1/4/6/9 tiles, tour, spotlight, substream), open alarms,
+  camera status, host trend, footage per day and network IDS.
+  Customise mode drags, resizes, adds and removes widgets, and the
+  layout is saved per user in the browser. (#582)
+
+- **The interface was reworked across the app.** About 780 hard-coded
+  colours became theme tokens, so every screen works in the light
+  theme, and browser dialogs became themed modals. Seven irreversible
+  actions now ask first, and the sidebar is a drawer below 1024 px.
+  Sign-in, the top bar, the app headers, Search, Live View, Synced
+  Playback and Cameras share one panel style. The Live View overlay
+  button is now "Detections". (#580, #588, #604)
+
+- **PTZ needs the `ptz.control` permission.** Anyone who could watch a
+  camera could steer it; PTZ is now checked against `ptz.control`.
+  Upgrading grants it to every role that holds `live.view`, so no one
+  loses access. (#491)
+
+- **Home Assistant: alerts share the bridge's MQTT connection.** Alerts
+  to an MQTT integration used to open one broker connection per alert;
+  they now go through the discovery bridge's connection.
+  `/system/info` reports `relay_installed`, and the native integration
+  raises a repair ("alerts may appear twice") while
+  `home-assistant-relay` is enabled. (#578)
+
+- **ANPR's Gate Settings is a tab.** The camera roles were the last
+  section of a collapsed card below the register. They are now a tab
+  beside Plate reads and Vehicle register, opened by the "no camera is
+  reading plates" banner and the toolbar button. (#551)
+
+- **The Motion-gate tile says why it reads 0%.** A camera whose scene
+  never calibrates leaves the motion gate latched open. The tile now
+  reads "gate latched open on cam1 — no static background" instead of
+  an unexplained 0%. (#569)
+
+### Deprecated
+
+- **`examples/home-assistant-relay`.** It turns alerts into binary sensors
+  and nothing more. Both Home Assistant paths below cover it and much more.
+  It keeps working, and now logs a deprecation warning at start.
+
+### Removed
+
+- **The AI Engine page, ONVIF Tools page and Logs & Forensics menu
+  entry.** AI Engine was a browser-only mock-up; `/ai-engine` now
+  redirects to `/ai-adapters`. ONVIF Tools' server endpoints are
+  unchanged. Live View's Image Search opens Search. (#555, #588, #604)
 
 ### Fixed
 
@@ -270,241 +906,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   6–11 s between re-checks. Oldest-first bounds the wait at roughly
   tracks ÷ reserve frames for every track.
 
-### Deprecated
-
-- **`examples/home-assistant-relay`.** It turns alerts into binary sensors
-  and nothing more. Both Home Assistant paths below cover it and much more.
-  It keeps working, and now logs a deprecation warning at start.
-
-### Added
-
-- **A live-eval harness for the camera agent.** `tools/eval_harness.py`
-  runs a case file (`tools/eval_cases.yml`: the five cases in
-  `AGENT_DESIGN.md` plus multi-turn and past-tense ones) against a running
-  agent and scores, without an LLM judge, whether the right tool ran with
-  the right arguments, who chose it, what it created and where the reply
-  came from. Each case reports a pass rate and a model-only rate with a
-  95% interval over `--repeat` runs, grouped by router tier, and `--out`
-  writes the raw turns plus the model and router settings as JSON, so
-  runs are only compared when configured alike. `/health` now reports
-  `llm_temperature`, `llm_max_tokens` and the router settings for this.
-  Needs a real model, so it is not run in CI; it refuses to start without
-  `--throwaway`, since cases arm real alarms and clear the chat history.
-  It only ever deletes what a case created: a collection it cannot read
-  ends the case rather than reading as empty, a turn whose `/ask` failed
-  is still diffed and cleaned up, and what is left is confirmed by
-  reading back, not by the DELETE's status. Nothing from one case runs
-  into the next: a background task is waited for after the turn that
-  queued it (and what it creates is cleaned up), and a request that times
-  out, drops mid-response, or a task
-  that does not finish stops the run. A case whose expected item already
-  exists is not run, since the agent would reuse it. A tool call that
-  never ran, raised, answered "ERROR: …", or was a create that answered
-  with a question does not count as the right tool; each trace step now
-  says so in an `ok` field. Unquoted times in a YAML case file stay times
-  (YAML 1.1 would read `18:00` as 1080). Clock times match
-  by the agent's own parsing rules ("6pm" = "18:00", but "after 6pm" as
-  an `after` value does not, since the agent rejects it), and a window's
-  direction must agree ("before 18:00" is not "after 18:00").
-
-- **The camera agent's turn trace says who chose each tool.** Every tool
-  step in the trace `/ask` returns now carries `args` (as asked, before
-  the handler normalises them) and `by`: `model`, `router` or `forced`
-  (the anti-fabrication grounding, also marked in `detail`); a model
-  call to the tool a tier-1 router hint named is also marked `hinted`,
-  so an eval does not credit the model with a choice it was nudged to.
-  Traced arguments are bounded: strings at 500 characters, lists and
-  objects at 50 entries. A final `reply` step names where the answer
-  came from (`llm`, `tool_fallback`, `roster` or `none`). A malformed or
-  unregistered tool call — including arguments that arrive as a
-  non-empty list or a number — is now traced instead of vanishing; an
-  empty map sent as `[]` or `null` still runs. A `describe_camera` step
-  names how it was answered (`vlm`, `detector-fallback` or `no-frame`)
-  from that call alone, every path for a multi-camera call
-  (`detector-fallback+vlm`), and none for a call that raised, never ran
-  or named an unknown camera.
-  Each turn now owns its trace: a background task or scheduled report
-  running alongside a person's turn used to share one trace slot, so
-  tool steps — and the vision label — could land in the wrong turn.
-  `/ask` and `/converse` now return, and feed the latency medians from,
-  their own turn's trace, and a bare wake word no longer re-records the
-  previous turn's stages. Groundwork for the live-eval harness
-  (Discussion #607).
-
-- **ANPR scan mode: accurate, fast or auto, per camera.** The plate
-  sweep OCRs up to four looks per visit and writes only when two agree
-  — right for a gate, a minutes-long backlog on a road camera or a weak
-  CPU, where the ANPR app had already alarmed on the first read while
-  the Plates Read table stayed empty or late. The app's config form now
-  carries `scan_mode` (`accurate` | `fast` | `auto`) and per-camera
-  `scan_mode_overrides`; core's sweep reads them from the registry
-  (`services/plate_policy.py`). `fast` = first accepted read wins, two
-  looks at most, an 8 s re-sighting window, and the bus consumer writes
-  the read at once instead of deferring to the sweep. `auto` is
-  accurate while the sweep keeps up and fast while more visits are
-  waiting for OCR than the box can run at once
-  (`OPENNVR_PLATE_AUTO_BACKLOG`, default 3). Nothing changes for an
-  install that does not touch the form.
-
-- **Home Assistant.** OpenNVR now works with Home Assistant in two ways
-  ([docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)):
-  - a **native integration** plus its `pyopennvr` client library, under
-    `integrations/home-assistant/` and not yet on HACS or PyPI. It offers
-    cameras with WebRTC live view, controls, health sensors, alerts, the
-    media browser, actions, notifications (media relayed through Home
-    Assistant) and a dashboard card session;
-  - **built-in MQTT discovery**: the MQTT integration type now works. With
-    discovery on, it publishes the same devices and entities to Home
-    Assistant's MQTT integration and runs commands as the API token it is
-    bound to.
-
-  The core changes behind them:
-  - **API tokens** (`onvr_…`), limited by scopes, cameras and source
-    addresses. A token never passes as a superuser;
-  - correlation ids on requests and audit rows;
-  - `/system/info` and a versioned contract (`server/contract/`);
-  - camera stats, zones, live state, events WebSocket v2 with resume;
-  - signed media links, and entity descriptors with typed commands;
-  - site mode, search, PTZ presets and manual events;
-  - recording pause, behind a site flag that is off by default.
-  Design: `docs/design/home-assistant-integration.md`.
-
-- **Bounding boxes on the live view.** Tracked objects are outlined over
-  the video with their label, confidence and track id, one colour per
-  class, drawn client-side on a canvas over the player — the stream is
-  untouched and the recording stays clean. Toggled with a **Boxes**
-  button in the Live View toolbar (off by default; remembered per
-  browser). Live only. Behind it, Tier-0's per-frame tracks now reach
-  the browser at all: a new `tier0_track_consumer` bridges the NATS
-  `opennvr.inference.tier0.<cam>.completed` subject onto the in-process
-  bus as a `tracks` WebSocket event with boxes normalized to 0..1, and
-  those events are subject to the same per-camera entitlement as the
-  video. One shared socket serves every tile on the page.
-
-  Three controls, at three grains. **Viewer:** the Boxes button, per
-  browser. **Site:** `DETECTION_OVERLAY_ENABLED` (default on) gates the
-  bridge for every consumer at once and is logged with the boot posture.
-  **Per app:** apps can publish `overlay.boxes.v1` (SDK
-  `publish_overlay`) — plate outlines, zones — and the catalog shows an
-  Overlay switch for apps that declare it, off by default; the bridge
-  forwards an app's boxes only when that switch is on. The camera-agent
-  demo draws the same boxes over its own player (Boxes button on the
-  camera screen): the agent consumes core's `/events/ws` as a platform
-  service — so the site switch, each app's permission and the box maths
-  are decided in exactly one place — and re-scopes every frame to the
-  viewer's own cameras before it reaches the page. `POST
-  /events/ws-ticket` now mints an unscoped *service* ticket for the
-  `INTERNAL_API_KEY`; user tickets are unchanged and an app key is
-  refused.
-
-### Added
-
-- **App SDK: the `App` facade — apps in one function.** Writing a first
-  app required knowing about NATS subjects, inference envelopes,
-  normalized bboxes, alert dispatchers and keyed TTL state before
-  writing a line of the rule. `App` collapses that into a declaration
-  and a decorated function:
-
-  ```python
-  app = App("driveway-watch", name="Driveway Watch", category="perimeter")
-
-  @app.on_detection("person", zone="driveway", dwell=30)
-  def loitering(event):
-      event.alert(f"Person loitering on {event.camera}", severity="high")
-  ```
-
-  The facade owns the manifest (a `zone=` anywhere adds the per-camera
-  zone editor the catalog renders), the config dataclass (from
-  `app.param(...)`, so `config.yml` and `event.config` cannot drift),
-  per-detection fan-out, `dwell=`/`cooldown=` keyed per
-  camera/label/track, and an `event.alert()` that fills in camera,
-  correlation id, label, confidence, track, zone and dwell.
-  `@app.on_event()` is the whole-frame escape hatch; `@app.on_setup()`
-  runs once with the parsed config.
-
-  It is additive: `App.detector_class()` compiles to an ordinary
-  `Detector`, so the process, the manifest, the alerts and the contract
-  surface are unchanged, and `Detector`, `FrameApp`, `AlertSubscriber`
-  and `DomainEventSubscriber` remain the documented path for rules that
-  outgrow the decorators. Every app already in the catalog keeps working
-  without a change.
-
-- **`opennvr-app dev` — run an app against a simulated camera.** Between
-  `opennvr-app new` and a working stack there used to be Docker, a NATS
-  broker, a KAI-C adapter and a real camera, which is a long way to go
-  to find out whether a rule fires. `opennvr-app dev` walks a simulated
-  object across the frame in-process and prints the alerts as they fire,
-  annotating zone entry and exit, with `--label`, `--camera`, `--rate`,
-  `--count`, `--still` and `--fast`. It drives the same `handle_event`
-  path a real subscription uses, so what fires there fires in
-  production. Works for facade apps and for plain `Detector` apps alike.
-
-- **Every app now self-describes in OpenAPI 3.1 and AsyncAPI 3.0.** Core,
-  KAI-C and the AI adapters are FastAPI and have always published
-  OpenAPI at `/openapi.json`; the two surfaces that had no machine-
-  readable spec were the app contract server (a stdlib HTTP server) and
-  the event bus (not HTTP at all). Both are now generated from the app's
-  own `AppManifest`, so they cannot drift from the app: a declared
-  `Action` is a `POST /actions/{name}` path with a typed request body, a
-  declared `Param` is a JSON Schema (with `x-opennvr-ui` for the
-  catalog's geometry types), `has_ui` adds `GET /ui`, and
-  `entitlement: license_key` adds `POST /entitlement/verify`. The
-  contract server serves them at `/openapi.json` and `/asyncapi.json`,
-  and `opennvr-app spec [--format asyncapi] [--yaml] [-o FILE]` prints
-  them without running the app. Every example app in this repository
-  generates a document that passes `openapi-spec-validator`.
-
-- **A published API reference — [opennvr.org/sdk](https://opennvr.org/sdk).**
-  mkdocs-material + mkdocstrings, so the site *is* the docstrings: there
-  is no second copy of the API to keep current. `make sdk-site` builds
-  it, `make sdk-site-serve` serves it with live reload. Alongside the
-  generated reference it carries a quickstart, a concepts page (the four
-  archetypes and how to pick one), six guides (rules, platform,
-  surfaces, events, testing, selling), the cookbook index, the specs
-  page and the licensing statement.
-
-- **The SDK's 98 exports now have a documented front door.**
-  `opennvr_app_sdk.API_TIERS` orders the public surface into seven tiers
-  — front door (six names, the whole of a first app), archetypes, rules,
-  platform, surfaces, events, config — and `__all__` is *assembled from
-  it*, so the tiers cannot fall out of step with the exports. The site's
-  navigation and its reference pages are generated from the same tuples
-  by `scripts/gen_reference.py`. `tests/test_public_api.py` fails on a
-  name in two tiers, in none, reachable but untiered, or exported
-  without a docstring; `tests/test_docs_site.py` fails on a stale
-  generated page, a dead nav link, an orphaned page or a broken code
-  snippet.
-
-- **A runnable example per SDK class** —
-  [`sdk/opennvr-app-sdk/cookbook/`](sdk/opennvr-app-sdk/cookbook/), 19
-  files covering `App`, `Detector`, `FrameApp`, `AlertSubscriber`,
-  `DomainEventSubscriber`, `OpenNVR`, `AsyncOpenNVR`, `EventsClient`,
-  `InferStream`, `ContractServer`, `DomainEventPublisher`, Tier-0,
-  `keyed_state` / `Zone` / `Tripwire`, alerts and channels, the
-  manifest's full vocabulary, selling an app, credentials and the
-  roster, egress, and the testing helpers. Each says in its docstring
-  what it demonstrates, and every one is imported and exercised by
-  `tests/test_cookbook.py` — an example that references a name the SDK
-  no longer exports fails in CI rather than misleading a reader.
-
-- `AlertDispatcher.channels` — a read-only view of the delivery chain,
-  for tests and for a "where do my alerts go?" state view.
-
-- **[API_STANDARDS.md](docs/API_STANDARDS.md)** — the map of every API
-  surface and the open specification that describes it, including what
-  is deliberately *not* adopted and why.
-
-- **Licensing is now legible from inside the SDK package.**
-  `sdk/opennvr-app-sdk/LICENSING.md` and a `NOTICE` state the app
-  boundary — an app talks to the AGPL core over NATS and HTTP and never
-  links it, so a closed app carries no AGPL obligation — and both are
-  installed with the wheel rather than living only on GitHub.
-
-### Fixed
-
 - **A `zone=` rule could never fire once an operator drew the zone.** The
   facade invented a config shape (`zones: {driveway: [...]}`) that core's
-  config validator rejects and the catalog's geometry editor cannot
+  config validator rejects and the app page's zone editor cannot
   produce. The platform's shape for a per-camera `geometry.polygon` param
   is `{camera_id: [[x, y], …]}` — one polygon per param — so each
   `zone="driveway"` now declares **its own param named `driveway`**,
@@ -549,55 +953,78 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `entitlement`, …) to `App(...)` silently lost it; it is now refused
   with a pointer to the decorator that owns it.
 
-### Changed
+- **Core starts when an optional variable is empty (#547).** Compose
+  passes an unset `${VAR:-}` as an empty string. Pydantic refused that
+  for a bool, so core died at import and never became healthy. An empty
+  value now falls back to the setting's default, and a required secret
+  left empty still gets its own message. `.env.example` documents all
+  six enrichment flags. (#548)
 
-- **The facade now covers a whole app, not just its rule.** Every
-  surface that used to be a base-class method override — and so could be
-  *declared* through the facade but never *implemented* — has a
-  decorator that registers the manifest entry and the implementation
-  together: `@app.state` with `app.metric` / `gauge` / `table` / `log` /
-  `gallery` (all fourteen example apps declare a dashboard),
-  `@app.action`, `@app.ui`, `@app.on_license` (so a facade app can be a
-  paid app at all — `validate` errors on a licence gate with no
-  verifier), `@app.on_config`, `@app.on_setup`, `@app.on_shutdown`.
-  `app.store` is a plain dict merged into `GET /state`, so a counter and
-  one `app.metric(...)` are a complete dashboard.
-- **A rule can reach the platform and the bus.** `event.nvr` /
-  `app.nvr` is the `OpenNVR` client, built once from the app's own
-  config and credential and closed at shutdown; `event.snapshot()` is
-  this event's camera; `event.publish(schema, payload)` emits a
-  contracted domain event with the envelope, producer and correlation id
-  filled in, and `app.publishes(...)` puts it in the app's AsyncAPI
-  document.
-- **Rule filters can read operator config.** A decorator argument is
-  fixed at import, which made the config form useless for the one number
-  an app is about. `dwell="$dwell_s"` (or `setting("dwell_s")`) resolves
-  from the declared param at start-up.
-- **The hidden 0.35 confidence floor is gone.** A rule that declares no
-  `min_confidence` now sees every detection, so the only threshold in an
-  app is the one it wrote down.
-- **`config.yml` no longer has to restate what the deployment knows.**
-  `BaseAppConfig` reads `NATS_URL`, `OPENNVR_URL` and
-  `OPENNVR_INTERNAL_API_KEY` — which the app installer already exports
-  into every app container — so `nats_url` is optional and a config file
-  reduces to the app's own params. An explicit value in the file always
-  wins; an empty one is still an error.
-- **A scaffolded app sees events on a stock install.** Tier-0 is the
-  only detection stream on the bus out of the box, so an app that
-  ignored it registered, showed a green dot and fired nothing, forever.
-  `consume_tier0` is a real `BaseAppConfig` field now (setting it in
-  `config.yml` used to do nothing) and the facade turns it on by
-  default; `App(consume_tier0=False)` opts out.
-- **`opennvr-app dev` draws a stand-in polygon** for a zone the app
-  declares but nobody has configured, so the `zone=` example every
-  quickstart leads with is reproducible from `opennvr-app new`
-  (`--no-zones` to skip). A zone with no polygon in a real deployment
-  now logs one actionable warning per rule per camera instead of going
-  silent.
-- The scaffold template, its README and its smoke tests lead with the
-  facade, and `opennvr-app validate` discovers a facade app (its
-  manifest, compiled class and generated config class) alongside the
-  existing archetypes.
+- **A process that dies at start-up says so in `docker logs`.** The core
+  container now copies each supervised program's stderr (backend and
+  KAI-C) to its own output, tagged. Before, the cause sat in a log file
+  inside the container. (#549)
+
+- **Images install what the lock file says.** The core and KAI-C builds
+  never copied `uv.lock`, and `|| uv sync` quietly resolved the newest
+  of everything. SQLAlchemy 2.1 then switched `postgresql://` to psycopg
+  3, which is not installed, and core crash-looped. The lock is now
+  copied and enforced, and `postgresql://` is pinned to
+  `postgresql+psycopg2://`. (#555, #557)
+
+- **KAI-C reports every registered adapter.** `/capabilities` and
+  `/adapters/health` read a static one-entry table, so core saw one
+  adapter however many were registered, and caption and descriptor
+  enrichment never ran. Both now read the live registry and return
+  error rows for unreachable adapters. They also stop making one
+  blocking request per adapter. (#563)
+
+- **Silent failures in KAI-C and enrichment are now reported.** KAI-C's
+  audit log was dropped on a stock image (`/var/log/opennvr` was not
+  writable); the entrypoint now creates it, and a failed write is
+  reported once at ERROR. A deferred adapter registration that keeps
+  failing logs a WARNING. Enrichment warns, naming the camera, when it
+  skips a visit because no app brings the skill. (#565, #567)
+
+- **A site key that starts with a digit no longer stops the bus.**
+  nats-server read `$INTERNAL_API_KEY` as a number and refused to
+  start, so core never came up. Compose now passes the key quoted, and
+  no rotation is needed. (#575)
+
+- **Installing an app no longer prints "pull access denied".** Services
+  built from the checkout carry `pull_policy:
+  ${APPS_PULL_POLICY:-build}`. Digest-pinned installs set `missing`
+  and still pull. (#576)
+
+- **Live view closes its WebRTC sessions.** Teardown requests went to
+  core and got 405 instead of going through the `/webrtc` proxy, so
+  MediaMTX kept each session until ICE timed out. (#487)
+
+- **Recordings with G.711 audio play, in Firefox too, and across
+  files.** H.264 with audio other than AAC or Opus is now remuxed
+  video-only, as H.265 already was. The remux declares its real frame
+  size, which Firefox needs, and playback no longer loops at the end of
+  the first file. Docs now say to set `MEDIAMTX_WEBRTC_HOSTS` without
+  `start.sh`. The unused Transcoding settings are disabled. (#600, #605)
+
+- **ANPR overstay alerts survive a restart.** The app kept who was
+  inside in memory, so a vehicle that entered before a redeploy could
+  never overstay. It now asks core, which returns entry times, and
+  records what it has already announced, so a restart neither loses
+  nor repeats an alert. (#537)
+
+- **A still from a recording no longer fails with 502.**
+  `/recordings/frame` and the camera agent's copy call ffmpeg, which
+  the core image never installed. It is now installed. (#491)
+
+- **Network settings show what was saved.** The LAN and Uplink forms
+  opened blank, so saving wrote blanks. The Cameras search box now
+  filters (`GET /cameras/?q=`). `GET /ai-model-management/inference/running`
+  and `GET /ai-models/adapters-metrics` no longer answer 500. (#588)
+
+- **`apps.view` can be granted from the API token form.** The server
+  enforced the scope on app entities, but the form had no checkbox for
+  it. (#523)
 
 ## [0.1.5] — 2026-09-10
 
