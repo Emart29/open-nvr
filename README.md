@@ -4,7 +4,9 @@
 
 ### Your cameras. Your hardware. Your AI. Your audit.
 
-**OpenNVR is open-source video infrastructure for organisations and people who cannot hand their cameras to a vendor.** It records and streams like any NVR, puts any AI model you choose behind the cameras, ships ready-made applications, and lets you write your own — on hardware you own, air-gapped if you need, with every inference audited.
+**The open platform for AI on your cameras — new capabilities arrive as software, not new boxes.**
+
+OpenNVR is open-source video infrastructure for organisations and people who cannot hand their cameras to a vendor. It records and streams like any NVR, puts any AI model you choose behind the cameras, ships ready-made applications, and lets you write your own — on hardware you own, air-gapped if you need, with every inference audited.
 
 [![CI](https://github.com/open-nvr/open-nvr/actions/workflows/ci.yml/badge.svg)](https://github.com/open-nvr/open-nvr/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
@@ -17,6 +19,14 @@
 </div>
 
 ---
+
+## Why OpenNVR
+
+- **Any camera.** ONVIF and RTSP cameras from any vendor, an Android phone, or the machine's own webcam.
+- **Any AI model.** One open contract: swap the detector, add plate reading or a vision-language model, and nothing else changes.
+- **Local by default.** Recording, AI and the assistant run on your hardware. Cloud models are opt-in and audited.
+- **Ready for air-gapped sites, and for what still reaches them.** Runs fully offline, can keep the cameras on a network with no route out, and traces every alert to the model weights that produced it.
+- **Build AI applications for your cameras.** Two Apache-2.0 SDKs: an app is your rule on the platform's events, an adapter is your model behind the contract. [Your first app](docs/FIRST_DETECTOR.md) · [your first adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter).
 
 ## Get it running
 
@@ -61,6 +71,12 @@ Dashboard · Live view · Search · App Catalog · Vehicles (ANPR). The dark and
 
 ## What OpenNVR is
 
+**The NVR was built to record. Now recording is where it starts.**
+
+- An NVR's features are fixed the day you buy it. OpenNVR's arrive as apps and models, installed in one click on the same box.
+- An NVR's AI means the vendor's cloud or a new appliance. OpenNVR runs any model on your hardware.
+- An NVR asks you to trust the vendor. OpenNVR shows you the audit log, the model fingerprints and the evidence pack.
+
 Three things in one install, each usable on its own.
 
 1. **A complete NVR.** ONVIF and RTSP cameras in, recording and live view out, a detector always on. Works on day one with no AI configured at all.
@@ -77,8 +93,9 @@ pip install opennvr-adapter-sdk    # write an adapter: your model as a first-cla
 Governments, defence, critical infrastructure, healthcare and schools share one constraint: the footage, the models and the decisions must stay inside the perimeter and be explainable afterwards. Most camera software is built the other way round, with the vendor's cloud holding the keys. OpenNVR is built for the constraint.
 
 - **Nothing leaves unless you open the door.** Two independent default-deny gates, `DEPLOYMENT_MODE=offline` and `AI_SOVEREIGNTY=local_only`, return HTTP 403 to every cloud route and every non-local model until an operator opts in. Apps reach the outside world only through an egress proxy on an allowlist an administrator approved.
-- **The camera network is isolated by architecture.** Cameras, the middleware gateway and the analytics layer are separate planes. Camera credentials are encrypted at rest. Video leaves the host only over RTSPS.
-- **Every inference is auditable.** One correlation id runs from the alert that fired, through the gateway that proxied it, to the model that answered. Model weights are fingerprinted and polled for drift. The audit log answers "why did this alert fire" without guesswork.
+- **Offline is one door, not all of them.** Air-gapped systems are still reached by USB sticks, contractor laptops, insiders, tampered models and plug-ins that phone home. Per-camera permissions, MFA and an append-only audit log answer the first three; fingerprinted models with declared permissions the fourth; a credential per app and an egress allowlist the last.
+- **The camera network can stay dark.** In dual-NIC mode, offered by `start.sh` and laid out in the [reference appliance](docs/REFERENCE_APPLIANCE.md), the cameras sit behind one network card with no gateway and no route out, and operators, the phone app, alerts and updates reach OpenNVR on the other. The installer can add a firewall rule that drops forwarding between the two. Camera credentials are encrypted at rest, and video leaves the host only over RTSPS.
+- **You can prove which model made every decision.** Every model registers with the SHA-256 of its weights, re-checked every minute: a change raises a critical alert and an audit entry, and a model that asks for a new permission stops serving until an operator approves it again. One correlation id runs from the alert, through the gateway, to the model and the exact weights that answered. A hash proves the weights did not change after you approved them, not that they were clean when you did; that is what declared permissions, the default-deny network policy and fine-tuning on your own footage are for.
 - **Procurement can check it.** A §889 covered-vendor self-check is built in. The architecture is a peer-citable paper ([DOI 10.5281/zenodo.22804254](https://doi.org/10.5281/zenodo.22804254)); this repository is its reference implementation.
 - **The sensitive part can stay sensitive.** Fine-tuned weights you cannot share, detection logic that is itself operationally sensitive, adapters under a classified licence: the Apache-2.0 SDK lets them run on the platform without ever being published.
 
@@ -110,7 +127,7 @@ Detection using too much CPU is almost always video decode, not the model. Store
 - `opennvr-app new my-app`, edit one method, run the tests, point it at the stack. [Your first detector in 15 minutes](docs/FIRST_DETECTOR.md).
 - An adapter is about thirty lines around your model. [Write your own adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter).
 - **Publishing is optional.** An app or adapter you write runs on your site with no obligation to list it anywhere. If you do list it in the App Catalog, you keep the copyright, your name is on the card, OpenNVR takes no fee, and you can sell what the code needs through the built-in licence hook. [The deal for developers](docs/DEVELOPER_PROGRAM.md).
-- **Fine-tune what ships.** Every reference model is a swap away from your own weights: point the adapter at your fine-tune, or train one and keep it private.
+- **Fine-tune what ships.** Every reference model is a swap away from your own weights: point the adapter at your fine-tune, or train one and keep it private. Not accurate enough on your site and no time to train? [We fine-tune it on your footage, on your hardware](mailto:contact@opennvr.org).
 
 ## How it fits together
 
