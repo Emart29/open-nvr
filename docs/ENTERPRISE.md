@@ -34,10 +34,11 @@ follows to get them all; the evidence pack below proves them.
 against [REFERENCE_APPLIANCE.md](REFERENCE_APPLIANCE.md), install on
 your network, and hand over with the hardening checklist complete and
 the first evidence pack all-pass. Air-gapped installs are the normal
-case, not the exception — images arrive on media, signatures are
-verified offline with `INSTALLER_SIGNATURES` set knowingly, and the
-[apps-index pinning](APPS_INSTALL.md#image-signing) is done before
-the media is cut.
+case, not the exception — images arrive on media, the
+[apps-index pinning](APPS_INSTALL.md#image-signing) and the signature
+checks are done before the media is cut (the Sigstore log is out of
+reach afterwards), and the site runs with `INSTALLER_SIGNATURES=off`
+set knowingly.
 
 **The compliance evidence pack.** Generated from your deployment by
 `scripts/evidence_pack.py` (below), reviewed and annotated by us
