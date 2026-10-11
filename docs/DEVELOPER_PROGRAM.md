@@ -155,7 +155,7 @@ closed code in the catalog. Ship that as an external listing.
 
 | Core | `api_version` | Minimum SDK | Notable |
 |---|---|---|---|
-| main (Sep 2026) | 1.4 | 0.2.0 | enforced egress: `egress` on the app record, `GET`/`PUT /apps/{id}/egress`, `opennvr_app_sdk.egress`; signed images, verified at install (`signed_by` on index entries); SDK 0.6 (unreleased): `opennvr_app_sdk.testing`, typed domain events, `opennvr-app validate`, async `ai.stream()` |
+| 0.1.5 – 0.1.6 | 1.4 | 0.2.0 | enforced egress: `egress` on the app record, `GET`/`PUT /apps/{id}/egress`, `opennvr_app_sdk.egress`; signed images, verified at install (`signed_by` on index entries); SDK 0.5.0 (with 0.1.5): `opennvr_app_sdk.testing`, typed domain events, `opennvr-app validate`, async `ai.stream()` |
 | main (Sep 2026) | 1.3 | 0.2.0 | `X-OpenNVR-Call`: core proves itself per app; the site key no longer reaches apps on SDK ≥ 0.6 |
 | 0.2.x line | 1.2 | 0.2.0 | per-app keys, user context, platform client, entitlements, async client, `opennvr-app new` |
 | 0.1.4 | 1.0 | — | registry contract: register, config, state, actions |
