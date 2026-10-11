@@ -308,7 +308,7 @@ to a release window. Pull requests and design discussions are welcome.
   network; the egress proxy allows declared + operator-allowed hosts,
   refusals in the inbox — `docs/APP_NETWORK.md`). Still open: install
   counts (opt-in, aggregate) and a showcase page. SDK toward 1.0
-  (on main, unreleased until QA signs off 0.5.0): `opennvr_app_sdk.testing`
+  (published in 0.5.0, extended in 0.7.0 with OpenNVR 0.1.6): `opennvr_app_sdk.testing`
   (recorder, event builders, `feed`, `FakeCore`, pytest fixtures), the
   v1 domain events as typed classes, `opennvr-app validate`, async
   `ai.stream()`.
