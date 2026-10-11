@@ -313,3 +313,47 @@ def test_the_weights_images_are_not_expected_in_the_app_matrix():
         assert name not in built, (
             f"{name} is a weights image, not an app — it is built by its "
             "own workflow, not the app-image smoke")
+
+
+# The same drift one step later. The smoke matrix proves an image BUILDS;
+# publish-app-images is what PUSHES it, and it keeps its own enumerated
+# list. guard-scan-compliance reached the catalog (apps_index.yml points
+# at ghcr.io/open-nvr/guard-scan-compliance) and shipped in 0.1.6 without
+# a publish row, so the image never existed and installing the app from
+# the catalog failed on the pull.
+
+PUBLISH_WORKFLOW = REPO_ROOT / ".github/workflows/publish-app-images.yml"
+APPS_INDEX = REPO_ROOT / "server/config/apps_index.yml"
+
+
+def _publish_matrix_apps() -> set[str]:
+    import re
+
+    text = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+    return set(re.findall(r"\{\s*app:\s*([A-Za-z0-9._-]+)", text))
+
+
+def _catalog_ghcr_apps() -> set[str]:
+    """Catalog entries whose image is published to the org's GHCR."""
+    import re
+
+    text = APPS_INDEX.read_text(encoding="utf-8")
+    return set(re.findall(r"^\s+image:\s*ghcr\.io/open-nvr/([a-z0-9._-]+)[:@]",
+                          text, re.MULTILINE))
+
+
+def test_every_catalog_image_has_a_publish_row():
+    missing = sorted(_catalog_ghcr_apps() - _publish_matrix_apps())
+    assert not missing, (
+        f"{missing} are listed in apps_index.yml with a ghcr.io/open-nvr "
+        "image that no workflow publishes, so installing them from the "
+        "catalog fails on the pull. Add a matrix row to "
+        ".github/workflows/publish-app-images.yml.")
+
+
+def test_the_publish_matrix_has_no_stale_rows():
+    existing = {p.name for p in EXAMPLES.iterdir() if p.is_dir()}
+    stale = sorted(app for app in _publish_matrix_apps() if app not in existing)
+    assert not stale, (
+        f"{stale} appear in the publish matrix but examples/<name> "
+        "does not exist")

@@ -77,6 +77,7 @@ jobs:
           - { app: alert-notifier,             title: Alert Notifier }
           - { app: footage-search,             title: Footage Search }
           - { app: gate-controller,            title: Gate Controller }
+          - { app: guard-scan-compliance,      title: Guard Scan Compliance }
           - { app: home-assistant-relay,       title: Home Assistant Relay }
           - { app: intrusion-detection,        title: Intrusion Detection }
           - { app: license-plate-recognition,  title: License Plate Recognition }
