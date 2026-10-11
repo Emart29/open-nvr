@@ -88,6 +88,14 @@ dual-homed host.
   only the hosts their listing declared or the operator allowed
   ([APP_NETWORK.md](APP_NETWORK.md)). Updates arrive as pulled images
   through the management VLAN's egress proxy, or by sneakernet.
+* **Sealed or connected**: giving the management VLAN internet access
+  (remote operators over the VPN, phone alerts, pulled updates) is a
+  supported mode. It changes nothing on the camera VLAN: no gateway,
+  the forward-drop rule from `scripts/apply-camera-vlan-hardening.sh`,
+  nginx bound to NIC 2 only, and the two gates above still refusing
+  cloud routes until an operator opts in. What it adds is exposure of
+  the appliance itself on the management side: keep it behind the
+  site firewall, reach it through the VPN, never port-forward 443.
 
 Ports the appliance exposes, and to whom:
 
