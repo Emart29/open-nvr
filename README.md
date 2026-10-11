@@ -105,6 +105,13 @@ The procurement brief is [`docs/GOVERNMENT_DEPLOYMENT.md`](docs/GOVERNMENT_DEPLO
 
 AI capability is arriving faster than any hardware refresh cycle. A camera system that needs a new appliance for each new capability will always be a generation behind. In OpenNVR a new capability is software.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="data/images/svg/opennvr-new-capability-dark.svg">
+  <img src="data/images/svg/opennvr-new-capability-light.svg" alt="A new capability is software, not a new box. A new model is released; it becomes an adapter on your existing OpenNVR box, where its weights are fingerprinted, its permissions declared and the local-only policy applied; an app in the App Catalog is installed and puts it to work; your people get the result as an alert on their phone. Recording runs the whole time, and a new appliance is crossed out." width="100%">
+</picture>
+
+A new model, an adapter, an app, an alert, on the box you already have. The fall-alert app is an illustration; the other tiles are apps that ship today.
+
 - **A new model is an adapter, not a device.** Swap the detector, add plate reading, add a vision-language model, upgrade to this month's weights: each is a container registered with the gateway, hot-swappable and fingerprint-tracked, on the box you already have.
 - **The always-on detector is deliberately cheap.** Tier-0 scans the camera's substream at a low frame rate and wakes the expensive models only when something is worth a closer look. That gate is why a mini-PC carries a whole site: the heavy models run on seconds of footage per hour, not all of it.
 - **It adapts to the box it finds.** A smaller machine runs the same software with the heavier capabilities switched off; turning one on is a decision, never a surprise.
