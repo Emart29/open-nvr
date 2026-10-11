@@ -38,8 +38,8 @@ The headline work, at a glance — every entry is below:
   says "not yet" instead of "no".
 - **Apps became products,** each with its own page, configured there
   rather than in the catalog, running only on the cameras picked for it.
-- **Home Assistant, two ways:** a native integration and built-in MQTT
-  discovery.
+- **Home Assistant:** built-in MQTT discovery now; a native integration
+  built and tested, installable once `pyopennvr` is on PyPI.
 - **Detections on the live view,** one box per object.
 - **A faster, measured camera agent:** simple questions routed before the
   model, quicker CPU turns, Pipecat 1.12, `qwen3:1.7b` on 4-core CPUs.
