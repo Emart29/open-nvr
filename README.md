@@ -26,6 +26,7 @@ OpenNVR is open-source video infrastructure for organisations and people who can
 - **Any AI model.** One open contract: swap the detector, add plate reading or a vision-language model, and nothing else changes.
 - **Local by default.** Recording, AI and the assistant run on your hardware. Cloud models are opt-in and audited.
 - **Ready for air-gapped sites, and for what still reaches them.** Runs fully offline, can keep the cameras on a network with no route out, and traces every alert to the model weights that produced it.
+- **Works with Home Assistant.** Cameras, zones and apps appear as devices through MQTT discovery, with nothing to install in Home Assistant.
 - **Build AI applications for your cameras.** Two Apache-2.0 SDKs: an app is your rule on the platform's events, an adapter is your model behind the contract. [Your first app](docs/FIRST_DETECTOR.md) · [your first adapter](https://github.com/open-nvr/ai-adapter#write-your-own-adapter).
 
 ## Get it running
@@ -175,6 +176,12 @@ The three-tier model, the wire contracts and the offline-first design are in [`d
 | [`home-assistant-relay`](examples/home-assistant-relay) | *Deprecated*: Home Assistant support is [built in](docs/HOME_ASSISTANT_USER_GUIDE.md); kept as a small NATS-to-MQTT bridge example |
 
 Fourteen of the sixteen shipped examples are listed above; [`inference-listener`](examples/inference-listener) and [`alerts-subscriber`](examples/alerts-subscriber) are minimal subscriber templates. Every app is a copy-as-template starting point. Replace the predicate and you have a purpose-built NVR for your domain. Gallery and roadmap: [`examples/README.md`](examples/README.md), [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Works with Home Assistant
+
+Turn on MQTT discovery and OpenNVR appears in Home Assistant's own MQTT integration, with nothing to install there: one device for the server, one per camera, one per zone, and one per app that declares entities. You get motion, detection and recording switches, last object and last plate, object counts, PTZ buttons, the site mode as an alarm panel, and an event entity that fires on every detection and alert, ready for automations.
+
+Everything runs as an OpenNVR API token you choose. Home Assistant sees the cameras that token may see and can do only what it may do, and every command lands in the audit log. Setup is four steps: [the Home Assistant guide](docs/HOME_ASSISTANT_USER_GUIDE.md). A native integration that adds live video, the media browser and phone notifications with the picture is built and tested; it becomes installable once its `pyopennvr` client is published on PyPI.
 
 ## Talk to your cameras
 
