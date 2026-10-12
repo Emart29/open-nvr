@@ -35,6 +35,9 @@ type AuthState = {
   loading: boolean
   error: string | null
   setupRequired: boolean
+  // The pending admin account's username (DEFAULT_ADMIN_USERNAME), from
+  // check-setup. The setup form must submit this name, not assume 'admin'.
+  setupUsername: string | null
 }
 
 type AuthContextType = AuthState & {
@@ -72,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>(() => {
     const saved = localStorage.getItem(TOKEN_KEY)
     if (saved) apiSetToken(saved)
-    return { user: null, token: saved, loading: true, error: null, setupRequired: false }
+    return { user: null, token: saved, loading: true, error: null, setupRequired: false, setupUsername: null }
   })
 
   // Bootstrap: check-setup and /me used to run serially, blanking the app for
@@ -86,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ])
 
       if (setupRes.status === 'fulfilled' && setupRes.value.data.setup_required) {
-        setState((s) => ({ ...s, setupRequired: true, loading: false }))
+        setState((s) => ({ ...s, setupRequired: true, setupUsername: setupRes.value.data.username ?? null, loading: false }))
         return
       }
 
@@ -122,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setDeviceToken(data.device_token)
       setToken(token, refreshToken)
       const me = await apiService.me()
-      setState({ user: me.data, token, loading: false, error: null, setupRequired: false })
+      setState({ user: me.data, token, loading: false, error: null, setupRequired: false, setupUsername: null })
     } catch (e: any) {
       const payload = getErrorPayload(e)
       const detail = payload?.message || e?.data?.detail || ''
@@ -174,7 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     setToken(null, null)
-    setState({ user: null, token: null, loading: false, error: null, setupRequired: false })
+    setState({ user: null, token: null, loading: false, error: null, setupRequired: false, setupUsername: null })
   }, [setToken])
 
   const refreshUser = useCallback(async () => {
@@ -191,7 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkSetupStatus = useCallback(async () => {
     try {
       const { data } = await apiService.checkSetup()
-      setState((s) => ({ ...s, setupRequired: data.setup_required }))
+      setState((s) => ({ ...s, setupRequired: data.setup_required, setupUsername: data.username ?? null }))
       return data.setup_required
     } catch (e) {
       return false

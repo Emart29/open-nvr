@@ -285,7 +285,21 @@ def create_initial_data():
             "qwerty",
         })
 
-        if not admin_user:
+        # Never bootstrap a second admin next to an existing one; see the
+        # matching guard in main.py's startup re-seed (#632).
+        has_superuser = (
+            db.query(User.id)
+            .filter(User.is_superuser.is_(True), User.is_active.is_(True))
+            .first()
+            is not None
+        )
+
+        if not admin_user and has_superuser:
+            print(
+                f"Configured admin {settings.default_admin_username!r} not found; "
+                "an active superuser already exists, so none was created."
+            )
+        elif not admin_user:
             initial_password = settings.default_admin_password
             if initial_password and initial_password.lower() in KNOWN_BAD_PASSWORDS:
                 # Loud, explicit refusal. Print to stderr so the operator
