@@ -18,8 +18,11 @@ and any OpenAI-compatible endpoint, with schema-constrained output::
         )
         decision = result.json()["decision"]
 
-The loop, tools, decisions and limits land in later changes; see the
-design note on #620.
+The read tools' model-facing definitions (names, descriptions, argument
+schemas) live here too, in :mod:`.tool_definitions`, so the camera agent
+and core's workflow engine advertise the same text; each implements the
+handlers itself. The loop, decisions and limits land in later changes;
+see the design note on #620.
 """
 from __future__ import annotations
 
@@ -35,8 +38,10 @@ from .llm import (
     OpenAIChat,
     ToolCall,
 )
+from .tool_definitions import READ_TOOL_NAMES, build_tool_definitions
 
 __all__ = [
+    "READ_TOOL_NAMES",
     "ChatResult",
     "LLMClient",
     "LLMError",
@@ -47,4 +52,5 @@ __all__ = [
     "OllamaChat",
     "OpenAIChat",
     "ToolCall",
+    "build_tool_definitions",
 ]
