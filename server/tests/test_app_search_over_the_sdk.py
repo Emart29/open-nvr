@@ -53,6 +53,7 @@ from core.config import settings  # noqa: E402
 from core.database import Base, get_db  # noqa: E402
 from models import Camera, EventText, Role, TimelineEvent, User  # noqa: E402
 from routers import app_platform  # noqa: E402
+from services.timeline_service import TRACK  # noqa: E402
 
 opennvr_app_sdk = pytest.importorskip("opennvr_app_sdk")
 from opennvr_app_sdk.client import TimelineAPI, _Http, query_string  # noqa: E402
@@ -84,8 +85,12 @@ def timeline():
     db.commit()
 
     def _visit(cam, caption, attributes, *, minutes=0, plate=None, label="truck"):
+        # TRACK, never a hand-typed "visit": the event type core writes is
+        # what resolve_visit matches (see TRACK in timeline_service). This
+        # suite was skipped until core depended on the SDK, so the stale
+        # "visit" here went unnoticed.
         row = TimelineEvent(
-            camera_id=cam, label=label, event_type="visit", source="tier0",
+            camera_id=cam, label=label, event_type=TRACK, source="tier0",
             started_at=_T0 + timedelta(minutes=minutes),
             ended_at=_T0 + timedelta(minutes=minutes, seconds=30),
             plate_text=plate)
