@@ -8,9 +8,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.7] — 2026-10-13
 
-A security release: **upgrade every install that has more than one user
-or uses API tokens.** Three surfaces checked that the caller was signed
-in but not which cameras they may see. A site with a single administrator
+A security release: **upgrade every install that has more than one
+user.** Five surfaces checked that the caller was signed in but not which
+cameras they may see. A site with a single administrator
 was not exposed, since that account can already see every camera.
 
 Upgrading: `.env.example` pins `CORE_TAG=0.1.7`; copy it into your `.env`,
@@ -33,14 +33,28 @@ unchanged at 0.1.6 (`ADAPTER_TAG`, `YOLO_POSE_ADAPTER_TAG`). No migration.
   `GET /api/v1/camera-config/{camera_id}` skipped the check the rest of
   that router applies, and the configuration holds the camera's source
   URL, credentials included, so any signed-in user could read any
-  camera's username and password. An API token now receives the URL with
-  its credentials redacted, the rule `rtsp_url` already follows. Found by
-  the OpenNVR team while triaging the report above.
+  camera's username and password. Should the route ever be opened to API
+  tokens, they receive the URL with its credentials redacted, the rule
+  `rtsp_url` already follows. Found by the OpenNVR team while triaging the
+  report above.
 - **The AI recording listings are scoped to the caller's cameras.**
   `/api/v1/ai-models/recording-sessions` and `/api/v1/ai-models/recordings`
   listed every camera's recordings (times and file paths; playback itself
   was already scoped). A camera the caller cannot see answers 404. Found
   by the OpenNVR team while triaging.
+- **Running inference needs view on the camera.** `POST
+  /api/v1/ai-models/inference` captured a live frame from any camera and
+  returned what the model saw, and `/inference/recording` analysed any
+  camera's footage and filed the results under a camera of the caller's
+  choosing. Both answer 404 for a camera the caller cannot see, and every
+  recording segment must lie in a visible camera's folder. Found in
+  review.
+- **The compliance pages are scoped.** The security check and summary
+  listed every camera's address, vendor and credential weakness to any
+  signed-in user, and recording coverage every camera's recording counts;
+  they now cover the caller's cameras. The access audit, which lists every
+  user's actions and addresses, is a superuser's, as the audit log's own
+  route already was. Found in review.
 
 ### Fixed
 

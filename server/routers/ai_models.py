@@ -40,8 +40,9 @@ from core.auth import get_current_active_user, get_current_superuser
 from core.permissions import RequirePermission
 from core.database import get_db
 from core.logging_config import main_logger
-from models import AIDetectionResult, User
+from models import AIDetectionResult, Camera, User
 from services.audit_service import write_audit_log
+from services.camera_scope import can_view_camera, visible_camera_ids
 from services.kai_c_service import get_kai_c_service
 
 router = APIRouter(prefix="/ai-models", tags=["ai-models"])
@@ -731,8 +732,11 @@ async def run_inference(
 
     Users never provide adapter URLs - KAI-C handles routing internally.
 
-    Requires authenticated user.
+    Requires view on the camera: the frame comes from that camera's live
+    stream and the result (a caption, say) describes what it sees.
     """
+    if not can_view_camera(db, current_user, request.camera_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
     try:
         kai_c_service = get_kai_c_service()
 
@@ -857,6 +861,21 @@ async def get_task_schema(
         )
 
 
+def _recording_dirs_for(db: Session, scope: set[int] | None) -> set[str] | None:
+    """The recordings folders (main and substream stream names) of the
+    cameras in ``scope``; None for a superuser (no restriction)."""
+    if scope is None:
+        return None
+    from core.config import settings
+    from services.stream_service import _build_stream_name, substream_name
+
+    dirs: set[str] = set()
+    for cam in db.query(Camera).filter(Camera.id.in_(sorted(scope) or [-1])).all():
+        main = _build_stream_name(settings.mediamtx_stream_prefix, cam.id, cam.ip_address)
+        dirs.update({main, substream_name(main)})
+    return dirs
+
+
 @router.post("/inference/recording")
 async def run_recording_inference(
     request: RecordingInferenceRequest,
@@ -873,8 +892,12 @@ async def run_recording_inference(
 
     Results stream to database in real-time (similar to live inference).
 
-    Requires authenticated user.
+    Requires view on the camera, and every segment must belong to a camera
+    the caller can see: a segment path names its camera's recordings folder,
+    and the results are written under request.camera_id.
     """
+    if not can_view_camera(db, current_user, request.camera_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
     try:
         from datetime import datetime
         from pathlib import Path
@@ -918,6 +941,10 @@ async def run_recording_inference(
         # resolve_under_root an absolute path or a ``..`` segment would escape
         # the recordings folder and let this endpoint read/probe arbitrary
         # files off disk via cv2.VideoCapture below.
+        # A segment's first path component is its camera's stream name
+        # ("cam-7" or "cam-10_0_0_7" by MEDIAMTX_PATH_MODE, "-sub" for the
+        # substream); only a visible camera's folders may be read.
+        allowed_dirs = _recording_dirs_for(db, visible_camera_ids(db, current_user))
         for seg_path in segments_to_process:
             try:
                 video_path = resolve_under_root(Path(recordings_base), seg_path)
@@ -926,6 +953,12 @@ async def run_recording_inference(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid recording path: {seg_path}",
                 ) from exc
+            top = video_path.relative_to(Path(recordings_base).resolve()).parts[:1]
+            if allowed_dirs is not None and (not top or top[0] not in allowed_dirs):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Recording not found: {seg_path}",
+                )
             if not video_path.exists():
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

@@ -290,3 +290,84 @@ def test_ai_recordings_list_only_visible_cameras(db, monkeypatch, mode, uid, exp
     out = _run(aim.list_recordings_for_ai(current_user=_user(db, uid), db=db, camera_id=None, limit=100, offset=0))
     assert {dirs[i["camera"]] for i in out["items"]} == expected_cams
     assert out["total"] == len(out["items"])
+
+
+# --- second review: two more surfaces of the same class ------------------------
+#
+# POST /ai-models/inference ran a live inference on any camera (a caption of a
+# camera the caller cannot see is a view of it), and /inference/recording
+# analysed any camera's footage and filed the results under a camera of the
+# caller's choosing. The compliance pages listed every camera's address,
+# vendor and credential weakness to any user, and the access audit every
+# user's actions and addresses.
+
+from routers import ai_models as aimod  # noqa: E402
+from routers import compliance as comp  # noqa: E402
+
+
+def test_live_inference_on_an_invisible_camera_is_404(db):
+    req = aimod.InferenceRequest(camera_id=20, rtsp_url="rtsp://x", model_name="blip", task="caption")
+    with pytest.raises(HTTPException) as e:
+        _run(aimod.run_inference(request=req, current_user=_user(db, OWNER), db=db))
+    assert e.value.status_code == 404
+
+
+def test_recording_inference_on_an_invisible_camera_is_404(db):
+    req = aimod.RecordingInferenceRequest(camera_id=20, segments=["cam-20/a.mp4"], model_name="blip", task="caption")
+    with pytest.raises(HTTPException) as e:
+        _run(aimod.run_recording_inference(request=req, current_user=_user(db, OWNER), db=db))
+    assert e.value.status_code == 404
+
+
+def test_recording_inference_cannot_read_another_cameras_footage(db, monkeypatch, tmp_path):
+    # Owner of camera 10 names camera 20's folder as a segment, under their own camera.
+    from core.config import settings
+    from services.stream_service import _build_stream_name
+    import services.storage_service as ss
+
+    monkeypatch.setattr(settings, "mediamtx_path_mode", "id")
+    other = _build_stream_name(settings.mediamtx_stream_prefix, 20, "10.0.0.20")
+    (tmp_path / other).mkdir()
+    (tmp_path / other / "a.mp4").write_bytes(b"x")
+    monkeypatch.setattr(ss, "get_effective_recordings_base_path", lambda db: str(tmp_path))
+    import types
+    fake = types.ModuleType("cv2")
+    monkeypatch.setitem(sys.modules, "cv2", fake)
+    req = aimod.RecordingInferenceRequest(camera_id=10, segments=[f"{other}/a.mp4"], model_name="blip", task="caption")
+    with pytest.raises(HTTPException) as e:
+        _run(aimod.run_recording_inference(request=req, current_user=_user(db, OWNER), db=db))
+    assert e.value.status_code == 404
+    assert "Recording not found" in e.value.detail
+
+
+def test_recording_dirs_follow_scope_and_path_mode(db, monkeypatch):
+    from core.config import settings
+    monkeypatch.setattr(settings, "mediamtx_path_mode", "ip")
+    assert aimod._recording_dirs_for(db, None) is None
+    assert aimod._recording_dirs_for(db, set()) == set()
+    assert aimod._recording_dirs_for(db, {10}) == {"cam-10_0_0_10", "cam-10_0_0_10-sub"}
+
+
+def _check(monkeypatch):
+    import services.security_compliance as sc
+    monkeypatch.setattr(sc, "check_cameras", lambda cams: {"cameras": [c.id for c in cams]})
+
+
+@pytest.mark.parametrize("uid,expected", [(ADMIN, [10, 20]), (OWNER, [10]), (VIEWER, [10]), (OUTSIDER, [])])
+def test_security_check_lists_only_visible_cameras(db, monkeypatch, uid, expected):
+    _check(monkeypatch)
+    out = _run(comp.get_security_check(db=db, current_user=_user(db, uid)))
+    assert out["cameras"] == expected
+
+
+def test_recording_coverage_for_an_invisible_camera_is_404(db):
+    with pytest.raises(HTTPException) as e:
+        _run(comp.get_recording_coverage(days=7, camera_id=20, db=db, current_user=_user(db, OWNER)))
+    assert e.value.status_code == 404
+
+
+def test_access_audit_requires_a_superuser():
+    import inspect
+    dep = inspect.signature(comp.get_access_audit).parameters["current_user"].default
+    from core.auth import get_current_superuser
+    assert dep.dependency is get_current_superuser
