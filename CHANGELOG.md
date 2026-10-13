@@ -77,6 +77,14 @@ The headline work, at a glance — every entry is below:
 
 ### Added
 
+- **The read tools' definitions are shared between the camera agent and
+  core.** The names, descriptions and argument schemas of the ten read
+  tools (describe, snapshot, detect, faces, footage and history search,
+  events, plates) now live in `opennvr_app_sdk.agent.tool_definitions`,
+  moved verbatim from the camera agent. The agent and core's workflow
+  engine each implement the tools, but advertise the same text, and a
+  parity test fails if the agent's ever differs.
+
 - **The SDK has model clients for AI steps, and core depends on the SDK.**
   `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
   OpenAI-compatible endpoint, with schema-constrained output (`format`) so
