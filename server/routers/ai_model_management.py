@@ -252,10 +252,21 @@ async def list_recordings_for_ai(
         recordings = storage_service.list_recordings(
             db=db, camera_id=camera_id, limit=limit, offset=offset
         )
-        # Only the cameras this caller may see; a directory that is not a
-        # camera handle ("cam-12") is hidden from everyone but a superuser.
+        # Only the cameras this caller may see. A recording's directory is the
+        # camera's stream name, which is "cam-<id>" or "cam-<ip>" depending on
+        # MEDIAMTX_PATH_MODE, so rebuild each visible camera's names (main and
+        # substream) rather than parse them, as the playback routes do. A
+        # directory no visible camera owns is hidden from everyone but a
+        # superuser.
         if scope is not None:
-            visible = [i for i in recordings.get("items", []) if in_scope(scope, i.get("camera"))]
+            from core.config import settings
+            from services.stream_service import _build_stream_name, substream_name
+
+            names: set[str] = set()
+            for cam in db.query(Camera).filter(Camera.id.in_(sorted(scope) or [-1])).all():
+                main = _build_stream_name(settings.mediamtx_stream_prefix, cam.id, cam.ip_address)
+                names.update({main, substream_name(main)})
+            visible = [i for i in recordings.get("items", []) if i.get("camera") in names]
             recordings = {**recordings, "items": visible, "total": len(visible)}
 
         # Extract camera IDs from recording paths

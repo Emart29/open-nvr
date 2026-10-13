@@ -273,12 +273,20 @@ def test_ai_recording_sessions_for_someone_elses_camera_is_404(db, monkeypatch):
     assert e.value.status_code == 404
 
 
-@pytest.mark.parametrize("uid,expected", [(ADMIN, {"cam-10", "cam-20", "scratch"}), (OWNER, {"cam-10"}),
-                                          (OUTSIDER, set())])
-def test_ai_recordings_list_only_visible_cameras(db, monkeypatch, uid, expected):
-    items = [{"camera": n, "relpath": f"{n}/x.mp4"} for n in ("cam-10", "cam-20", "scratch")]
+@pytest.mark.parametrize("mode", ["ip", "id"])
+@pytest.mark.parametrize("uid,expected_cams", [(ADMIN, {10, 20, None}), (OWNER, {10}), (OUTSIDER, set())])
+def test_ai_recordings_list_only_visible_cameras(db, monkeypatch, mode, uid, expected_cams):
+    # Directories are the cameras' stream names, which depend on the path mode.
+    from core.config import settings
+    from services.stream_service import _build_stream_name, substream_name
+
+    monkeypatch.setattr(settings, "mediamtx_path_mode", mode)
+    name = {cid: _build_stream_name(settings.mediamtx_stream_prefix, cid, ip)
+            for cid, ip in ((10, "10.0.0.10"), (20, "10.0.0.20"))}
+    dirs = {name[10]: 10, substream_name(name[10]): 10, name[20]: 20, "scratch": None}
+    items = [{"camera": d, "relpath": f"{d}/x.mp4"} for d in dirs]
     monkeypatch.setattr(aim.storage_service, "list_recordings",
-                        lambda db, camera_id=None, limit=100, offset=0: {"items": [dict(i) for i in items], "total": 3})
+                        lambda db, camera_id=None, limit=100, offset=0: {"items": [dict(i) for i in items], "total": len(items)})
     out = _run(aim.list_recordings_for_ai(current_user=_user(db, uid), db=db, camera_id=None, limit=100, offset=0))
-    assert {i["camera"] for i in out["items"]} == expected
-    assert out["total"] == len(expected)
+    assert {dirs[i["camera"]] for i in out["items"]} == expected_cams
+    assert out["total"] == len(out["items"])
