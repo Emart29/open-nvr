@@ -61,6 +61,9 @@ on:
       - "app/**"
       - "docker-entrypoint.sh"
       - "examples/camera-agent/**"
+      # Core and the camera agent install the in-repo App SDK (#636), so an
+      # SDK-only change can break either image; build them on the PR.
+      - "sdk/opennvr-app-sdk/**"
       - "supervisord.conf"
       - ".github/workflows/publish-images.yml"
   workflow_dispatch:
