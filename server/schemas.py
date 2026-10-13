@@ -303,6 +303,20 @@ class CameraConfigUpdate(BaseModel):
 class CameraConfigResponse(CameraConfigBase):
     id: int
     camera_id: int
+
+    @field_serializer("source_url")
+    def _no_credentials_for_tokens(self, value: str | None) -> str | None:
+        """The same rule as CameraResponse.rtsp_url: an API token streams
+        through OpenNVR and never gets the camera's credentials; a person
+        with access to the camera sees the URL they configured."""
+        from core.request_context import current
+
+        ctx = current()
+        if value and ctx is not None and (ctx.actor or "").startswith("token:"):
+            from utils.url_redaction import redact_url_credentials
+
+            return redact_url_credentials(value)
+        return value
     last_provisioned_at: datetime | None = None
     stream_active: bool = False
     last_stream_start: datetime | None = None
