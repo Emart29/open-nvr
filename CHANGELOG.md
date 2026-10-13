@@ -77,6 +77,16 @@ The headline work, at a glance — every entry is below:
 
 ### Added
 
+- **The SDK has model clients for AI steps, and core depends on the SDK.**
+  `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
+  OpenAI-compatible endpoint, with schema-constrained output (`format`) so
+  an AI step's decision can only be one of the author's options, tool calls
+  with parsed arguments, token counts, and errors that name the URL and the
+  runtime's own diagnosis. It is the base of the Agentic Workflows AI step
+  (RFC #620), shared by Phase 1's Look and Phase 2's Investigate. Core now
+  takes the SDK from the repository (`server/pyproject.toml`, installed into
+  the image by the Dockerfile).
+
 - **A live-eval harness for the camera agent.** `tools/eval_harness.py`
   runs a case file (`tools/eval_cases.yml`: the five cases in
   `AGENT_DESIGN.md` plus multi-turn and past-tense ones) against a running
