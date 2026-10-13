@@ -52,13 +52,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 # psycopg 3, not installed) got into core:main and crash-looped it on boot.
 COPY server/pyproject.toml server/uv.lock /build/server/
 COPY kai-c/pyproject.toml kai-c/uv.lock /build/kai-c/
+# Core depends on the in-repo SDK (server/pyproject.toml [tool.uv.sources]):
+# the workflow engine's AI step runs on opennvr_app_sdk.agent.
+COPY sdk/opennvr-app-sdk /build/sdk/opennvr-app-sdk
 
 # Create virtual environments and sync dependencies (--no-install-project skips building the project itself)
 # --frozen and nothing else: a lockfile that disagrees with pyproject.toml
 # fails the build here, rather than shipping an image nobody tested.
 # Server dependencies
 RUN cd /build/server && uv venv /build/server-venv && \
-    VIRTUAL_ENV=/build/server-venv uv sync --frozen --no-dev --no-install-project --directory /build/server --active
+    VIRTUAL_ENV=/build/server-venv uv sync --frozen --no-dev --no-install-project --no-editable --directory /build/server --active
 
 # Kai-C dependencies
 RUN cd /build/kai-c && uv venv /build/kai-c-venv && \
