@@ -32,6 +32,14 @@ We are grateful to them, and we would like there to be more.
 
 ---
 
+**Artur Chlebicki** · [@Artur12555](https://github.com/Artur12555) · 2026
+
+**Missing authorization on the AI detection results** (CWE-862 / CWE-639, [GHSA-fpp6-xfgg-f4h3](https://github.com/open-nvr/open-nvr/security/advisories/GHSA-fpp6-xfgg-f4h3)). `/api/v1/ai-detection-results` checked that the caller was signed in and nothing else, so any account could list every camera's detections and scene captions, read or delete any result by id, and delete the whole history in one request. The router had been left out of the per-camera scoping consolidation that every other read surface went through.
+
+The report traced each route from the tainted parameter to the query, cited the project's own `SECURITY.md` and `camera_scope` docstring for why the surface should have been covered, and rated itself conservatively. Triaging it turned up two more routes of the same class, the camera configuration (which carries the camera's credentials) and the AI recording listings; all three are fixed together. *Fixed in [PR #635](https://github.com/open-nvr/open-nvr/pull/635), 0.1.7.*
+
+---
+
 **Kamal Sentassi** · [S9S – Security Electronic Service](https://s9s.de/research.html) · 2026
 
 Five access-control and SSRF issues in a single coordinated report, each verified against the code before a line was changed:
