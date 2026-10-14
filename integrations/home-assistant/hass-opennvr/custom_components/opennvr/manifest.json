@@ -1,7 +1,9 @@
 {
   "domain": "opennvr",
   "name": "OpenNVR",
-  "codeowners": [],
+  "codeowners": [
+    "@xpertvoip"
+  ],
   "config_flow": true,
   "dependencies": [
     "http",
@@ -10,7 +12,7 @@
   "documentation": "https://github.com/open-nvr/open-nvr/blob/main/docs/HOME_ASSISTANT.md",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/open-nvr/open-nvr/issues",
+  "issue_tracker": "https://github.com/open-nvr/hass-opennvr/issues",
   "loggers": [
     "pyopennvr"
   ],

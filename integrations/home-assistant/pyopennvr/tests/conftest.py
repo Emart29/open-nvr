@@ -10,6 +10,7 @@ from pathlib import Path
 
 import aiohttp
 from aiohttp import web
+from multidict import CIMultiDict
 from aiohttp.test_utils import TestServer
 
 FIX = Path(__file__).parent / "fixtures"
@@ -33,7 +34,9 @@ async def fake_site(routes: dict[tuple[str, str], object]):
     async def handle(request: web.Request):
         body = await request.read()
         rec.requests.append({"method": request.method, "path": request.path,
-                             "query": dict(request.query), "headers": dict(request.headers),
+                             # Header names are case-insensitive; keep them so, since
+                             # aiohttp's client has changed how it cases them.
+                             "query": dict(request.query), "headers": CIMultiDict(request.headers),
                              "body": body})
         spec = routes.get((request.method, request.path))
         if spec is None:

@@ -15,7 +15,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/open-nvr/open-nvr"
+Homepage = "https://github.com/open-nvr/pyopennvr"
+Repository = "https://github.com/open-nvr/pyopennvr"
+Documentation = "https://github.com/open-nvr/open-nvr/blob/main/docs/HOME_ASSISTANT.md"
 
 [dependency-groups]
 dev = [
