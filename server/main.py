@@ -230,7 +230,23 @@ async def lifespan(app: FastAPI):
                     .filter(_User.username == settings.default_admin_username)
                     .first()
                 )
-                if not admin_user:
+                # Only re-seed when nobody can administer the system. Until
+                # #632 compose never passed DEFAULT_ADMIN_USERNAME, so an
+                # install may hold a configured name that never matched its
+                # real admin; creating it now would add a second, unclaimed
+                # superuser and send the UI back to first-time setup.
+                has_superuser = (
+                    db.query(_User.id)
+                    .filter(_User.is_superuser.is_(True), _User.is_active.is_(True))
+                    .first()
+                    is not None
+                )
+                if not admin_user and has_superuser:
+                    main_logger.info(
+                        f"Configured admin {settings.default_admin_username!r} "
+                        "not found, but an active superuser exists; not creating it."
+                    )
+                elif not admin_user:
                     main_logger.info(
                         "Admin user not found, creating default admin user..."
                     )

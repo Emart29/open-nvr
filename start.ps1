@@ -538,6 +538,9 @@ function Show-FirstTimeSetupToken {
         foreach ($line in ($banner -split "
 ")) { Write-Color ("  " + $line) White }
         Write-Color ""
+        Write-Color "  Rejected as missing or invalid? It may already be used - run" DarkGray
+        Write-Color "  .\start.ps1 restart and paste the fresh token it prints." DarkGray
+        Write-Color ""
     } else {
         # Container healthy AND no banner = admin already activated on
         # a previous boot. Unambiguous now.

@@ -16,7 +16,7 @@
  * along with OpenNVR.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toDataURL } from 'qrcode'
 import { apiService } from '../lib/apiService'
@@ -27,7 +27,6 @@ import {
 import { AuthAlert, AuthLayout, authButton, authFieldIcon, authInput, authLabel } from '../components/AuthLayout'
 
 export function FirstTimeSetup() {
-  const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   // V-001 / M0 C-1: the setup token is printed once on server startup
@@ -41,7 +40,16 @@ export function FirstTimeSetup() {
   const [mfaQrUri, setMfaQrUri] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
   const navigate = useNavigate()
-  const { checkSetupStatus } = useAuth()
+  const { checkSetupStatus, setupUsername } = useAuth()
+  // The account to activate is the one the server created from
+  // DEFAULT_ADMIN_USERNAME. Never assume 'admin': submitting a name with no
+  // pending account is exactly how issue #632 locked operators out.
+  const username = setupUsername ?? ''
+
+  // Reached via a login redirect rather than app bootstrap: ask the server.
+  useEffect(() => {
+    if (!setupUsername) void checkSetupStatus()
+  }, [setupUsername, checkSetupStatus])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,6 +60,10 @@ export function FirstTimeSetup() {
       setError(
         'Setup token is required. Find it in the server terminal output.'
       )
+      return
+    }
+    if (!username) {
+      setError('Could not load the admin username from the server. Reload the page.')
       return
     }
     if (password.length < 8) {
@@ -175,8 +187,11 @@ export function FirstTimeSetup() {
           <label htmlFor="setup-username" className={authLabel}>Username</label>
           <div className="relative">
             <UserRound size={16} className={authFieldIcon} />
-            <input id="setup-username" className={authInput} value={username} disabled readOnly />
+            <input id="setup-username" className={authInput} value={username} placeholder="Loading…" disabled readOnly />
           </div>
+          <p className="text-xs text-[var(--text-dim)]">
+            Set by DEFAULT_ADMIN_USERNAME in your .env file.
+          </p>
         </div>
 
         <div className="space-y-1.5">

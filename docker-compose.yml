@@ -717,6 +717,15 @@ services:
       - RECORDINGS_HOST_BASE=${RECORDINGS_PATH:-./recordings}
       - RECORDINGS_CONTAINER_BASE=/app/recordings
       - RECORDINGS_BASE_PATH=/app/recordings
+      # The bootstrap admin account. These were documented in .env and asked
+      # for by install.sh but never passed through, so the account was always
+      # "admin" whatever the operator chose (#632). Read only when the admin
+      # is first created; changing them later does not rename anyone.
+      - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME:-admin}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-}
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@opennvr.local}
+      - DEFAULT_ADMIN_FIRST_NAME=${DEFAULT_ADMIN_FIRST_NAME:-System}
+      - DEFAULT_ADMIN_LAST_NAME=${DEFAULT_ADMIN_LAST_NAME:-Administrator}
       - SECRET_KEY=${SECRET_KEY}
       - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}

@@ -57,6 +57,7 @@ from schemas import (
 )
 from services.audit_service import write_audit_log
 from services.first_time_setup_service import (
+    restore as _restore_setup_token,
     verify_and_consume as _verify_setup_token,
 )
 from services.user_service import UserService
@@ -67,18 +68,24 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 @router.post("/check-setup", response_model=FirstTimeSetupCheckResponse)
 async def check_first_time_setup(db: Session = Depends(get_db)):
     """Check if first-time setup is required for admin user."""
-    admin_user = (
-        db.query(User).filter(User.username == settings.default_admin_username).first()
+    # Report the superuser actually waiting for setup rather than assuming it
+    # is named DEFAULT_ADMIN_USERNAME: the setup page submits this name, and
+    # a name with no pending account can never be activated (#632).
+    pending = (
+        db.query(User)
+        .filter(User.is_superuser.is_(True), User.password_set.is_(False))
+        .order_by(User.id)
+        .first()
     )
-
-    if not admin_user:
+    if pending:
         return FirstTimeSetupCheckResponse(
-            setup_required=True, username=settings.default_admin_username
+            setup_required=True, username=pending.username
         )
 
-    if not admin_user.password_set:
+    # No users at all: startup seeding has not created the admin yet.
+    if db.query(User.id).first() is None:
         return FirstTimeSetupCheckResponse(
-            setup_required=True, username=admin_user.username
+            setup_required=True, username=settings.default_admin_username
         )
 
     return FirstTimeSetupCheckResponse(
@@ -115,33 +122,41 @@ async def first_time_setup(
             detail="First-time setup token missing or invalid.",
         )
 
-    # Find user that needs setup
-    user = (
-        db.query(User)
-        .filter(User.username == payload.username, User.password_set == False)
-        .first()
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=400, detail="User not found or setup already completed"
+    # The token is spent from here on. If anything below fails, put it back:
+    # otherwise a wrong username or a rejected password leaves every retry
+    # failing with "token missing or invalid" until a restart (issue #632).
+    try:
+        # Find user that needs setup
+        user = (
+            db.query(User)
+            .filter(User.username == payload.username, User.password_set == False)
+            .first()
         )
 
-    # Enforce password policy
-    UserService._enforce_password_policy(
-        db, user.username, user.email, payload.password
-    )
+        if not user:
+            raise HTTPException(
+                status_code=400, detail="User not found or setup already completed"
+            )
 
-    # Set password
-    user.hashed_password = get_password_hash(payload.password)
-    user.password_set = True
+        # Enforce password policy
+        UserService._enforce_password_policy(
+            db, user.username, user.email, payload.password
+        )
 
-    # Generate MFA secret
-    mfa_secret = generate_mfa_secret()
-    user.mfa_secret = mfa_secret
-    user.mfa_enabled = True
+        # Set password
+        user.hashed_password = get_password_hash(payload.password)
+        user.password_set = True
 
-    db.commit()
+        # Generate MFA secret
+        mfa_secret = generate_mfa_secret()
+        user.mfa_secret = mfa_secret
+        user.mfa_enabled = True
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        _restore_setup_token(payload.setup_token)
+        raise
 
     # Generate QR code URI for MFA setup
     mfa_qr_uri = get_mfa_provisioning_uri(user.username, mfa_secret)
