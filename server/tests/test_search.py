@@ -1666,3 +1666,32 @@ def test_a_plain_label_and_time_search_queues_nothing(client, db, monkeypatch):
     body = client.get("/api/v1/search", params={"q": "car"}).json()
     assert body["pending"] is None
     assert er.queue_depth() == 0
+
+
+# ── The window and the rows agree on a timezone ──────────────────────
+#
+# Rows are stored in UTC; the parser's window is local time. On SQLite,
+# which compares the text it is given, a +05:30 window against +00:00
+# rows matched nothing, so "any car in the last 5 minutes" returned 0 on
+# every box outside UTC — and CI, which runs in UTC, never saw it. This
+# test pins the clock to a zone that is not UTC, whatever the machine's.
+
+def test_the_window_finds_rows_whatever_the_local_timezone(client, db, monkeypatch):
+    import routers.search as route
+    from zoneinfo import ZoneInfo
+
+    # The route calls parse_query with no clock, so the parser reads the
+    # machine's. Hand it a Kolkata clock instead, through the route's own
+    # reference, so this holds on a UTC machine (CI) as well as on a laptop.
+    kolkata = ZoneInfo("Asia/Kolkata")
+    real_parse = route.parse_query
+    monkeypatch.setattr(route, "parse_query",
+                        lambda q, **kw: real_parse(q, now=datetime.now(kolkata), **kw))
+
+    _camera(db, 1, "cam1")
+    for _ in range(3):
+        _visit(db, camera_id=1, label="car", minutes_ago=1)
+
+    body = client.get("/api/v1/search", params={"q": "any car in the last 5 mins"}).json()
+    assert body["interpretation"]["matched"]["when"] == "last 5 mins"
+    assert body["total"] == 3
