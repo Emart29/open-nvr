@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import tomllib
 
+import pytest
+
 import pyopennvr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +24,8 @@ def test_pyproject_carries_the_package_version():
 
 
 def test_the_integration_pins_this_version():
+    if not MANIFEST.is_file():
+        pytest.skip("not in the OpenNVR monorepo; the integration's own CI checks its pin")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     pins = [r for r in manifest["requirements"] if r.startswith("pyopennvr")]
     assert pins == [f"pyopennvr=={pyopennvr.__version__}"]
