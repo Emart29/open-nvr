@@ -31,6 +31,7 @@ from core.database import get_db
 from models import AIModel, Camera, CameraConfig, User
 from services.audit_service import write_audit_log
 from services.inference_manager import get_inference_manager
+from services.camera_scope import in_scope, visible_camera_ids
 from services.storage_service import storage_service
 
 router = APIRouter(prefix="/ai-model-management", tags=["ai-model-management"])
@@ -204,6 +205,9 @@ async def list_recording_sessions_for_ai(
     Returns hierarchical structure: camera -> date -> sessions.
     Each session contains one or more continuous recording segments.
     """
+    scope = visible_camera_ids(db, current_user)
+    if camera_id is not None and not in_scope(scope, camera_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
     try:
         from services.recording_session_service import get_recording_session_service
 
@@ -211,7 +215,11 @@ async def list_recording_sessions_for_ai(
         result = session_service.list_recording_sessions(
             db=db, camera_id=camera_id, date=date
         )
-
+        # Only the cameras this caller may see (the listing walks every
+        # camera's recordings directory).
+        if scope is not None and isinstance(result, dict):
+            result["cameras"] = [c for c in result.get("cameras", [])
+                                 if in_scope(scope, c.get("camera_id"))]
         return result
 
     except Exception as e:
@@ -236,11 +244,30 @@ async def list_recordings_for_ai(
 
     DEPRECATED: Use /recording-sessions for better grouped view.
     """
+    scope = visible_camera_ids(db, current_user)
+    if camera_id is not None and not in_scope(scope, camera_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
     try:
         # Get recordings from storage service
         recordings = storage_service.list_recordings(
             db=db, camera_id=camera_id, limit=limit, offset=offset
         )
+        # Only the cameras this caller may see. A recording's directory is the
+        # camera's stream name, which is "cam-<id>" or "cam-<ip>" depending on
+        # MEDIAMTX_PATH_MODE, so rebuild each visible camera's names (main and
+        # substream) rather than parse them, as the playback routes do. A
+        # directory no visible camera owns is hidden from everyone but a
+        # superuser.
+        if scope is not None:
+            from core.config import settings
+            from services.stream_service import _build_stream_name, substream_name
+
+            names: set[str] = set()
+            for cam in db.query(Camera).filter(Camera.id.in_(sorted(scope) or [-1])).all():
+                main = _build_stream_name(settings.mediamtx_stream_prefix, cam.id, cam.ip_address)
+                names.update({main, substream_name(main)})
+            visible = [i for i in recordings.get("items", []) if i.get("camera") in names]
+            recordings = {**recordings, "items": visible, "total": len(visible)}
 
         # Extract camera IDs from recording paths
         camera_map = {}

@@ -246,7 +246,8 @@ export function UsersManager() {
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-[var(--text-dim)]">Username *</span>
-                <input type="text" className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm" placeholder="e.g., jsmith" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+                <input type="text" className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm" placeholder="e.g., jsmith" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required minLength={3} />
+                <span className="text-[10px] text-[var(--text-dim)]">At least 3 characters.</span>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-[var(--text-dim)]">Email *</span>
