@@ -440,7 +440,7 @@ python home_assistant_relay.py --config config.yml
 ## 💡 More on the roadmap
 
 These are explicitly welcome contributions
-(see also the [adapter wishlist](https://github.com/open-nvr/ai-adapter#-adapters-wed-love-to-see)):
+(see also [Build this next](https://opennvr.org/community/#build-next) on opennvr.org, which lists the apps and adapters wanted and what each builds on today):
 
 (Abandoned-object detection and natural-language footage search already
 ship — see the gallery above.)
