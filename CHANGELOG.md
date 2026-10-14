@@ -6,6 +6,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **App SDK 0.8.0.** Publishes `opennvr_app_sdk.agent`, which 0.1.7
+  added on `main` (the model clients with schema-constrained output and
+  the read tools' shared definitions, #636 and #637), so an app can
+  `pip install opennvr-app-sdk` and get it. Additive; nothing in 0.7.0
+  changes.
+
 ## [0.1.7] — 2026-10-13
 
 A security release: **upgrade every install that has more than one
