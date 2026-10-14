@@ -254,6 +254,15 @@ def _events_query(
         # The Vehicles page: every row must BE a plate read (a plate
         # filter implies this already).
         q = q.filter(TimelineEvent.plate_text.isnot(None))
+    # Rows are stored in UTC. The search parser works in the operator's
+    # local time, so "today" is their day; a window it produces is an
+    # aware local datetime. Postgres compares instants, so that is fine
+    # there, but SQLite compares the text it was given, and a window in
+    # +05:30 against rows in +00:00 matched nothing: "any car in the last
+    # 5 minutes" returned 0 on every box outside UTC. One timezone at the
+    # comparison, whatever the backend.
+    to = _as_utc(to)
+    from_ = _as_utc(from_)
     if to is not None:
         q = q.filter(TimelineEvent.started_at < to)
     if from_ is not None:
@@ -681,6 +690,14 @@ def _utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """``value`` as the same instant in UTC: an aware datetime converted,
+    a naive one taken as UTC already (how rows are stored)."""
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def _gap_to(row, at: datetime) -> float | None:
