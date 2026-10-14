@@ -6,6 +6,87 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-10-13
+
+A security release: **upgrade every install that has more than one
+user.** Five surfaces checked that the caller was signed in but not which
+cameras they may see. A site with a single administrator
+was not exposed, since that account can already see every camera.
+
+Upgrading: `.env.example` pins `CORE_TAG=0.1.7`; copy it into your `.env`,
+then `docker compose pull && ./start.sh up`. The adapter images are
+unchanged at 0.1.6 (`ADAPTER_TAG`, `YOLO_POSE_ADAPTER_TAG`). No migration.
+The core image now carries the App SDK (see Added); nothing to configure.
+
+### Security
+
+- **AI detection results are scoped to the caller's cameras
+  (GHSA-fpp6-xfgg-f4h3).** `/api/v1/ai-detection-results` let any
+  signed-in user list every camera's detections and captions, read or
+  delete any result by id, write results onto any camera, and delete the
+  whole history with `DELETE /bulk/older-than/0`. Reading now needs view
+  on the result's camera and writing or deleting needs manage; a result
+  with no camera is visible to superusers only; an id the caller cannot
+  see answers 404. The bulk delete covers only the cameras the caller
+  manages and takes at least one day. Reported by Artur Chlebicki
+  ([@Artur12555](https://github.com/Artur12555)).
+- **A camera's configuration needs view on that camera.**
+  `GET /api/v1/camera-config/{camera_id}` skipped the check the rest of
+  that router applies, and the configuration holds the camera's source
+  URL, credentials included, so any signed-in user could read any
+  camera's username and password. Should the route ever be opened to API
+  tokens, they receive the URL with its credentials redacted, the rule
+  `rtsp_url` already follows. Found by the OpenNVR team while triaging the
+  report above.
+- **The AI recording listings are scoped to the caller's cameras.**
+  `/api/v1/ai-models/recording-sessions` and `/api/v1/ai-models/recordings`
+  listed every camera's recordings (times and file paths; playback itself
+  was already scoped). A camera the caller cannot see answers 404. Found
+  by the OpenNVR team while triaging.
+- **Running inference needs view on the camera.** `POST
+  /api/v1/ai-models/inference` captured a live frame from any camera and
+  returned what the model saw, and `/inference/recording` analysed any
+  camera's footage and filed the results under a camera of the caller's
+  choosing. Both answer 404 for a camera the caller cannot see, and every
+  recording segment must lie in a visible camera's folder. Found in
+  review.
+- **The compliance pages are scoped.** The security check and summary
+  listed every camera's address, vendor and credential weakness to any
+  signed-in user, and recording coverage every camera's recording counts;
+  they now cover the caller's cameras. The access audit, which lists every
+  user's actions and addresses, is a superuser's, as the audit log's own
+  route already was. Found in review.
+
+### Added
+
+- **The read tools' definitions are shared between the camera agent and
+  core.** The names, descriptions and argument schemas of the ten read
+  tools (describe, snapshot, detect, faces, footage and history search,
+  events, plates) now live in `opennvr_app_sdk.agent.tool_definitions`,
+  moved verbatim from the camera agent. The agent and core's workflow
+  engine each implement the tools, but advertise the same text, and a
+  parity test fails if the agent's ever differs.
+
+- **The SDK has model clients for AI steps, and core depends on the SDK.**
+  `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
+  OpenAI-compatible endpoint, with schema-constrained output (`format`) so
+  an AI step's decision can only be one of the author's options, tool calls
+  with parsed arguments, token counts, and errors that name the URL and the
+  runtime's own diagnosis. It is the base of the Agentic Workflows AI step
+  (RFC #620), shared by Phase 1's Look and Phase 2's Investigate. Core now
+  takes the SDK from the repository (`server/pyproject.toml`, installed into
+  the image by the Dockerfile).
+
+### Fixed
+
+- **User management names the field that failed validation**
+  ("Username: String should have at least 3 characters"), and the form
+  enforces the three-character minimum before submitting (#634, by
+  [@KeuqS](https://github.com/KeuqS)).
+- **Guard Scan Compliance installs from the App Catalog.** Its image was
+  missing from the publish workflow, so the catalog's pull failed; a test
+  now fails when a catalog app has no publish entry (#629).
+
 ## [0.1.6] — 2026-10-11
 
 Search your footage in a sentence, and apps that became products. The
@@ -76,24 +157,6 @@ The headline work, at a glance — every entry is below:
   app is now limited to its own cameras. (#542)
 
 ### Added
-
-- **The read tools' definitions are shared between the camera agent and
-  core.** The names, descriptions and argument schemas of the ten read
-  tools (describe, snapshot, detect, faces, footage and history search,
-  events, plates) now live in `opennvr_app_sdk.agent.tool_definitions`,
-  moved verbatim from the camera agent. The agent and core's workflow
-  engine each implement the tools, but advertise the same text, and a
-  parity test fails if the agent's ever differs.
-
-- **The SDK has model clients for AI steps, and core depends on the SDK.**
-  `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
-  OpenAI-compatible endpoint, with schema-constrained output (`format`) so
-  an AI step's decision can only be one of the author's options, tool calls
-  with parsed arguments, token counts, and errors that name the URL and the
-  runtime's own diagnosis. It is the base of the Agentic Workflows AI step
-  (RFC #620), shared by Phase 1's Look and Phase 2's Investigate. Core now
-  takes the SDK from the repository (`server/pyproject.toml`, installed into
-  the image by the Dockerfile).
 
 - **A live-eval harness for the camera agent.** `tools/eval_harness.py`
   runs a case file (`tools/eval_cases.yml`: the five cases in
