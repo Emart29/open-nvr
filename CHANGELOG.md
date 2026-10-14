@@ -16,6 +16,7 @@ was not exposed, since that account can already see every camera.
 Upgrading: `.env.example` pins `CORE_TAG=0.1.7`; copy it into your `.env`,
 then `docker compose pull && ./start.sh up`. The adapter images are
 unchanged at 0.1.6 (`ADAPTER_TAG`, `YOLO_POSE_ADAPTER_TAG`). No migration.
+The core image now carries the App SDK (see Added); nothing to configure.
 
 ### Security
 
@@ -55,6 +56,26 @@ unchanged at 0.1.6 (`ADAPTER_TAG`, `YOLO_POSE_ADAPTER_TAG`). No migration.
   they now cover the caller's cameras. The access audit, which lists every
   user's actions and addresses, is a superuser's, as the audit log's own
   route already was. Found in review.
+
+### Added
+
+- **The read tools' definitions are shared between the camera agent and
+  core.** The names, descriptions and argument schemas of the ten read
+  tools (describe, snapshot, detect, faces, footage and history search,
+  events, plates) now live in `opennvr_app_sdk.agent.tool_definitions`,
+  moved verbatim from the camera agent. The agent and core's workflow
+  engine each implement the tools, but advertise the same text, and a
+  parity test fails if the agent's ever differs.
+
+- **The SDK has model clients for AI steps, and core depends on the SDK.**
+  `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
+  OpenAI-compatible endpoint, with schema-constrained output (`format`) so
+  an AI step's decision can only be one of the author's options, tool calls
+  with parsed arguments, token counts, and errors that name the URL and the
+  runtime's own diagnosis. It is the base of the Agentic Workflows AI step
+  (RFC #620), shared by Phase 1's Look and Phase 2's Investigate. Core now
+  takes the SDK from the repository (`server/pyproject.toml`, installed into
+  the image by the Dockerfile).
 
 ### Fixed
 
@@ -136,24 +157,6 @@ The headline work, at a glance — every entry is below:
   app is now limited to its own cameras. (#542)
 
 ### Added
-
-- **The read tools' definitions are shared between the camera agent and
-  core.** The names, descriptions and argument schemas of the ten read
-  tools (describe, snapshot, detect, faces, footage and history search,
-  events, plates) now live in `opennvr_app_sdk.agent.tool_definitions`,
-  moved verbatim from the camera agent. The agent and core's workflow
-  engine each implement the tools, but advertise the same text, and a
-  parity test fails if the agent's ever differs.
-
-- **The SDK has model clients for AI steps, and core depends on the SDK.**
-  `opennvr_app_sdk.agent` gives one `chat()` over Ollama and any
-  OpenAI-compatible endpoint, with schema-constrained output (`format`) so
-  an AI step's decision can only be one of the author's options, tool calls
-  with parsed arguments, token counts, and errors that name the URL and the
-  runtime's own diagnosis. It is the base of the Agentic Workflows AI step
-  (RFC #620), shared by Phase 1's Look and Phase 2's Investigate. Core now
-  takes the SDK from the repository (`server/pyproject.toml`, installed into
-  the image by the Dockerfile).
 
 - **A live-eval harness for the camera agent.** `tools/eval_harness.py`
   runs a case file (`tools/eval_cases.yml`: the five cases in
