@@ -97,6 +97,12 @@ The core image now carries the App SDK (see Added); nothing to configure.
 
 ### Fixed
 
+- **Camera agent: `camera_ids` sent as text now works.** llama3.2:1b sends
+  `"['front_door']"`, the tool description's own example copied as a
+  string, and the whole string was looked up as one camera name, so every
+  such call failed (43 times in the October benchmark). A JSON or Python
+  list literal, or a comma list, is now read as the cameras it names. Only
+  literals are read; nothing is evaluated.
 - **The App SDK's source files all say Apache-2.0.** Nine files carried
   an AGPL header copied from core by mistake; the package was always
   Apache-2.0, as LICENSING.md says. A test now checks every file. The

@@ -23,10 +23,12 @@ metadata + the event ring.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextvars
 import re
 import base64
+import json
 import logging
 import math
 import time
@@ -1387,7 +1389,7 @@ class CameraTools:
                 return "ERROR: camera_id (or camera_ids) is required."
 
         if isinstance(raw, str):
-            raw = [raw]
+            raw = _camera_list_from_text(raw)
         if not isinstance(raw, list):
             return "ERROR: camera_ids must be a list of camera names."
 
@@ -1415,3 +1417,29 @@ class CameraTools:
         if len(clauses) == 1:
             return "On " + clauses[0] + "."
         return "Across " + str(len(clauses)) + " cameras — " + "; ".join(clauses) + "."
+
+
+def _camera_list_from_text(text: str) -> list[str] | None:
+    """``camera_ids`` that a small model sent as text instead of a list.
+
+    llama3.2:1b sends ``"['front_door']"`` — the tool description's own
+    example, ``['cam1','cam2']``, copied as a string — and the whole string
+    used to be looked up as one camera name, so every such call failed.
+    A JSON or Python list literal is read as the list it spells, a comma
+    list is split, anything else is one name. Literals only: nothing is
+    evaluated. None when the text is a literal but not a list of names."""
+    text = text.strip()
+    if not text.startswith("["):
+        return [p.strip() for p in text.split(",") if p.strip()]
+    if len(text) > 1000:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        try:
+            value = ast.literal_eval(text)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            return None
+    if isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value):
+        return list(value)
+    return None
