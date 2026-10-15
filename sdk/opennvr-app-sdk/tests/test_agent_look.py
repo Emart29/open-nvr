@@ -74,7 +74,9 @@ def test_the_schema_allows_the_options_and_unsure_only():
     s = SPEC.schema()
     assert s["properties"]["decision"]["enum"] == ["delivery", "cab", "visitor", "unsure"]
     assert s["properties"]["company"]["enum"] == ["dhl", "ups", "other"]
-    assert s["required"] == ["decision", "company", "reason", "confidence"]
+    # The reason is written before the decision (see DecisionSpec.schema).
+    assert list(s["properties"]) == ["reason", "company", "decision", "confidence"]
+    assert s["required"] == list(s["properties"])
 
 
 def test_read_rechecks_what_the_schema_should_have_enforced():

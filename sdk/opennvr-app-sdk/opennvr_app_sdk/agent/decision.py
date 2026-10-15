@@ -66,15 +66,21 @@ class DecisionSpec:
         object.__setattr__(self, "fields", fields)
 
     def schema(self) -> dict[str, Any]:
-        """The JSON schema the model's answer is constrained to."""
-        props: dict[str, Any] = {
-            "decision": {"type": "string", "enum": [*self.options, UNSURE]}}
+        """The JSON schema the model's answer is constrained to.
+
+        ``reason`` comes first. Constrained decoding writes the fields in
+        schema order, so with ``decision`` first a model commits before it
+        has said anything about what it saw; in a quick check, qwen3:1.7b
+        then answered the first option ("delivery") for a cab and for a
+        visitor alike. It made no difference on the Investigate cases
+        (#649; the tool phase is where that model reasons). For Look it is
+        not measured yet: that needs the Look cases."""
+        props: dict[str, Any] = {"reason": {"type": "string"}}
         for name, values in self.fields.items():
             props[name] = {"type": "string", "enum": list(values)}
-        props["reason"] = {"type": "string"}
+        props["decision"] = {"type": "string", "enum": [*self.options, UNSURE]}
         props["confidence"] = {"type": "number"}
-        return {"type": "object", "properties": props,
-                "required": ["decision", *self.fields, "reason", "confidence"]}
+        return {"type": "object", "properties": props, "required": list(props)}
 
     def read(self, data: Any) -> tuple[str, dict[str, str], str, float | None] | None:
         """``(decision, fields, reason, self_reported)`` from the model's
