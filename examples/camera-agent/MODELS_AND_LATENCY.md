@@ -532,6 +532,60 @@ carries a 95% interval per case). To add your hardware, run the same
 harness against your agent (see `AGENT_DESIGN.md`, "Measuring better") with
 the router on and off.
 
+## Measured: can a small model run an Investigate step?
+
+RFC #620 offers a workflow's **Investigate** step on a site only when its
+language model passes the Investigate cases. `tools/investigate_eval.py`
+runs them: each case is one AI step (a goal, site facts, the event as
+data, at most five read tools, then one decision call constrained to the
+step's options), with **recorded tool results**, so no NVR is involved and
+only the model varies. There is no router and no forced grounding: in a
+workflow, every tool call is the model's own.
+
+```bash
+python tools/investigate_eval.py --model qwen3:1.7b --hardware cpu --repeat 3
+```
+
+A run passes when the decision and its fields are right **and** the tools
+a good answer needs were called; a right answer without looking is a
+guess. The gate is the Wilson lower bound of the pass rate (>= 0.80), with
+p95 inside the hardware class's seconds (CPU 4 tool calls / 120 s, GPU
+6 / 45 s). Same VM as above. Raw runs:
+[`benchmarks/investigate-cpu-4vcpu-2026-10.json`](benchmarks/investigate-cpu-4vcpu-2026-10.json).
+
+| Model, mode | Runs | Pass | 95% interval | Looked first | p50 / p95 per step | Qualifies |
+|---|---|---|---|---|---|---|
+| `qwen3:1.7b`, CPU limits | 60 | 21 (35%) | 0.24-0.48 | 36/60 | 12 s / 21 s | **no** |
+| `llama3.2:3b`, no time limit | 20 | 10 (50%) | 0.30-0.70 | 12/20 | 24 s / 39 s | **no** |
+| `qwen3:1.7b`, decision in the tool call | 60 | 0 (0%) | 0.00-0.06 | 6/60 | 5 s / 8 s | **no** |
+
+What it says:
+
+- **No CPU model qualifies for Investigate.** Not for lack of time:
+  both fit the 120 s limit with room to spare. They decide without
+  looking: about four runs in ten end without the tools the answer needs,
+  and the reason then cites evidence that was never gathered ("the EVENT
+  data shows a guard in a vest"). This is the camera agent's finding again
+  (the model rarely does the camera work itself), without the guard that
+  covers for it there. **Look on CPU, Investigate on an accelerator** is
+  the launch shape the data supports.
+- **The decision needs its own call.** With the schema passed alongside
+  the tools, Ollama's constrained decoding produces JSON from the first
+  token, so the model can never call a tool: zero tool calls in 60 runs,
+  the first option nearly every time. The SDK loop keeps the tool phase
+  and the decision call separate (design note on #620, open question 2).
+- **The model's own confidence does not separate right from wrong.**
+  AUROC is 0.59 for qwen3:1.7b's self-reported number and 0.53 for
+  agreement across three decision draws (0.5 is chance); its right and
+  wrong answers both have a median self-reported 0.9. Too few runs to pick the default
+  confidence source yet, but enough to say a floor on the self-report
+  would not gate anything.
+- The camera-agent pick for tool choice, `llama3.2:3b`, does better
+  (half the cases) but not near the gate, on one repeat.
+
+One CPU, few repeats: the intervals are wide on purpose. To add a GPU
+result, run the same command with `--hardware gpu`.
+
 ## Model catalog (what each option is actually good at)
 
 The installer renders this catalog as the model-selection menu, annotated
