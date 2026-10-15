@@ -181,6 +181,25 @@
     recommended: any 4-core CPU — the task is asked on demand, a few frames a day per door
     note: A general detector cannot provide this task; a fine-tune on the site's own frames is what makes it good.
 
+- task: open_vocab_detection
+  label: Open-Vocabulary Detection
+  summary: Finds whatever the caller describes in words — "red truck", "forklift", "person wearing a hard hat" — with a box and a score per phrase. A fixed-class detector knows its list; this one takes a sentence.
+  categories: [vision, security, analytics]
+  tags: [open-vocabulary, zero-shot, attribute, colour, clothing, bbox, owl-vit]
+  # Null, not `count`: the agent's count skill reads the always-on
+  # detector's labels. A phrase-driven detector has no label list to
+  # count against until something asks it a phrase.
+  agent_skill: null
+  aliases: [open_vocabulary_detection, zero_shot_detection, open-vocab-detection]
+  suggested_adapters: [open-vocab]
+  hardware:
+    min: 4-core CPU, ~4 GB RAM
+    recommended: NVIDIA GPU (CUDA), 4 GB+ VRAM
+    note: >-
+      A few seconds a frame on CPU, so it is asked on demand — a search, a
+      check, a workflow step — not run on every frame. A GPU makes it fast
+      enough to watch with.
+
 - task: license_plate_recognition
   label: License Plate Recognition
   summary: Reads vehicle license plates (ANPR/LPR) from a frame.

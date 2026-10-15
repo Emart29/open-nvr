@@ -1755,6 +1755,59 @@ services:
       - ADAPTER_NAME=clip
       - ADAPTER_URL=http://clip-adapter:9011
 
+  # ──────────────────────────────────────────────────────────────
+  # OPEN-VOCABULARY DETECTION (opt-in, profile `open-vocab`)
+  #
+  # OWL-ViT v2: a box and a score for any phrase the caller writes —
+  # "red truck", "forklift", "person wearing a hard hat" — where the
+  # always-on detector knows only its eighty classes. Task
+  # `open_vocab_detection`. Nothing in core calls it on every frame:
+  # an app, a workflow step or a search asks it a phrase about one
+  # frame, which is the only rate a CPU can carry (seconds a frame).
+  #
+  # The ~600 MB weights are baked into the image and the runtime is
+  # pinned offline (the BLIP/CLIP posture): no volume, no egress, boots
+  # on a sealed box. Another OWL-ViT variant is a rebuild of the image.
+  # ──────────────────────────────────────────────────────────────
+
+  open-vocab-adapter:
+    profiles: [open-vocab]
+    # Its own tag variable, falling back to latest rather than to
+    # ADAPTER_TAG, for the reason yolo-pose-adapter spells out above:
+    # the image is newer than the adapter release an operator's .env
+    # already pins, and ADAPTER_TAG would name a tag that never existed.
+    image: ghcr.io/open-nvr/open-vocab-adapter:${OPEN_VOCAB_ADAPTER_TAG:-latest}
+    container_name: opennvr_open_vocab_adapter
+    logging: *svc-logs
+    restart: unless-stopped
+    environment:
+      - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
+    networks:
+      - opennvr_internal
+    healthcheck:
+      # Loading 600 MB of weights takes longer than three retries on a
+      # small box, and an adapter marked unhealthy while it is still
+      # starting never gets registered (the CLIP note above).
+      test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9012/health', timeout=2).status_code == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 180s
+      retries: 20
+
+  open-vocab-register:
+    <<: *adapter-register
+    profiles: [open-vocab]
+    container_name: opennvr_open_vocab_register
+    depends_on:
+      opennvr-core:
+        condition: service_healthy
+      open-vocab-adapter:
+        condition: service_healthy
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - ADAPTER_NAME=open-vocab
+      - ADAPTER_URL=http://open-vocab-adapter:9012
+
 volumes:
   # Generated config.yml files (mounted read-only by each app).
   opennvr_loitering_config:
