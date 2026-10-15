@@ -8,6 +8,13 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The SDK runs a Look step.** `opennvr_app_sdk.agent.run_look()` asks a
+  model once, with the output constrained to the step's options, and returns
+  a typed `Decision` (RFC #620). It never raises: a model that is down, a
+  step out of time or an answer the step does not allow decide "unsure"
+  with the reason. With `DecisionSpec`, hardware `Limits`, and `TraceRow`
+  for the workflow trace. Images work over Ollama and OpenAI-compatible
+  servers.
 - **Investigate eval cases.** `examples/camera-agent/tools/investigate_eval.py`
   runs 20 Agentic Workflows AI steps (RFC #620) with recorded tool results,
   scores decisions against the Wilson-bound gate, and measures confidence
