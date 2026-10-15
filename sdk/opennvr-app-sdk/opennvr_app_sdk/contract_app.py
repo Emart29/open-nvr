@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """``ContractApp`` — an app that is only an operator surface.
 
 The three original archetypes are all driven by something arriving:

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """X-OpenNVR-User: the operator's identity and camera scope reach the
 app's /ui and actions, verified against the app's own key."""
 from __future__ import annotations

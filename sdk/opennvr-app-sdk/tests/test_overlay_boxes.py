@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """overlay.boxes.v1 — the typed payload and the publisher sugar."""
 from opennvr_app_sdk.event_types import EVENT_TYPES, OverlayBoxes, typed_payload
 from opennvr_app_sdk.domain_events import DomainEventPublisher

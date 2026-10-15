@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """``OpenNVR`` — the platform client — against a fake core: every
 method hits the route it claims with the app's credential, and reads
 degrade to None/[] while writes raise."""

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """The less-boilerplate trio: ``BaseAppConfig`` / ``load_app_config``,
 the dispatcher on ``DomainEventSubscriber``, and the in-wheel
 scaffolder (``opennvr-app new``) in both SDK modes — including that a

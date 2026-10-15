@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """``AsyncOpenNVR`` — the async twin of the platform client: the same
 routes with the app key, the same degrade/raise rules, and a parity
 check so the two surfaces cannot drift apart."""
