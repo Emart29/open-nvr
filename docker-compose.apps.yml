@@ -1774,7 +1774,11 @@ services:
 
   open-vocab-adapter:
     profiles: [open-vocab]
-    image: ghcr.io/open-nvr/open-vocab-adapter:${ADAPTER_TAG:-latest}
+    # Its own tag variable, falling back to latest rather than to
+    # ADAPTER_TAG, for the reason yolo-pose-adapter spells out above:
+    # the image is newer than the adapter release an operator's .env
+    # already pins, and ADAPTER_TAG would name a tag that never existed.
+    image: ghcr.io/open-nvr/open-vocab-adapter:${OPEN_VOCAB_ADAPTER_TAG:-latest}
     container_name: opennvr_open_vocab_adapter
     logging: *svc-logs
     restart: unless-stopped
