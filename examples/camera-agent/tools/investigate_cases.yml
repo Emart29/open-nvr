@@ -361,6 +361,7 @@
 
 - id: request-red-van-no
   template: investigate_on_request
+  note: "A footage search that finds nothing is not proof of absence: 'unsure' is honest."
   goal: *request_goal
   site_facts: *request_facts
   cameras: [yard, gate, loading_bay]
@@ -371,7 +372,7 @@
     search_footage: "No recorded footage matched 'red van'."
     search_history: "I remember 2 car visit(s) between 12:00 and 16:05: [#7101] 13:02-13:03 on camera gate, a silver hatchback; [#7102] 15:40-15:41 on camera gate, a white lorry."
   expect:
-    decision: "no"
+    decision: ["no", unsure]
     needs: [[search_footage, search_history]]
 
 - id: request-was-priya-here

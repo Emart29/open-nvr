@@ -525,10 +525,29 @@ async def run(llm: LLMClient, cases: list[dict[str, Any]], *, repeat: int, hardw
     return runs
 
 
+def rescore(saved: dict[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Score a saved run again against the current case file, so fixing a
+    case's expected answer does not mean running the model again. Runs of
+    cases no longer in the file are dropped."""
+    by_id = {c["id"]: c for c in cases}
+    out = []
+    for row in saved["runs"]:
+        case = by_id.get(row["case"])
+        if case is None:
+            continue
+        r = StepResult(
+            decision=row["decision"], fields=row["fields"], reason=row["reason"],
+            self_reported=row["signals"]["self_reported"], unsure_reason=row["unsure_reason"],
+            calls=row["tool_calls"], model_calls=row["model_calls"], seconds=row["seconds"],
+            limit_hit=row["limit_hit"], samples=row["samples"], error=row["error"])
+        out.append({**score(case, r), "repeat": row.get("repeat", 0)})
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--url", default="http://localhost:11434")
-    ap.add_argument("--model", required=True)
+    ap.add_argument("--model")
     ap.add_argument("--api", choices=["ollama", "openai"], default="ollama")
     ap.add_argument("--api-key")
     ap.add_argument("--hardware", choices=sorted(LIMITS), default="cpu")
@@ -544,6 +563,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--num-thread", type=int)
     ap.add_argument("--gate", type=float, default=0.8)
     ap.add_argument("--out")
+    ap.add_argument("--rescore", metavar="RUN_JSON",
+                    help="score a saved --out file against the current cases; no model is called")
     a = ap.parse_args(argv)
 
     cases = load_cases(a.cases)
@@ -551,6 +572,14 @@ def main(argv: list[str] | None = None) -> int:
         cases = [c for c in cases if c["id"] in a.only]
         if not cases:
             ap.error("no case matches --only")
+    if a.rescore:
+        saved = json.loads(pathlib.Path(a.rescore).read_text())
+        meta = saved["meta"]
+        runs = rescore(saved, cases)
+        print(format_report(summarise(runs, hardware=meta["hardware"], gate=a.gate), meta))
+        return 0
+    if not a.model:
+        ap.error("--model is required (or --rescore a saved run)")
     if a.api == "ollama":
         think = {"on": True, "off": False, "default": None}[a.think]
         llm: Any = OllamaChat(a.url, model=a.model, think=think, num_thread=a.num_thread)

@@ -310,3 +310,16 @@ def test_quality_only_runs_have_no_clock_and_never_qualify():
     assert not s["qualifies"]
     text = ie.format_report(s, {"model": "m", "hardware": "none", "repeat": 1})
     assert "quality only" in text and "qualif" not in text.lower()
+
+
+def test_a_saved_run_rescores_against_the_current_cases():
+    case = _case()
+    r = run(Script([("describe_camera", {"camera_id": "yard"})], "",
+                   {**DECIDE_STAFF, "decision": "alert"}), case)
+    saved = {"runs": [ie.score(case, r)]}
+    assert not saved["runs"][0]["pass"]
+    fixed = _case(expect={"decision": ["ignore", "alert"], "fields": {"who": "staff"},
+                          "needs": ["describe_camera"]})
+    (again,) = ie.rescore(json.loads(json.dumps(saved)), [fixed])
+    assert again["pass"] and again["seconds"] == saved["runs"][0]["seconds"]
+    assert ie.rescore(saved, [_case(id="other")]) == []
