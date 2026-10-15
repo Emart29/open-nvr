@@ -327,3 +327,40 @@
   docs_url: https://github.com/open-nvr/ai-adapter/blob/main/adapters/moondream/README.md
   source: https://github.com/open-nvr/ai-adapter/tree/main/adapters/moondream
   contact: https://github.com/open-nvr/ai-adapter/issues
+
+- id: open-vocab-detection
+  name: Open-Vocabulary Detection
+  summary: >-
+    Detect whatever you can describe. A box and a score for any phrase the
+    caller writes — "red truck", "forklift", "person wearing a hard hat" —
+    where the always-on detector knows only its eighty classes. OWL-ViT v2.
+    Slow on CPU (seconds a frame), so it is for a search, a check or a
+    workflow step rather than every frame. Downloads its weights from
+    huggingface.co and its CDN (*.huggingface.co) on first boot; an
+    air-gapped site bakes them in.
+  version: "1.0.0"
+  tier: first_party
+  image: ghcr.io/open-nvr/open-vocab-adapter:latest
+  tasks_advertised: [open_vocab_detection]
+  model:
+    framework: transformers
+    modalities_in: [image, text]
+    modalities_out: [bbox_classes]
+    fingerprinted: true
+  permissions:
+    gpu: false
+    # The ~600 MB weights download from huggingface.co on first boot into
+    # the HF cache volume (whisper precedent). Under
+    # AI_SOVEREIGNTY=local_only KAI-C refuses an adapter that declares
+    # egress: an air-gapped site bakes the weights into the image and
+    # runs it with HF_HUB_OFFLINE=1 instead.
+    network_egress: ["huggingface.co", "*.huggingface.co"]
+    host_filesystem: []
+  scheduling: { max_inflight: 1, fair_queuing: per_camera }
+  supports_stream: false
+  license: AGPL-3.0
+  vendor: open-nvr
+  model_card_url: https://huggingface.co/google/owlv2-base-patch16-ensemble
+  docs_url: https://github.com/open-nvr/ai-adapter/blob/main/adapters/vlm/README.md
+  source: https://github.com/open-nvr/ai-adapter/tree/main/adapters/vlm
+  contact: https://github.com/open-nvr/ai-adapter/issues

@@ -13,6 +13,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the read tools' shared definitions, #636 and #637), so an app can
   `pip install opennvr-app-sdk` and get it. Additive; nothing in 0.7.0
   changes.
+- **Open-vocabulary detection in the catalog.** A new task,
+  `open_vocab_detection`: a box and a score for any phrase the caller
+  writes — "red truck", "forklift", "person wearing a hard hat" — where
+  the always-on detector knows only its eighty classes. The adapter
+  (OWL-ViT v2, `ghcr.io/open-nvr/open-vocab-adapter`, ai-adapter #60)
+  is listed in `adapters_index.yml` and composed under the `open-vocab`
+  profile in `docker-compose.apps.yml`, with its weights in a named
+  volume after the first boot. On demand, not per frame: seconds a
+  frame on CPU. An app declares `requires_tasks: [open_vocab_detection]`
+  and asks it a phrase; the App SDK's validator knows the task.
 
 ## [0.1.7] — 2026-10-13
 
