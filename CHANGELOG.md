@@ -8,6 +8,11 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Investigate eval cases.** `examples/camera-agent/tools/investigate_eval.py`
+  runs 20 Agentic Workflows AI steps (RFC #620) with recorded tool results,
+  scores decisions against the Wilson-bound gate, and measures confidence
+  signals. First result, in MODELS_AND_LATENCY.md: no CPU model qualifies
+  for Investigate, and the decision needs its own call.
 - **App SDK 0.8.0.** Publishes `opennvr_app_sdk.agent`, which 0.1.7
   added on `main` (the model clients with schema-constrained output and
   the read tools' shared definitions, #636 and #637), so an app can
