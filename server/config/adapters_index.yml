@@ -335,9 +335,8 @@
     caller writes — "red truck", "forklift", "person wearing a hard hat" —
     where the always-on detector knows only its eighty classes. OWL-ViT v2.
     Slow on CPU (seconds a frame), so it is for a search, a check or a
-    workflow step rather than every frame. Downloads its weights from
-    huggingface.co and its CDN (*.huggingface.co) on first boot; an
-    air-gapped site bakes them in.
+    workflow step rather than every frame. Weights baked in, no network
+    egress.
   version: "1.0.0"
   tier: first_party
   image: ghcr.io/open-nvr/open-vocab-adapter:latest
@@ -349,12 +348,10 @@
     fingerprinted: true
   permissions:
     gpu: false
-    # The ~600 MB weights download from huggingface.co on first boot into
-    # the HF cache volume (whisper precedent). Under
-    # AI_SOVEREIGNTY=local_only KAI-C refuses an adapter that declares
-    # egress: an air-gapped site bakes the weights into the image and
-    # runs it with HF_HUB_OFFLINE=1 instead.
-    network_egress: ["huggingface.co", "*.huggingface.co"]
+    # Genuinely empty: the ~600 MB weights are baked into the image and
+    # the runtime is pinned offline, so this adapter never dials
+    # anything. Same posture as BLIP and CLIP.
+    network_egress: []
     host_filesystem: []
   scheduling: { max_inflight: 1, fair_queuing: per_camera }
   supports_stream: false

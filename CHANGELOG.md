@@ -19,8 +19,8 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the always-on detector knows only its eighty classes. The adapter
   (OWL-ViT v2, `ghcr.io/open-nvr/open-vocab-adapter`, ai-adapter #60)
   is listed in `adapters_index.yml` and composed under the `open-vocab`
-  profile in `docker-compose.apps.yml`, with its weights in a named
-  volume after the first boot. On demand, not per frame: seconds a
+  profile in `docker-compose.apps.yml`; weights baked into the image,
+  no network egress, boots on a sealed box. On demand, not per frame: seconds a
   frame on CPU. An app declares `requires_tasks: [open_vocab_detection]`
   and asks it a phrase; the App SDK's validator knows the task.
 

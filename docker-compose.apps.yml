@@ -1765,11 +1765,9 @@ services:
   # an app, a workflow step or a search asks it a phrase about one
   # frame, which is the only rate a CPU can carry (seconds a frame).
   #
-  # The ~600 MB weights download from huggingface.co on FIRST up into
-  # the cache volume (whisper precedent); after that it boots offline.
-  # Air-gapped: pre-fill opennvr_open_vocab_cache or bake the weights
-  # into a derived image, and note that AI_SOVEREIGNTY=local_only
-  # refuses the stock listing because it declares that egress.
+  # The ~600 MB weights are baked into the image and the runtime is
+  # pinned offline (the BLIP/CLIP posture): no volume, no egress, boots
+  # on a sealed box. Another OWL-ViT variant is a rebuild of the image.
   # ──────────────────────────────────────────────────────────────
 
   open-vocab-adapter:
@@ -1784,19 +1782,16 @@ services:
     restart: unless-stopped
     environment:
       - OPENNVR_ADAPTER_TOKEN=${INTERNAL_API_KEY}
-      # Smaller/faster or larger/sharper OWL-ViT variants by HF id;
-      # the base ensemble is the accuracy/size balance.
-      - OPENNVR_VLM_MODEL=${OPEN_VOCAB_MODEL:-google/owlv2-base-patch16-ensemble}
-    volumes:
-      - opennvr_open_vocab_cache:/root/.cache/huggingface
     networks:
       - opennvr_internal
     healthcheck:
-      # Long start_period: the first boot is the weights download.
+      # Loading 600 MB of weights takes longer than three retries on a
+      # small box, and an adapter marked unhealthy while it is still
+      # starting never gets registered (the CLIP note above).
       test: ["CMD", "python", "-c", "import httpx, sys; sys.exit(0 if httpx.get('http://127.0.0.1:9012/health', timeout=2).status_code == 200 else 1)"]
       interval: 15s
       timeout: 5s
-      start_period: 300s
+      start_period: 180s
       retries: 20
 
   open-vocab-register:
@@ -1844,5 +1839,3 @@ volumes:
   opennvr_guard_scan_sessions:
   opennvr_yolo_pose_cache:
   opennvr_yolo_pose_weights:
-  # OWL-ViT weights, downloaded on the open-vocab adapter's first up.
-  opennvr_open_vocab_cache:
