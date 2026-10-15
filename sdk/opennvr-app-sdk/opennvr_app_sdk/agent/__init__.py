@@ -18,14 +18,25 @@ and any OpenAI-compatible endpoint, with schema-constrained output::
         )
         decision = result.json()["decision"]
 
+A Look step (RFC #620) is one call that answers with a typed decision::
+
+    from opennvr_app_sdk.agent import DecisionSpec, Limits, run_look
+
+    spec = DecisionSpec(options=("delivery", "cab", "visitor"))
+    d = await run_look(llm, spec, prompt="Who is at the gate?",
+                       inputs={"plate": plate}, images=[jpeg], limits=Limits.cpu())
+    d.decision        # "delivery", "cab", "visitor" or "unsure"; never raises
+
 The read tools' model-facing definitions (names, descriptions, argument
 schemas) live here too, in :mod:`.tool_definitions`, so the camera agent
 and core's workflow engine advertise the same text; each implements the
-handlers itself. The loop, decisions and limits land in later changes;
-see the design note on #620.
+handlers itself. Investigate, the tool loop, lands next; see the design
+note on #620.
 """
 from __future__ import annotations
 
+from .decision import UNSURE, UNSURE_REASONS, Decision, DecisionSpec, Usage
+from .limits import Limits
 from .llm import (
     ChatResult,
     LLMClient,
@@ -38,19 +49,30 @@ from .llm import (
     OpenAIChat,
     ToolCall,
 )
+from .look import look_messages, run_look
 from .tool_definitions import READ_TOOL_NAMES, build_tool_definitions
+from .trace import TraceRow
 
 __all__ = [
     "READ_TOOL_NAMES",
+    "UNSURE",
+    "UNSURE_REASONS",
     "ChatResult",
+    "Decision",
+    "DecisionSpec",
     "LLMClient",
     "LLMError",
     "LLMHTTPError",
     "LLMOutputError",
     "LLMTimeoutError",
     "LLMUnreachableError",
+    "Limits",
     "OllamaChat",
     "OpenAIChat",
     "ToolCall",
+    "TraceRow",
+    "Usage",
     "build_tool_definitions",
+    "look_messages",
+    "run_look",
 ]

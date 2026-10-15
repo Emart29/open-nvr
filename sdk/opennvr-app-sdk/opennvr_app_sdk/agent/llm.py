@@ -119,7 +119,11 @@ class LLMClient(Protocol):
                    format: dict[str, Any] | None = None,
                    temperature: float = 0.2,
                    max_tokens: int = 256) -> ChatResult:
-        """One chat turn. ``format`` is a JSON schema the reply must follow."""
+        """One chat turn. ``format`` is a JSON schema the reply must follow.
+
+        A user message may carry ``"images"``: base64-encoded JPEG or PNG
+        strings, Ollama's native form. Clients for other runtimes convert
+        it to theirs."""
         ...  # pragma: no cover - protocol
 
 
@@ -318,7 +322,7 @@ class OpenAIChat(_HTTPClient):
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        body: dict[str, Any] = {"model": self.model, "messages": messages,
+        body: dict[str, Any] = {"model": self.model, "messages": _openai_messages(messages),
                                 "temperature": temperature, "max_tokens": max_tokens}
         if tools:
             body["tools"] = tools
@@ -346,3 +350,23 @@ class OpenAIChat(_HTTPClient):
             completion_tokens=usage.get("completion_tokens"),
             ms=int((time.perf_counter() - t0) * 1000),
         )
+
+
+def _openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ollama-style ``images`` on a message, as OpenAI content parts."""
+    out = []
+    for m in messages:
+        images = m.get("images")
+        if not images:
+            out.append(m)
+            continue
+        parts: list[dict[str, Any]] = [{"type": "text", "text": m.get("content") or ""}]
+        parts += [{"type": "image_url", "image_url": {"url": _data_url(b64)}} for b64 in images]
+        out.append({k: v for k, v in m.items() if k != "images"} | {"content": parts})
+    return out
+
+
+def _data_url(b64: str) -> str:
+    # JPEG and PNG are told apart by their first base64 characters.
+    mime = "image/png" if b64.startswith("iVBOR") else "image/jpeg"
+    return f"data:{mime};base64,{b64}"
