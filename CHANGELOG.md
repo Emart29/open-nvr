@@ -97,6 +97,10 @@ The core image now carries the App SDK (see Added); nothing to configure.
 
 ### Fixed
 
+- **The App SDK's source files all say Apache-2.0.** Nine files carried
+  an AGPL header copied from core by mistake; the package was always
+  Apache-2.0, as LICENSING.md says. A test now checks every file. The
+  app template still writes the licence a developer picks.
 - **User management names the field that failed validation**
   ("Username: String should have at least 3 characters"), and the form
   enforces the three-character minimum before submitting (#634, by

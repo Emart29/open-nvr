@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """credentials.py + the registration handshake: an app bootstraps with
 the site key, is issued its own key once, persists it, sends it from
 then on, and falls back when core rejects it."""

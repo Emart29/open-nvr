@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 
 """``AsyncOpenNVR`` — the platform client for apps that live on an
 event loop.

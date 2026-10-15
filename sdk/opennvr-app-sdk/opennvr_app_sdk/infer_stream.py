@@ -1,5 +1,5 @@
 # Copyright (c) 2026 OpenNVR
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 
 """A persistent KAI-C inference session over WebSocket (contract §6).
 
