@@ -25,7 +25,7 @@ The decode is a pure function tested against synthetic output tensors, and the
 net/session is injectable, so nothing here requires a model file, a download, or
 onnxruntime to be installed at test time — the real model only loads in deployment.
 
-YOLOv8/YOLO11 detect output is ``(1, 4+nc, N)`` (e.g. ``(1, 84, 8400)`` for COCO):
+YOLOv8/YOLO11/YOLO26 detect output (exported with ``end2end`` off) is ``(1, 4+nc, N)`` (e.g. ``(1, 84, 8400)`` for COCO):
 4 box params (cx, cy, w, h in input pixels) + ``nc`` class scores per anchor, no
 objectness, no softmax. Transpose to ``(N, 4+nc)``, argmax the class scores,
 threshold, then ``cv2.dnn.NMSBoxes``. (NMS-free families — YOLO26, RF-DETR — need
@@ -44,7 +44,7 @@ log = logging.getLogger("detect_pipeline.onnx_detector")
 
 _CPU_EP = "CPUExecutionProvider"
 
-# COCO-80 class names (the classes the default yolov8n.onnx predicts).
+# COCO-80 class names (the classes the default yolo26n.onnx predicts).
 COCO_LABELS = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
     "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",

@@ -349,7 +349,7 @@ implementation, not per-app glue — see the SDK's
 ## Detector
 
 The default detector is **YOLOv8 ONNX** (`onnx_detector.py`), loading the same
-`yolov8n.onnx` the stack builds for the `yolov8-adapter`. The decode (YOLOv8/YOLO11
+`yolo26n.onnx` the stack builds for the `yolov8-adapter`. The decode (YOLOv8/YOLO11/YOLO26
 `(1, 4+nc, N)` → transpose → NMS) is a pure, unit-tested function; the net/session
 is injectable so tests need no model file.
 

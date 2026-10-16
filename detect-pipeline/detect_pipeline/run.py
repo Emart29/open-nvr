@@ -167,7 +167,7 @@ def _derive_model_id(env: dict) -> str:
 
     Explicit ``DETECT_MODEL_ID`` wins (set it when A/B-ing two builds of the same
     family). Otherwise, for the onnx detector, use the model file's basename
-    (e.g. ``/app/model_weights/yolov8n.onnx`` → ``yolov8n``); else the detector
+    (e.g. ``/app/model_weights/yolo26n.onnx`` → ``yolo26n``); else the detector
     type. This is what labels ``tier0_detector_*`` so models are comparable.
     """
     explicit = (env.get("DETECT_MODEL_ID") or "").strip()
@@ -175,7 +175,7 @@ def _derive_model_id(env: dict) -> str:
         return explicit
     detector = env.get("DETECT_DETECTOR", "onnx")
     if detector == "onnx":
-        model_path = env.get("DETECT_ONNX_MODEL", "/app/model_weights/yolov8n.onnx")
+        model_path = env.get("DETECT_ONNX_MODEL", "/app/model_weights/yolo26n.onnx")
         base = os.path.basename(model_path)
         stem = base.rsplit(".", 1)[0] if "." in base else base
         return stem or "onnx"
@@ -213,7 +213,7 @@ def config_from_env(env: dict) -> ServiceConfig:
         api_key=env.get("INTERNAL_API_KEY") or None,
         nats_url=env.get("NATS_URL") or None,
         detector=env.get("DETECT_DETECTOR", "onnx"),
-        onnx_model=env.get("DETECT_ONNX_MODEL", "/app/model_weights/yolov8n.onnx"),
+        onnx_model=env.get("DETECT_ONNX_MODEL", "/app/model_weights/yolo26n.onnx"),
         onnx_input=_env_int(env, "DETECT_ONNX_INPUT", 640),
         onnx_backend=env.get("DETECT_ONNX_BACKEND", "auto"),
         onnx_providers=_clean_env(env.get("DETECT_ONNX_PROVIDERS")),

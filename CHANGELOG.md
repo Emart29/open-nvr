@@ -19,6 +19,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `granite4:tiny-h`); `qwen2.5:1.5b`, `qwen2.5:3b`, `qwen2.5:7b` and
   `llama3.2:3b` are dropped. Numbers in
   `examples/camera-agent/MODELS_AND_LATENCY.md`, "Measured again".
+- **The always-on detector is YOLO26n.** The weights image bakes
+  `yolo26n.onnx` (ultralytics 8.4.177, assets v8.4.0) exported with the
+  same flags as before, so it emits the same `(1, 84, 8400)` tensor and
+  the decode in the detect pipeline and the yolov8 adapter is untouched;
+  verified on real frames. Measured on a 4-thread CPU: 62 ms a frame
+  against yolov8n's 75, official COCO mAP 40.9 against 37.3, 9 MB. The
+  weights-init copies the new file beside an older volume's
+  `yolov8n.onnx`; the adapter is told the name through
+  `YOLOV8_WEIGHTS_FILE` (adapter release 0.1.7). Same AGPL-3.0 licence.
 
 ### Added
 

@@ -330,7 +330,7 @@ itself — worth trying with your model; the template is the safe default.
 | LLM | sized by the installer: `granite4:micro` on a CPU with 4+ cores or a GPU, `qwen2.5:0.5b` where RAM or cores are short | `qwen3:1.7b` when seconds matter more than the Investigate step (about half the time a turn) | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
 | TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
-| Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
+| Detect | YOLO26n (`yolo26n.onnx`; yolov8n and yolo11n are drop-ins) | YOLO26s/m | n is the fastest (62 ms a frame on a 4-thread CPU); larger nets cost latency per frame and per poll. |
 | Caption | BLIP | — | Optional; `describe_camera` falls back to the detector if absent. |
 | Faces | InsightFace | — | Optional; only loaded for recognition/enrollment. |
 
