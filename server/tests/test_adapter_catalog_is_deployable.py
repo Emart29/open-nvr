@@ -72,6 +72,8 @@ def _repo(image: str) -> str:
 SELECTABLE_SERVICES = {
     "docker-compose.camera-agent.yml:caption-adapter": (
         "CAPTION_ADAPTER", ("ollamavlm", "moondream", "blip")),
+    "docker-compose.camera-agent.yml:whisper-adapter": (
+        "STT_ADAPTER", ("parakeet", "whisper")),
 }
 
 

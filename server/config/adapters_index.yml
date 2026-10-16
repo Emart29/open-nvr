@@ -203,6 +203,36 @@
   source: https://github.com/open-nvr/ai-adapter/tree/main/adapters/whisper
   contact: https://github.com/open-nvr/ai-adapter/issues
 
+- id: parakeet-asr
+  name: Parakeet ASR
+  summary: >-
+    Speech to text with NVIDIA Parakeet TDT 0.6B v3 on ONNX Runtime, int8,
+    CPU first. The agent's default: on its own phrasings, WER 1.4 % at
+    0.31 s an utterance on four cores where whisper base.en scores 3.3 %
+    at 1.42 s. English and 25 European languages; no translation, no
+    Hindi (whisper for those). Weights baked in, no network egress.
+  version: "1.0.0"
+  tier: first_party
+  image: ghcr.io/open-nvr/parakeet-adapter:latest
+  tasks_advertised: [audio_transcription]
+  model:
+    framework: onnx-asr
+    modalities_in: [audio]
+    modalities_out: [text]
+    fingerprinted: true
+  permissions:
+    gpu: false
+    network_egress: []
+    host_filesystem: []
+  scheduling: { max_inflight: 1, fair_queuing: none }
+  supports_stream: false
+  license: AGPL-3.0
+  vendor: open-nvr
+  model_card_url: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+  docs_url: https://github.com/open-nvr/ai-adapter/blob/main/adapters/parakeet/README.md
+  source: https://github.com/open-nvr/ai-adapter/tree/main/adapters/parakeet
+  contact: https://github.com/open-nvr/ai-adapter/issues
+
 - id: piper-tts
   name: Piper TTS
   summary: Text to speech, on CPU. What the OpenNVR Agent speaks with.
