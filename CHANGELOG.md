@@ -18,6 +18,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A model change behind the embedding adapter re-embeds the store.**
+  `event_embeddings.model` now records the producer as
+  `<adapter>:<model version>`; a vector from another producer is
+  replaced by the enricher, and the backfill walks history again when
+  any such vector exists, at its own pace. Written for the move from
+  CLIP ViT-B/32 (512-d) to SigLIP 2 B/16 (768-d) in the `clip` adapter
+  (ai-adapter, measured mAP 0.672 vs 0.571 on coco128 retrieval), which
+  search would otherwise have skipped row by row.
+
+### Changed
+
 - **`granite4:micro` is the agent's default model.** Measured on both
   harnesses against the catalog's candidates: 44/60 on the Investigate
   step where `qwen3:1.7b` scores 21/60, because it calls the tools it is

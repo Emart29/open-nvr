@@ -540,6 +540,42 @@ async def backfill_once(batch: int = DEFAULT_BATCH,
     return state
 
 
+async def reembed_due() -> tuple[bool, str | None]:
+    """Does the store hold vectors from a producer other than the one
+    that would embed today? ``(True, producer)`` when the embedding
+    adapter's model changed under the store — the walk must run again
+    and replace them (``enrich_event_embedding`` replaces a vector from
+    another producer). ``(False, None)`` with no adapter, nothing stale,
+    or embedding off."""
+    from core.config import settings
+    if not bool(getattr(settings, "events_embed_enrichment", False)):
+        return False, None
+    from services.embed_enrichment import _resolve_embed_producer
+    try:
+        found = await _resolve_embed_producer()
+    except Exception:  # noqa: BLE001
+        return False, None
+    if found is None:
+        return False, None
+    from core.database import SessionLocal
+    from services import embedding_store
+    db = SessionLocal()
+    try:
+        stale = embedding_store.stale_rows(db, found[1])
+    finally:
+        db.close()
+    return (stale > 0), found[1]
+
+
+def reset_for_reembed(db, producer: str) -> dict[str, Any]:
+    """Start the walk over so every visit is offered to the new producer.
+    The old state is replaced, not amended: ``done`` and the cursor are
+    the walk's, and this is a new walk."""
+    state = {"reembed_for": producer}
+    _write_state(db, state)
+    return state
+
+
 async def run_backfill_loop(batch: int = DEFAULT_BATCH,
                             pause: float = DEFAULT_PAUSE_SECONDS,
                             interval: float = DEFAULT_INTERVAL_SECONDS,
@@ -603,6 +639,24 @@ async def run_backfill_loop(batch: int = DEFAULT_BATCH,
         # Same bar as a pass of the walk: NORMAL for the idle period,
         # nothing live in hand, inside the window.
         await wait_for_backfill_slot(starting=True)
+        # The embedding model changed under the store (CLIP → SigLIP 2):
+        # the old vectors are a non-match for every new query. Start
+        # the walk over; it replaces them, newest first.
+        try:
+            due, producer = await reembed_due()
+        except Exception:  # noqa: BLE001
+            due, producer = False, None
+        if due and producer:
+            from core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                reset_for_reembed(db, producer)
+            finally:
+                db.close()
+            logger.info("enrichment backfill: embeddings from another producer "
+                        "found; walking history again for %s", producer)
+            return await run_backfill_loop(batch=batch, pause=pause, interval=interval,
+                                           catch_up=catch_up, catch_up_interval=catch_up_interval)
         try:
             await catch_up_once(batch=batch, pause=pause)
         except Exception:  # noqa: BLE001

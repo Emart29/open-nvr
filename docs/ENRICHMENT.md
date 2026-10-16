@@ -8,7 +8,7 @@ ingest path, in the background, best-effort.
 |---|---|---|---|---|
 | **Descriptors** | colour / type claims (`visit_descriptors`) | the plate reader and/or a VLM registered | `EVENTS_DESCRIPTOR_ENRICHMENT` | *(plan-driven; none)* |
 | **Captions** | a sentence per visit (`event_text`) | a captioner advertising `scene_caption` (BLIP, Moondream, or `ollamavlm`) | `EVENTS_CAPTION_ENRICHMENT` | `image_captioning` |
-| **Embeddings** | one 512-d vector per visit (`event_embeddings`) | the CLIP adapter (`embed` task) | `EVENTS_EMBED_ENRICHMENT` | `embed` |
+| **Embeddings** | one vector per visit (`event_embeddings`; 768-d from SigLIP 2, 512-d from the earlier CLIP) | the embedding adapter (`embed` task; the `clip` container) | `EVENTS_EMBED_ENRICHMENT` | `embed` |
 
 ## The gate: skills follow apps
 
@@ -129,3 +129,24 @@ common vehicles), on the best frame only — never per frame. A visit on a
 camera without the skill costs nothing. No adapter registered is a silent
 no-op, not an error: search matches labels and plates, which is what a stock
 install does today.
+
+## Changing the embedding model
+
+`event_embeddings.model` records the **producer**: the adapter and the
+model behind it, name and version as its `/capabilities` report them
+(`clip:open_clip/ViT-B-16-SigLIP2-256/webli`). Vectors
+from two models are not comparable, and search already treats a
+dimension mismatch as a non-match, so a store of old vectors would go
+quietly dark under a new model. Two things stop that:
+
+- the enricher replaces a vector from another producer instead of
+  treating the visit as already embedded (a retry on the same producer
+  still does nothing);
+- the backfill, once history is done, checks on every catch-up pass
+  whether the store holds another producer's vectors and, if so, walks
+  history again from the top. `GET /search`'s `semantic.note` says
+  "Mixed producers" while that runs, and settles once the walk is over.
+
+The October 2026 move from CLIP ViT-B/32 (512-d) to SigLIP 2 B/16
+(768-d) is what this was written for; it costs one walk of history at
+the backfill's own pace, with nothing to run by hand.
