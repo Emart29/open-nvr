@@ -133,7 +133,8 @@ install does today.
 ## Changing the embedding model
 
 `event_embeddings.model` records the **producer**: the adapter and the
-model behind it (`clip:open_clip/ViT-B-16-SigLIP2-256/webli`). Vectors
+model behind it, name and version as its `/capabilities` report them
+(`clip:open_clip/ViT-B-16-SigLIP2-256/webli`). Vectors
 from two models are not comparable, and search already treats a
 dimension mismatch as a non-match, so a store of old vectors would go
 quietly dark under a new model. Two things stop that:

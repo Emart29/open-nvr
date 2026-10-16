@@ -42,6 +42,9 @@ from services import embedding_store  # noqa: E402
 T0 = datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)
 OLD = "clip:open_clip/ViT-B-32/laion2b_s34b_b79k"
 NEW = "clip:open_clip/ViT-B-16-SigLIP2-256/webli"
+#: What the clip adapter's /capabilities actually reports: the
+#: architecture as the model name, the pretrained tag as the version.
+NEW_CAPS = {"model": {"name": "open_clip/ViT-B-16-SigLIP2-256", "version": "webli"}}
 
 
 @pytest.fixture()
@@ -89,8 +92,8 @@ def _wire(monkeypatch, producer: str, vector: list[float], calls: list):
 
 def test_producer_identity_is_adapter_and_model_version():
     from services.embed_enrichment import producer_identity
-    caps = {"model": {"version": "open_clip/ViT-B-16-SigLIP2-256/webli"}}
-    assert producer_identity("clip", caps) == NEW
+    assert producer_identity("clip", NEW_CAPS) == NEW
+    assert producer_identity("clip", {"model": {"version": "v2"}}) == "clip:v2"
     assert producer_identity("clip", {}) == "clip"
     assert producer_identity("clip", {"model": {"version": "  "}}) == "clip"
 

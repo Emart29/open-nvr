@@ -137,8 +137,13 @@ def producer_identity(name: str, caps_entry: Any) -> str:
     name (CLIP → SigLIP 2, 512 → 768 wide), which is exactly the change
     a re-embed must notice."""
     model = (caps_entry or {}).get("model") if isinstance(caps_entry, dict) else None
-    version = (model or {}).get("version") if isinstance(model, dict) else None
-    ident = f"{name}:{version}" if isinstance(version, str) and version.strip() else str(name)
+    model = model if isinstance(model, dict) else {}
+    # Name AND version: the clip adapter reports its architecture as the
+    # name and the pretrained tag as the version ("webli" is shared by
+    # every SigLIP 2 size), so neither alone identifies the vectors.
+    parts = [str(model.get(k)).strip() for k in ("name", "version")
+             if isinstance(model.get(k), str) and str(model.get(k)).strip()]
+    ident = f"{name}:{'/'.join(parts)}" if parts else str(name)
     return ident[:120]
 
 
