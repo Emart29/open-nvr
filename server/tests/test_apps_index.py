@@ -258,7 +258,8 @@ def test_index_response_shape_matches_contract(client):
     """The per-app shape is exactly the frontend contract:
     {id, name, summary, category, version, kind, image, external_url,
      pricing, price_note, entitlement, author, popularity, screenshots[],
-     requires_tasks[], emits[], docs_url, install{compose,command},
+     requires_tasks[], hardware{cores,ram_gb,gpu,tasks,verdict,reasons}|null,
+     emits[], docs_url, install{compose,command},
      installed, enabled}.
     build_context is index-only and must NOT leak into the response."""
     app = next(
@@ -287,7 +288,7 @@ def test_index_response_shape_matches_contract(client):
         "signed_by",
         "version",
         "image",
-        "requires_tasks",
+        "requires_tasks", "hardware",
         "emits",
         "docs_url",
         "install",

@@ -147,6 +147,19 @@ async def get_security_posture(current_user=Depends(get_current_active_user)):
 # =============================================================================
 
 
+@router.get("/hardware")
+async def get_system_hardware(
+    current_user=Depends(get_current_active_user),
+):
+    """What this box has, as the catalog's fit badge sees it: cores after
+    the cgroup quota, RAM, the accelerator from DETECT_HWACCEL. Advisory
+    (services/hardware_profile): the same detect-recommend-never-gate
+    rule as the installer."""
+    from services.hardware_profile import host_profile
+
+    return host_profile().as_dict()
+
+
 @router.get("/resources")
 async def get_system_resources(
     db: Session = Depends(get_db),

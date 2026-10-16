@@ -187,8 +187,17 @@ async def get_adapters_index(
             if entry.id not in ids:
                 ids.append(entry.id)
 
+    from services.hardware_profile import describe, host_profile
+    host = host_profile()
+    adapters = []
+    for entry in entries:
+        body = entry.model_dump(mode="json")
+        # The bar the adapter's tasks set and its fit on this box; the
+        # listing's own permissions.gpu says what the container asks for.
+        body["hardware"] = describe(canonical(entry.tasks_advertised), host, registry)
+        adapters.append(body)
     return {
-        "adapters": [entry.model_dump(mode="json") for entry in entries],
+        "adapters": adapters,
         # An app names a task; this is the map from that task to the
         # adapters that can serve it.
         "tasks": {name: sorted(ids) for name, ids in sorted(by_task.items())},

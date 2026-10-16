@@ -28,7 +28,7 @@ import json
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Literal, Any
 
 import httpx
 import yaml
@@ -83,6 +83,20 @@ def _load_use_case_map() -> list[UseCaseEntry]:
     return [UseCaseEntry(**entry) for entry in raw]
 
 
+class TaskHardware(BaseModel):
+    """The ``hardware:`` block of a task: the prose the agent's Hardware
+    panel shows, and the same guidance as numbers so the catalog can say
+    whether this box meets an app's bar (services/hardware_profile).
+    Advisory, never a gate."""
+
+    min: str | None = None
+    recommended: str | None = None
+    note: str | None = None
+    cores: int | None = None
+    ram_gb: float | None = None
+    gpu: Literal["none", "optional", "recommended", "required"] | None = None
+
+
 class TaskEntry(BaseModel):
     """One canonical task in the curated taxonomy (server/config/tasks.yml).
 
@@ -107,6 +121,7 @@ class TaskEntry(BaseModel):
     aliases: list[str] = []
     suggested_adapters: list[str] = []
     suggested_apps: list[str] = []
+    hardware: TaskHardware | None = None
 
 
 TASKS_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "config" / "tasks.yml"
@@ -341,12 +356,19 @@ async def get_capabilities(
         # adapter advertises under an alias or a free-text spelling.
         # Purely a log nudge; never blocks or mutates the response.
         try:
+            from services.hardware_profile import describe, host_profile
             registry = _load_tasks_registry()
+            host = host_profile()
             for adapter_name, entry in (capabilities.get("adapters") or {}).items():
                 caps = (entry or {}).get("capabilities") or {}
                 tasks = caps.get("tasks_advertised") or []
                 if tasks:
                     lint_and_log_adapter_tasks(adapter_name, tasks, registry)
+                # The bar the adapter's tasks set and its fit on this box,
+                # derived here (services/hardware_profile) so the page can
+                # show it beside the permissions it asks for.
+                if isinstance(entry, dict):
+                    entry["hardware"] = describe([str(t) for t in tasks], host, registry)
         except Exception:
             main_logger.debug("task-name lint skipped", exc_info=True)
 

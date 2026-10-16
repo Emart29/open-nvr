@@ -23,6 +23,7 @@
 // form, and action forms are the SAME declarative pieces the catalog
 // card uses — this page just gives them room to breathe.
 
+import { HardwareBadge, type HardwareBar } from '../components/HardwareBadge'
 import { useMemo, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { useConfirm } from '../components/ui/ConfirmDialog'
@@ -226,6 +227,7 @@ export function AppView() {
               Needs {missing.map(skillLabel).join(' + ')} — not available
             </Badge>
           )}
+          <HardwareBadge hardware={(app as { hardware?: HardwareBar | null } | undefined)?.hardware} />
         </>}
         actions={<>
           {externalUrl && (
