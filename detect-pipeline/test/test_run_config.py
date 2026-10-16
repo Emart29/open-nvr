@@ -13,7 +13,7 @@ def test_defaults_are_enabled_with_onnx():
     cfg = config_from_env({})
     assert cfg.enabled is True                    # on by default
     assert cfg.detector == "onnx"                 # ONNX is the default detector
-    assert cfg.onnx_model.endswith("yolov8n.onnx")
+    assert cfg.onnx_model.endswith("yolo26n.onnx")
     assert cfg.onnx_input == 640
     assert cfg.onnx_backend == "auto"             # per-family resolution (onnx→cvdnn)
     assert cfg.onnx_providers == ""
@@ -52,7 +52,7 @@ def test_env_overrides():
 
 def test_model_id_derivation_for_benchmarking():
     # onnx default -> model file basename; explicit override wins; non-onnx -> type
-    assert config_from_env({}).model_id == "yolov8n"
+    assert config_from_env({}).model_id == "yolo26n"
     assert config_from_env({"DETECT_ONNX_MODEL": "/w/yolo11s.onnx"}).model_id == "yolo11s"
     assert config_from_env({"DETECT_MODEL_ID": "rfdetr-n-int8"}).model_id == "rfdetr-n-int8"
     assert config_from_env({"DETECT_DETECTOR": "blob"}).model_id == "blob"
