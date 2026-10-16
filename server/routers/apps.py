@@ -740,7 +740,22 @@ def _serialize_app(row: InstalledApp) -> dict[str, Any]:
         "all_cameras": (row.manifest_json or {}).get("all_cameras") is True,
         # The model skills a pick of this app brings to a camera.
         "skills": _app_tasks_of(row),
+        "hardware": _hardware_of(row),
     }
+
+
+def _hardware_of(row: InstalledApp) -> dict[str, Any] | None:
+    """The bar the installed app's required tasks set, and its fit on
+    this box (services/hardware_profile). Required tasks only: an
+    enrich task the box lacks degrades the app, it does not stop it."""
+    from services.hardware_profile import describe
+    manifest = row.manifest_json or {}
+    tasks = manifest.get("requires_tasks") if isinstance(manifest, dict) else None
+    try:
+        return describe([str(t) for t in (tasks or []) if isinstance(t, str)])
+    except Exception:  # noqa: BLE001
+        logger.debug("hardware bar for app %s unavailable", row.id, exc_info=True)
+        return None
 
 
 def _app_tasks_of(row) -> list[str]:
@@ -853,6 +868,8 @@ async def get_apps_index(
         )
 
     installed = {row.id: row for row in db.query(InstalledApp).all()}
+    from services.hardware_profile import describe, host_profile
+    host = host_profile()
 
     apps: list[dict[str, Any]] = []
     for entry in entries:
@@ -882,6 +899,9 @@ async def get_apps_index(
                 # signature from this identity before any pinned install.
                 "signed_by": _signed_by(entry),
                 "requires_tasks": entry.requires_tasks,
+                # Derived from the tasks, never declared: the bar those
+                # tasks set in tasks.yml and whether this box meets it.
+                "hardware": describe(list(entry.requires_tasks or []), host),
                 "emits": entry.emits,
                 "docs_url": entry.docs_url,
                 "install": {

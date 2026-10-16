@@ -52,6 +52,10 @@
 #                fast (omit when a CPU is simply fine); ``note`` = one
 #                honest measured/practical line. Drives the agent UI's
 #                "Hardware" panel — advisory only, never a gate.
+#                ``cores`` / ``ram_gb`` / ``gpu`` (none | optional |
+#                recommended | required) are the same guidance as
+#                numbers, so the catalog can say whether THIS box meets
+#                an app's or an adapter's bar (services/hardware_profile).
 #   suggested_apps: catalog app id(s) from examples/ that deliver this
 #                task's capability as a packaged use case — the app-install
 #                on-ramp alongside suggested_adapters. Same editorial
@@ -72,6 +76,10 @@
     min: 2-core x86_64/ARM64 CPU, ~1 GB RAM
     recommended: NVIDIA GPU (CUDA) — any 4 GB+ card
     note: CPU fallback works at reduced fps; a GPU lifts detection ~10-20x.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: recommended
 
 - task: face_recognition
   label: Face Recognition
@@ -86,6 +94,10 @@
     min: 2-core CPU, ~2 GB RAM
     recommended: NVIDIA GPU (CUDA) for busy doors / many enrollments
     note: CPU handles doorbell-rate traffic; GPU speeds embedding on crowds.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 2
+    gpu: recommended
 
 - task: image_captioning
   label: Image Captioning
@@ -102,6 +114,10 @@
     min: 4-core CPU, ~4 GB RAM
     recommended: NVIDIA GPU (CUDA), 4 GB+ VRAM
     note: Vision-language models are the heaviest task here — GPU strongly advised for frequent captions.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 4
+    gpu: recommended
 
 - task: embed
   label: Visual Embedding
@@ -126,6 +142,10 @@
       before — this adds semantic ranking on top, fused with the word ranking.
       The model runs once per visit, so CPU is fine for a few cameras and a GPU
       is what makes it comfortable across a site.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 4
+    gpu: recommended
 
 - task: vqa
   label: Visual Question Answering
@@ -142,6 +162,10 @@
     min: 4-core CPU, ~4 GB RAM
     recommended: NVIDIA GPU (CUDA), 4 GB+ VRAM
     note: Same engine class as captioning — GPU advised for frequent questions.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 4
+    gpu: recommended
 
 - task: face_detection
   label: Face Detection
@@ -150,6 +174,13 @@
   tags: [face, bbox, presence]
   agent_skill: null
   aliases: []
+  hardware:
+    min: 2-core CPU, ~1 GB RAM
+    note: A narrowed detector; the always-on detector's cost, not more.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: optional
 
 - task: person_detection
   label: Person Detection
@@ -158,6 +189,14 @@
   tags: [person, presence, occupancy]
   agent_skill: null
   aliases: []
+  hardware:
+    min: 2-core CPU, ~1 GB RAM
+    recommended: NVIDIA GPU (CUDA) — the same bar as object detection
+    note: A narrowed object detector; a GPU lifts it the same ~10-20x.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: recommended
 
 - task: pose_estimation
   label: Pose Estimation
@@ -166,6 +205,13 @@
   tags: [keypoints, skeleton, gesture, posture]
   agent_skill: null
   aliases: [keypoints, body_keypoints, pose]
+  hardware:
+    min: 2-core CPU, ~1 GB RAM
+    note: CPU-first (ONNX, ~10 fps on four cores); a GPU helps on many cameras.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: optional
 
 - task: package_detection
   label: Package Detection
@@ -180,6 +226,10 @@
     min: 2-core CPU, ~1 GB RAM
     recommended: any 4-core CPU — the task is asked on demand, a few frames a day per door
     note: A general detector cannot provide this task; a fine-tune on the site's own frames is what makes it good.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: none
 
 - task: open_vocab_detection
   label: Open-Vocabulary Detection
@@ -199,6 +249,10 @@
       A few seconds a frame on CPU, so it is asked on demand — a search, a
       check, a workflow step — not run on every frame. A GPU makes it fast
       enough to watch with.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 4
+    gpu: recommended
 
 - task: license_plate_recognition
   label: License Plate Recognition
@@ -212,6 +266,10 @@
   hardware:
     min: 2-core CPU, ~1 GB RAM
     note: Plate OCR is CPU-friendly; the object detector feeding it sets the real bar.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: none
 
 - task: multi_object_tracking
   label: Multi-Object Tracking
@@ -224,6 +282,10 @@
   hardware:
     min: 2-core CPU, <1 GB RAM
     note: Box association is lightweight — the detector feeding it is the real cost.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 2
+    ram_gb: 1
+    gpu: none
 
 - task: speech_to_text
   label: Speech to Text
@@ -242,6 +304,10 @@
     min: 4-core CPU (parakeet takes ~0.3 s an utterance)
     recommended: NVIDIA GPU (CUDA) for whisper medium+ or many concurrent speakers
     note: Voice mode only — chat mode skips ASR entirely. Parakeet is the default, whisper for translation or Hindi.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 2
+    gpu: optional
 
 - task: text_to_speech
   label: Text to Speech
@@ -254,3 +320,7 @@
   hardware:
     min: 4-core CPU
     note: The measured CPU hog (~4 cores while speaking) — text mode avoids it entirely.
+    # Structured, for the catalog's fit badge (services/hardware_profile.py):
+    cores: 4
+    ram_gb: 1
+    gpu: none

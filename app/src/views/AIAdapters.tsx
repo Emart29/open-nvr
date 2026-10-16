@@ -21,6 +21,7 @@
 // Registration, permission approval, and metrics come later with the KAI-C
 // /api/v1/adapters migration.
 
+import { HardwareBadge, type HardwareBar } from '../components/HardwareBadge'
 import { Fragment, useState, type ReactNode } from 'react'
 import { adapterContract, adapterTasks } from '../lib/kaic'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -105,6 +106,8 @@ function summarizeAdapter(name: string, caps: AdapterInfo | undefined, health: A
     fingerprint: typeof model.fingerprint === 'string' ? model.fingerprint : undefined,
     tasks: Array.from(new Set(tasks)),
     requestedPerms,
+    // Derived on the server from the tasks (services/hardware_profile).
+    hardware: ((caps as { hardware?: HardwareBar | null } | undefined)?.hardware) ?? null,
     raw: caps ?? health ?? {},
   }
 }
@@ -1291,6 +1294,7 @@ export function AIAdapters() {
                 <Layers size={16} className="text-[var(--text-dim)]" />
                 <CardTitle>{a.name}</CardTitle>
                 <div className="ml-auto flex items-center gap-2">
+                  <HardwareBadge hardware={a.hardware} />
                   <AdapterApprovalBadge name={a.name} />
                   {a.status && <Badge variant={statusVariant(a.status)}>{a.status}</Badge>}
                 </div>

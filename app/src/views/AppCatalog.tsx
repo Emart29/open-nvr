@@ -22,6 +22,7 @@
 // model is present before enabling. Config forms are generated from the
 // manifest param schema — no app-specific UI code.
 
+import { HardwareBadge, type HardwareBar } from '../components/HardwareBadge'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -258,6 +259,7 @@ export type RegisteredApp = {
   status?: string
   last_seen?: string | null
   manifest?: AppManifest | null
+  hardware?: HardwareBar | null
   config?: Record<string, any> | null
   entitlement?: Entitlement | null
   egress?: AppEgress | null
@@ -324,6 +326,8 @@ type IndexApp = {
   signed_by?: string | null
   image?: string | null
   requires_tasks?: string[]
+  /** Derived on the server from requires_tasks; see HardwareBadge. */
+  hardware?: HardwareBar | null
   emits?: string[]
   docs_url?: string
   install?: { compose?: string; command?: string } | null
@@ -1879,7 +1883,10 @@ function AppCard({ app, caps, tier0, skill }: { app: RegisteredApp; caps: Capabi
         )}
 
         {requires.length > 0 && (
-          <div><RequiresBadge requires={requires} caps={caps} tier0={tier0} /></div>
+          <div className="flex flex-wrap gap-2">
+            <RequiresBadge requires={requires} caps={caps} tier0={tier0} />
+            <HardwareBadge hardware={app.hardware} />
+          </div>
         )}
 
         {/* Where every freshly installed app starts. Said on the card, not
@@ -2212,7 +2219,10 @@ function AvailableAppCard({ app, caps, tier0, onInstall }: { app: IndexApp; caps
         )}
 
         {requires.length > 0 && (
-          <div><RequiresBadge requires={requires} caps={caps} tier0={tier0} /></div>
+          <div className="flex flex-wrap gap-2">
+            <RequiresBadge requires={requires} caps={caps} tier0={tier0} />
+            <HardwareBadge hardware={app.hardware} />
+          </div>
         )}
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2414,7 +2424,10 @@ export function UninstalledAppPage({ appId }: { appId: string }) {
           {requires.length > 0 && (
             <div className={row}>
               <dt className={term}>Needs</dt>
-              <dd><RequiresBadge requires={requires} caps={capsQuery.data} tier0={tier0Query.data} /></dd>
+              <dd className="flex flex-wrap gap-2">
+                <RequiresBadge requires={requires} caps={capsQuery.data} tier0={tier0Query.data} />
+                <HardwareBadge hardware={app.hardware} />
+              </dd>
             </div>
           )}
           <div className={row}>

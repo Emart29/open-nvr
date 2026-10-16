@@ -128,6 +128,18 @@ live status dot and an auto-generated config form.
   so a task nobody provides makes your app un-runnable, and non-canonical
   spellings (`ocr`, `object_tracking`) won't match adapters advertising
   the canonical ones.
+- **Hardware comes with the tasks; you do not declare it.** Every task in
+  `tasks.yml` carries its bar as numbers (`hardware.cores`, `ram_gb`,
+  `gpu`: none / optional / recommended / required) beside the prose. The
+  catalog derives your app's bar from its `requires_tasks` (the largest
+  cores and RAM any of them asks for, the strongest GPU word) and shows
+  it as a badge beside "needs <task>" with a verdict for the box it is
+  on: *fits*, *fits tightly*, or *short*, with the reasons on hover
+  (`services/hardware_profile.py`, `GET /api/v1/apps/index` →
+  `hardware`). Advisory, never a gate — the same detect-recommend-never-
+  block rule the installer follows. If your app's real cost is above its
+  tasks' (it runs its own model), raise the task's numbers in `tasks.yml`
+  with a measurement, or propose a task.
 
 ## 2. Get a repository under the org — CI builds, signs and publishes
 

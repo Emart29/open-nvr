@@ -8,6 +8,20 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Hardware requirements on the catalog, derived from the tasks.** Every
+  task in `tasks.yml` now carries its bar as numbers (`hardware.cores`,
+  `ram_gb`, `gpu`) beside the prose; an app's bar is derived from its
+  `requires_tasks` and an adapter's from its `tasks_advertised`
+  (`services/hardware_profile.py`), and the box's own cores (after the
+  cgroup quota), RAM and accelerator decide a verdict: fits, fits
+  tightly, or short, with reasons. Shown as a badge on the App Catalog
+  cards and detail pages and on the AI Adapters page; served on
+  `GET /api/v1/apps/index`, `/api/v1/apps`, `/api/v1/adapters/index`,
+  `/api/v1/ai-models/capabilities` and the new
+  `GET /api/v1/system/hardware`. Advisory, never a gate.
+
+### Added
+
 - **Three more measurement harnesses** beside the camera agent, with
   their October 2026 results in `MODELS_AND_LATENCY.md`:
   `tools/stt_eval.py` (+ `stt_synthesise.sh`) for speech to text on the
