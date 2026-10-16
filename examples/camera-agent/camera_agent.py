@@ -209,7 +209,7 @@ class AppConfig:
     piper_voice: str = ""
 
     # LLM tuning.
-    llm_model: str = "qwen2.5:1.5b"
+    llm_model: str = "granite4:micro"
     llm_temperature: float = 0.4
     llm_max_tokens: int = 256
 
@@ -3057,7 +3057,7 @@ def load_config(path: str | Path) -> AppConfig:
         piper_url=_str("piper_url", "http://127.0.0.1:9001"),
         piper_token=_str("piper_token", ""),
         piper_voice=_str("piper_voice", os.environ.get("PIPER_VOICE", "")),
-        llm_model=_str("llm_model", "qwen2.5:1.5b"),
+        llm_model=_str("llm_model", "granite4:micro"),
         llm_temperature=_float("llm_temperature", 0.4),
         llm_max_tokens=_int("llm_max_tokens", 256),
         vad_confidence=_float("vad_confidence", 0.55),

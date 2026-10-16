@@ -104,14 +104,14 @@ b=$(size 16 8 cpu)
 [[ "$a" != "$b" ]] && pass \
     || fail "4-core and 8-core 16 GB boxes got the same suggestion: ${a}"
 
-start_test "a 4-core CPU gets qwen3:1.7b, not qwen2.5:1.5b"
-# Measured on 4 vCPU (MODELS_AND_LATENCY.md, "Measured"): qwen3:1.7b armed
-# 10/10 alarms at ~9 s a turn; qwen2.5:1.5b armed none.
+start_test "a 4-core CPU gets granite4:micro, not the fast tier"
+# Measured (MODELS_AND_LATENCY.md, "Measured again"): granite4:micro 44/60
+# on the Investigate step, qwen3:1.7b 21/60, at about twice the seconds.
 bad=""
 for spec in "8 4 cpu" "16 4 cpu" "16 6 cpu"; do
     read -r ram cores accel <<<"$spec"
     llm=$(cut -d'|' -f1 <<<"$(size "$ram" "$cores" "$accel")")
-    [[ "$llm" == "qwen3:1.7b" ]] || bad="${bad} [${spec} → ${llm}]"
+    [[ "$llm" == "granite4:micro" ]] || bad="${bad} [${spec} → ${llm}]"
 done
 [[ -z "$bad" ]] && pass || fail "4-7 core CPU boxes:${bad}"
 
@@ -120,21 +120,24 @@ if grep -q "elseif (\$cores -ge 4) { 3 } else { 1 }" scripts/install.ps1 \
    && ! grep -q "elseif (\$cores -ge 4) { 2 }" scripts/install.ps1; then
     pass
 else
-    fail "install.ps1 does not give 4+ core CPUs the qwen3:1.7b tier (cap 3)"
+    fail "install.ps1 does not give 4+ core CPUs the granite4:micro tier (cap 3)"
 fi
 
-start_test "a 4-core box too small for qwen3:1.7b still gets a model that fits"
+start_test "a 4-core box too small for granite4:micro still gets a model that fits"
 HW_RAM_GB=7; compute_model_budget
 llm=$(cut -d'|' -f1 <<<"$(size 7 4 cpu)")
 llm_ram=$(ram_of "$llm")
 (( llm_ram <= HW_MODEL_BUDGET_GB )) && pass \
     || fail "7 GB / 4 cores got ${llm} (${llm_ram} GB) over a ${HW_MODEL_BUDGET_GB} GB budget"
 
-start_test "a GPU lifts the tier above the CPU-only answer"
+start_test "a GPU gets the default too: nothing tested beats it"
+# A GPU used to lift the LLM tier (qwen3:1.7b → qwen2.5:3b). Measured, the
+# bigger pick was the worse one; granite4:micro is the best tested model
+# and fits the CPU tier, so an accelerator buys speed, not a different brain.
 cpu=$(cut -d'|' -f1 <<<"$(size 16 8 cpu)")
 gpu=$(cut -d'|' -f1 <<<"$(size 16 8 cuda)")
-[[ "$cpu" != "$gpu" ]] && pass \
-    || fail "GPU and CPU-only 16 GB boxes both got '${cpu}'"
+[[ "$cpu" == "granite4:micro" && "$gpu" == "granite4:micro" ]] && pass \
+    || fail "16 GB boxes got CPU '${cpu}' / GPU '${gpu}', expected granite4:micro on both"
 
 # ── the second field report: "LLM is machine specific now, but the VLM is
 # still gemma on every machine". It was — the LLM got a speed ceiling and the
@@ -250,11 +253,14 @@ got=$(accel_with_pending "")
 
 start_test "the pending-reboot flag actually changes the suggestion"
 # The consequence the operator sees: same 30 GB machine, the only
-# difference is whether the driver has loaded yet.
-cpu_llm=$(cut -d"|" -f1 <<<"$(size 30 8 cpu)")
-gpu_llm=$(cut -d"|" -f1 <<<"$(size 30 8 cuda)")
-[[ "$cpu_llm" != "$gpu_llm" ]] && pass \
-    || fail "pre/post reboot suggest the same model (${cpu_llm}) — the flag buys nothing"
+# difference is whether the driver has loaded yet. The LLM is the same
+# on both (granite4:micro is the best tested model and fits the CPU
+# tier); what the GPU changes is the vision side (ollamavlm + gemma3:4b),
+# so the whole suggestion is compared, not the LLM column.
+cpu_all=$(size 30 8 cpu)
+gpu_all=$(size 30 8 cuda)
+[[ "$cpu_all" != "$gpu_all" ]] && pass \
+    || fail "pre/post reboot suggest the same thing (${cpu_all}) — the flag buys nothing"
 
 # ── Vision through Ollama is a GPU path (#583) ──
 # The field box: CAPTION_ADAPTER=ollamavlm on an 8-core CPU, Ollama's 1.8B
