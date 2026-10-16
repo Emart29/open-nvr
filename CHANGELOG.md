@@ -6,6 +6,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Three more measurement harnesses** beside the camera agent, with
+  their October 2026 results in `MODELS_AND_LATENCY.md`:
+  `tools/stt_eval.py` (+ `stt_synthesise.sh`) for speech to text on the
+  agent's own phrasings, `tools/tts_eval.py` for the voice (real-time
+  factor and intelligibility), `tools/retrieval_eval.py` for an OpenCLIP
+  embedding checkpoint on coco128. They are what chose Parakeet, kept
+  Piper, and chose SigLIP 2.
+
 ### Changed
 
 - **`granite4:micro` is the agent's default model.** Measured on both
