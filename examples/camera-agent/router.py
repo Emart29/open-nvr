@@ -584,7 +584,19 @@ def decide_tier0(text: str, *, cameras: list[str], advertised: set[str],
     """A tool call the agent can make without asking the model, or None."""
     t = (text or "").strip()
     words = re.findall(r"[A-Za-z']+", t)
-    if not t or not cameras:
+    if not t:
+        return None
+    # Small talk is a decision, not a question: a greeting, thanks, a
+    # closing or "what can you do" reaches the model with NO tools.
+    # Measured (MODELS_AND_LATENCY, "Measured"): told "always call a tool
+    # before describing", granite4:micro answered "thanks, that's all" with
+    # a three-tool sweep and "I can't see right now"; the guard only stops
+    # a fabricated sighting, not a look nobody asked for. Decided here,
+    # whatever the model, and before the camera check: a goodbye needs
+    # no camera.
+    if _is_small_talk(t):
+        return Decision(0, reason="small talk", hintable=False)
+    if not cameras:
         return None
     if len(words) > _MAX_WORDS or t.count("?") > 1:
         return Decision(2, reason="too long or two questions", hintable=False)
