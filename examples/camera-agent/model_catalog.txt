@@ -14,12 +14,11 @@
 #   summary   one line of honest editorial: what it is actually good at
 #
 # Ordering within a kind = menu order. Keep "tested" entries first.
-llm|qwen2.5:0.5b|1|yes|fastest|Fastest on any CPU; leans on the router — alone it chose the right tool 12/45 and armed no alarm
-llm|qwen2.5:1.5b|2|yes|fast|Low-RAM pick with quick turns; measured weak at tool use alone (8/45) and drops the alarm target (0/10 armed)
-llm|qwen3:1.7b|3|yes|fast|Best measured end result on CPU (30/45, ~9 s a turn on 4 vCPU) and arms alarms; the suggested default on CPU-only boxes with 4+ cores (the agent disables its thinking mode for snappy tool calls)
-llm|qwen2.5:3b|4|yes|medium|Chose the right tool itself 25/45; strong phrasing; the suggested default on a GPU (CUDA or Apple Silicon) with RAM to spare
-llm|qwen2.5:7b|8|no|slower|Strongest reasoning in the family; ~2x slower per answer than 3b; untested with this agent
-llm|llama3.2:3b|4|yes|slower|Best measured at choosing tools itself (30/45) and arms every alarm; ~4x slower than qwen3:1.7b on CPU, so the pick for an accelerator
+llm|qwen2.5:0.5b|1|yes|fastest|The floor for a 2-core or 4 GB box: fastest answers, leans on the router; alone it chose the right tool 12/45 and armed no alarm
+llm|granite4:micro|3|yes|medium|The default. Best measured by a wide margin: the Investigate step 44/60 (qwen3:1.7b 21/60) because it looks before it decides, 35/45 on the chat cases with the router; about 2x qwen3:1.7b's seconds per answer on CPU
+llm|qwen3:1.7b|3|yes|fast|The fast pick where seconds matter more than the Investigate step: 45/45 on the chat cases with the router, 21/60 on Investigate; the agent disables its thinking mode
+llm|granite4:micro-h|3|no|medium|The hybrid (Mamba) build of the default: 34/60 on Investigate, same RAM; untested on the chat cases
+llm|granite4:tiny-h|5|no|medium|7B mixture of experts with 1B active: 35/60 on Investigate at 4.2 GB on disk; for a box with RAM to spare; untested on the chat cases
 # VLM entries apply to CAPTION_ADAPTER=ollamavlm (vision served by your
 # Ollama). Note: 'moondream' here is Ollama's moondream2 (~1.8b) — the
 # separate moondream-adapter container ships the smaller 0.5b-int8 build.

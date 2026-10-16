@@ -5,8 +5,9 @@
 
 RFC #620's presets: on a GPU 6 tool calls in 45 s, on CPU 4 in 120 s.
 Measured on 4 vCPU (#617, #649): qwen3:1.7b takes 9-12 s a step, so the
-CPU preset fits Look with room; no CPU model yet qualifies for
-Investigate, whatever its time.
+CPU preset fits Look with room. No CPU model yet qualifies for
+Investigate; granite4:micro, the default since October 2026, is the
+closest (44/60, examples/camera-agent/MODELS_AND_LATENCY.md).
 """
 from __future__ import annotations
 

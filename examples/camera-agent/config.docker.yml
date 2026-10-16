@@ -100,11 +100,12 @@ enabled_tools:
   - create_alarm
   - stop_alarm
 
-# LLM tuning. qwen2.5:1.5b is the docker-compose.camera-agent.yml default —
-# ~1 GB of RAM, snappy on CPU, Apache-2.0, and NON-thinking (the right choice on
-# CPU: a thinking model can burn its whole token budget on hidden reasoning). For
-# more headroom set OLLAMA_MODEL=qwen2.5:3b in your .env — that single var drives
-# BOTH the model pull and this config; qwen2.5:0.5b is the low-RAM floor.
+# LLM tuning. granite4:micro is the docker-compose.camera-agent.yml default —
+# ~3 GB of RAM, Apache-2.0, NON-thinking (the right choice on CPU: a thinking
+# model can burn its whole token budget on hidden reasoning), and the best
+# measured at looking before it answers. For faster turns set
+# OLLAMA_MODEL=qwen3:1.7b in your .env — that single var drives BOTH the model
+# pull and this config; qwen2.5:0.5b is the low-RAM floor.
 # Whichever model you pick, it MUST support tool calling — see
 # https://ollama.com/blog/tool-support.
 llm_model: ${OLLAMA_MODEL}

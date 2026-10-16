@@ -6,6 +6,20 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`granite4:micro` is the agent's default model.** Measured on both
+  harnesses against the catalog's candidates: 44/60 on the Investigate
+  step where `qwen3:1.7b` scores 21/60, because it calls the tools it is
+  given before deciding; 45/45 on the chat cases with the router. About
+  twice the seconds a turn on CPU. The installer suggests it on any box
+  with 4+ cores or a GPU; `qwen2.5:0.5b` stays the floor and `qwen3:1.7b`
+  the fast pick. The model catalog is the measured top five
+  (`qwen2.5:0.5b`, `granite4:micro`, `qwen3:1.7b`, `granite4:micro-h`,
+  `granite4:tiny-h`); `qwen2.5:1.5b`, `qwen2.5:3b`, `qwen2.5:7b` and
+  `llama3.2:3b` are dropped. Numbers in
+  `examples/camera-agent/MODELS_AND_LATENCY.md`, "Measured again".
+
 ### Added
 
 - **The SDK runs a Look step.** `opennvr_app_sdk.agent.run_look()` asks a

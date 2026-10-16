@@ -401,7 +401,7 @@ services:
       - -c
       - |
         set -e
-        MODEL="$${OLLAMA_MODEL:-qwen2.5:1.5b}"
+        MODEL="$${OLLAMA_MODEL:-granite4:micro}"
         echo "Pulling Ollama model: $$MODEL"
         OLLAMA_HOST=http://ollama:11434 ollama pull "$$MODEL"
         echo "LLM model ready."
@@ -416,7 +416,7 @@ services:
           fi
         fi
     environment:
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-granite4:micro}
       - OLLAMA_VLM_MODEL=${OLLAMA_VLM_MODEL:-moondream}
       - CAPTION_ADAPTER=${CAPTION_ADAPTER:-moondream}
     volumes:
@@ -500,7 +500,7 @@ services:
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - CAMERA_AGENT_LISTEN_HOST=0.0.0.0
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-granite4:micro}
       # Where the agent reaches the LLM runtime. Default: the bundled
       # ollama container. Set OLLAMA_EXTERNAL_URL in .env (e.g.
       # http://host.docker.internal:11434 for native Ollama on the host
@@ -601,7 +601,7 @@ services:
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - CAMERA_AGENT_LISTEN_HOST=0.0.0.0
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-granite4:micro}
       # See the voice config-init: bundled ollama by default, or the
       # operator's external runtime via OLLAMA_EXTERNAL_URL in .env.
       - OLLAMA_URL=${OLLAMA_EXTERNAL_URL:-http://ollama:11434}
