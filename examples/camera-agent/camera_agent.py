@@ -7772,6 +7772,18 @@ async def _conversation_turn_body(
                   + (f" {decision.tool}" if decision.tool else "")
                   + (f" hint={decision.hint}" if decision.hint else ""), "ms": 0})
     routed = decision.routed
+    small_talk = routed and decision.tool is None
+    reasked = False
+    if small_talk:
+        # Small talk (router): the loop as usual, with NO tools, so the
+        # model cannot sweep the cameras on "thanks". A reply that claims
+        # a sighting anyway is a fabrication (nothing was looked at), and
+        # the answer to a goodbye is not a look: the model is asked once
+        # more, plainly, and failing that gets a fixed line. Measured:
+        # with the forced look kept, granite4:micro answered "thanks,
+        # that's all" with "I can't see right now" 5/5.
+        tools = None
+        routed = False
     if routed:
         call = {"id": "route-0", "type": "function",
                 "function": {"name": decision.tool, "arguments": dict(decision.args)}}
@@ -7860,6 +7872,17 @@ async def _conversation_turn_body(
             # with "happy to help you monitor the cameras", and looking then
             # turned a goodbye into "I can't see anything right now"
             # (router._should_force_grounding; measured in MODELS_AND_LATENCY).
+            if small_talk and _should_force_grounding(user_text, content):
+                if not reasked:
+                    reasked = True
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": (
+                        "That was only a greeting or a goodbye. Answer it in one "
+                        "short sentence and do not describe any camera.")})
+                    trace.append({"step": "reask", "detail": "small talk claimed a sighting"})
+                    continue
+                final = "Happy to help. Say the word when you want me to look at a camera."
+                break
             if (
                 not grounded and not forced and cameras
                 and _should_force_grounding(user_text, content)

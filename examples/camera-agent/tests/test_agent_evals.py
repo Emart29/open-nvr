@@ -139,19 +139,37 @@ class _NoToolOllama:
         return None
 
 
-@pytest.mark.parametrize("q,reply,forced", [
+@pytest.mark.parametrize("q,reply,reasked", [
     ("hi, what can you do?",
      "I can watch the cameras for you, detect objects, count people, and arm alarms.", False),
     ("hi, what can you do?", "I see the front door. It's currently dark outside.", True),
 ])
-def test_eval_turn_forces_a_look_only_on_a_claimed_sighting(q, reply, forced):
+def test_eval_small_talk_never_looks_and_a_claimed_sighting_is_reasked(q, reply, reasked):
+    """Small talk runs with no tools (router tier 0, no tool). A reply that
+    claims a sighting anyway is a fabrication: the model is asked once
+    more, plainly, and never sent to look — a goodbye answered with
+    "I can't see right now" was the measured failure."""
     rt = _runtime("synth:people=0")
     rt.ollama = _NoToolOllama(reply)
     out = asyncio.run(ca._run_conversation_turn(rt, [], q, preferred_camera="front_door"))
     by = [s.get("by") for s in rt.last_turn_trace if "by" in s]
-    assert ("forced" in by) is forced, rt.last_turn_trace
-    if not forced:
-        assert out == reply
+    assert "forced" not in by, rt.last_turn_trace
+    steps = [s["step"] for s in rt.last_turn_trace]
+    assert ("reask" in steps) is reasked, rt.last_turn_trace
+    assert out == ("Done." if reasked else reply)
+
+
+def test_eval_small_talk_that_keeps_claiming_a_sighting_gets_the_fixed_line():
+    rt = _runtime("synth:people=0")
+    class _AlwaysSighting:
+        async def chat(self, **kw):
+            return {"message": {"content": "There's a person at the front door right now.", "tool_calls": []}}
+        async def aclose(self):
+            return None
+    rt.ollama = _AlwaysSighting()
+    out = asyncio.run(ca._run_conversation_turn(rt, [], "thanks, that's all", preferred_camera="front_door"))
+    assert "person" not in out and "camera" in out
+    assert "forced" not in [s.get("by") for s in rt.last_turn_trace if "by" in s]
 
 
 # ── Eval 3: noise/hallucinations are dropped, real questions pass ───────

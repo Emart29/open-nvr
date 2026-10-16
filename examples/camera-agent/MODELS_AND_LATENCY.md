@@ -78,6 +78,7 @@ The router runs them FIRST, when they are sure.
 | **0** | every slot resolves: camera (named, "all", the one the UI is on, or the only one), tool, object, window; one question; no side effect; not about WHO | the tool runs at once; the model is asked only to **say** the answer, with a ~200-token compose prompt and **no tools** | one short call — the tool-calling iteration is skipped entirely |
 | **1** | the phrasing resembles one tool's but a slot is missing (two cameras, none named) | the full prompt goes out **unchanged** (the cached prefix holds) with one line in the user turn, next to the clock, naming the likely tool | as today, fewer wrong-tool iterations |
 | **2** | everything else — arm/watch/report/stop, "who came", two questions, a story | the loop, exactly as before | as today |
+| **0, no tool** | small talk: a greeting, thanks, a closing, "what can you do" | the loop with **no tools**: the model answers in words and cannot sweep the cameras; the anti-fabrication guard still runs, so a reply that claims a sighting anyway gets a real look | one call, no tool schemas |
 
 The trace shows the tier (`route: tier0 detect_objects` → `detect_objects`
 → `llm: compose`), and every turn logs `router: tier=… reason=…`, so the
