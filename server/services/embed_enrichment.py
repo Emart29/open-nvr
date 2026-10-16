@@ -131,9 +131,32 @@ def _note_unassigned(camera_id: int | None) -> None:
         )
 
 
+def producer_identity(name: str, caps_entry: Any) -> str:
+    """``<adapter>:<model version>`` — what ``event_embeddings.model``
+    records. The adapter name alone hid a model change behind the same
+    name (CLIP → SigLIP 2, 512 → 768 wide), which is exactly the change
+    a re-embed must notice."""
+    model = (caps_entry or {}).get("model") if isinstance(caps_entry, dict) else None
+    model = model if isinstance(model, dict) else {}
+    # Name AND version: the clip adapter reports its architecture as the
+    # name and the pretrained tag as the version ("webli" is shared by
+    # every SigLIP 2 size), so neither alone identifies the vectors.
+    parts = [str(model.get(k)).strip() for k in ("name", "version")
+             if isinstance(model.get(k), str) and str(model.get(k)).strip()]
+    ident = f"{name}:{'/'.join(parts)}" if parts else str(name)
+    return ident[:120]
+
+
 async def _resolve_embed_adapter() -> str | None:
     """A registered, healthy adapter advertising ``embed``. None if there
     is none — a no-op, not an error."""
+    found = await _resolve_embed_producer()
+    return found[0] if found else None
+
+
+async def _resolve_embed_producer() -> tuple[str, str] | None:
+    """``(adapter name, producer identity)`` for the adapter
+    :func:`_resolve_embed_adapter` would pick, or None."""
     try:
         from routers.skills import _kai_c_view
 
@@ -165,7 +188,7 @@ async def _resolve_embed_adapter() -> str | None:
         # refusing to embed because a probe was unavailable.
         if healthy is not None and name not in healthy:
             continue
-        return name
+        return name, producer_identity(name, caps_entry)
     return None
 
 
@@ -254,6 +277,13 @@ async def enrich_event_embedding(event_id: int,
     if not getattr(settings, "events_embed_enrichment", False):
         return
 
+    # Which adapter, and which model behind it, before the row is read:
+    # a vector from another producer is not "already embedded".
+    found = await _resolve_embed_producer()
+    if found is None:
+        return
+    adapter, producer = found
+
     # ── Phase 1: read, briefly ──────────────────────────────────────
     from core.database import SessionLocal
     from models import EventEmbedding, TimelineEvent
@@ -265,9 +295,12 @@ async def enrich_event_embedding(event_id: int,
             return
         if (row.label or "").lower() not in EMBEDDABLE_LABELS:
             return
-        # Already embedded. Re-embedding is what the backfill is for,
-        # deliberately and in bulk, not a side effect of a retry.
-        if db.get(EventEmbedding, row.id) is not None:
+        # Already embedded BY THIS PRODUCER. A vector from another one
+        # (the model changed behind the adapter: CLIP → SigLIP 2) is
+        # replaced — that is what the backfill's re-walk is for; a retry
+        # on the same producer still does nothing.
+        existing = db.get(EventEmbedding, row.id)
+        if existing is not None and existing.model == producer:
             return
         evidence_path = row.evidence_path
         camera_handle = f"cam{row.camera_id}"
@@ -290,10 +323,6 @@ async def enrich_event_embedding(event_id: int,
             logger.debug("embed enrichment: evidence unreadable (%s)", exc)
             return
 
-    adapter = await _resolve_embed_adapter()
-    if adapter is None:
-        return
-
     from services.adapter_contract import build_infer_payload
 
     payload = build_infer_payload(
@@ -313,7 +342,7 @@ async def enrich_event_embedding(event_id: int,
         if db.get(TimelineEvent, int(event_id)) is None:
             # Retention deleted the visit while the adapter was thinking.
             return
-        put_embedding(db, event_id=int(event_id), vector=vector, model=adapter)
+        put_embedding(db, event_id=int(event_id), vector=vector, model=producer)
     except Exception:                              # noqa: BLE001
         logger.exception("embed enrichment: write failed for event %s", event_id)
         db.rollback()

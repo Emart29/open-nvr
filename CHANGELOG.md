@@ -6,6 +6,27 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Three more measurement harnesses** beside the camera agent, with
+  their October 2026 results in `MODELS_AND_LATENCY.md`:
+  `tools/stt_eval.py` (+ `stt_synthesise.sh`) for speech to text on the
+  agent's own phrasings, `tools/tts_eval.py` for the voice (real-time
+  factor and intelligibility), `tools/retrieval_eval.py` for an OpenCLIP
+  embedding checkpoint on coco128. They are what chose Parakeet, kept
+  Piper, and chose SigLIP 2.
+
+### Changed
+
+- **A model change behind the embedding adapter re-embeds the store.**
+  `event_embeddings.model` now records the producer as
+  `<adapter>:<model version>`; a vector from another producer is
+  replaced by the enricher, and the backfill walks history again when
+  any such vector exists, at its own pace. Written for the move from
+  CLIP ViT-B/32 (512-d) to SigLIP 2 B/16 (768-d) in the `clip` adapter
+  (ai-adapter, measured mAP 0.672 vs 0.571 on coco128 retrieval), which
+  search would otherwise have skipped row by row.
+
 ### Changed
 
 - **Parakeet is the agent's speech-to-text.** `STT_ADAPTER` picks the

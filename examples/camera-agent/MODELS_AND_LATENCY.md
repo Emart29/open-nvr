@@ -675,6 +675,64 @@ What it says:
   GGUF would not import) and Florence-2 (a caption/grounding model, not
   a VQA one; it would be its own adapter).
 
+## Measured: speech (16 October 2026)
+
+`tools/stt_eval.py` on 29 of the agent's own phrasings (the eval cases
+plus twenty of the same kind) spoken by four macOS voices
+(`tools/stt_synthesise.sh`), scored with Whisper's English normaliser so
+"10 pm" and "10pm" are not errors. Every number from one 4-CPU container.
+
+| Model | WER | Per utterance p50 / p95 | Licence |
+|---|---|---|---|
+| **Parakeet TDT 0.6B v3** (onnx-asr, int8) — `STT_ADAPTER=parakeet` | **1.4 %** | **0.31 s / 0.50 s** | CC-BY-4.0 weights |
+| faster-whisper `base.en` int8 — the whisper adapter's default | 3.3 % | 1.42 s / 1.68 s | MIT |
+| faster-whisper `small.en` | 3.7 % | 2.67 s / 2.84 s | MIT |
+
+Half the errors at a fifth of the time, on the phrasings that matter.
+Parakeet's misses were "load and bay" and "camera too"; whisper's
+"neither gate", "off to 10pm", "said an alarm". A second of STT a turn
+was the largest single cost in the latency budget above on CPU, which
+is why Parakeet is the default. It does not translate and has no Hindi;
+`STT_ADAPTER=whisper` keeps those.
+
+## Measured: voice (16 October 2026)
+
+`tools/tts_eval.py`: twenty replies the agent actually gives, through
+each engine on four CPU cores. Real-time factor is generation seconds
+over audio seconds; under 1 the reply can play while it is made.
+Intelligibility is the audio back through whisper `small.en`.
+
+| Engine | Real-time factor p50 / p95 | A 2.6 s reply takes | WER back through whisper |
+|---|---|---|---|
+| **Piper** `en_US-lessac-medium` (shipped) | **0.23 / 0.29** | **0.64 s** | 4.4 % |
+| Kokoro-82M (`af_heart`) | 1.87 / 2.57 | 4.8 s | 3.9 % |
+
+Kokoro sounds better and is as intelligible, at eight times the compute:
+slower than real time on four cores, so it cannot stream ahead of
+playback. Piper stays; Kokoro is a GPU-tier option if one is ever
+wanted.
+
+## Measured: embeddings (16 October 2026)
+
+`tools/retrieval_eval.py`: text-to-image retrieval on coco128, "a photo
+of a <class>" for the 49 classes in at least three frames, relevance
+from the labels. 4-thread CPU.
+
+| Checkpoint (OpenCLIP) | mAP | recall@5 | Image embed | Dim | Params | Weights licence |
+|---|---|---|---|---|---|---|
+| ViT-B-32 / laion2b_s34b_b79k (CLIP, until October 2026) | 0.571 | 0.94 | 26 ms | 512 | 151 M | MIT |
+| **ViT-B-16-SigLIP2-256 / webli** (the `clip` adapter now) | **0.672** | **1.00** | 57 ms | 768 | 375 M | Apache-2.0 |
+| ViT-B-32-SigLIP2-256 / webli | 0.630 | 0.96 | 27 ms | 768 | 377 M | Apache-2.0 |
+| MobileCLIP2-B / dfndr2b | 0.647 | 0.96 | 47 ms | 512 | 150 M | not commercial-clean |
+| MobileCLIP2-S0 / dfndr2b | 0.631 | 0.92 | 204 ms (unreparameterised) | 512 | 75 M | not commercial-clean |
+
+SigLIP 2 B/16 is the smallest checkpoint that beats CLIP by more than
+noise; it costs twice the milliseconds an image, once per visit, and its
+vectors are 768 wide. A store of 512-wide CLIP vectors is not comparable
+with them, which is why the platform re-embeds history when the model
+behind the adapter changes (`docs/ENRICHMENT.md`, "Changing the
+embedding model").
+
 ## Model catalog (what each option is actually good at)
 
 The installer renders this catalog as the model-selection menu, annotated
