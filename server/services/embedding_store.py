@@ -182,6 +182,20 @@ def unpack(blob: bytes) -> list[float]:
 # ── writing ──────────────────────────────────────────────────────────
 
 
+def stale_rows(db, producer: str) -> int:
+    """Vectors from any producer but ``producer``: what a model change
+    leaves behind. ``producer`` is the adapter and its model
+    (``clip:open_clip/ViT-B-16-SigLIP2-256/webli``), so a new model
+    behind the same adapter name counts, which is the case that bit:
+    the embedder moved from 512-wide CLIP to 768-wide SigLIP 2 and a
+    store of old vectors would have been silently skipped by search
+    (a dimension mismatch is a non-match) until something re-embedded
+    it. The backfill does, when this is non-zero."""
+    from sqlalchemy import or_
+    return int(db.query(EventEmbedding).filter(
+        or_(EventEmbedding.model.is_(None), EventEmbedding.model != producer)).count())
+
+
 def put_embedding(db, *, event_id: int, vector: Sequence[float],
                   model: str | None = None) -> EventEmbedding | None:
     """Store (or replace) one visit's vector.
