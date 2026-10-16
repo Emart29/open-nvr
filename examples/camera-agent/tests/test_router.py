@@ -261,3 +261,32 @@ def test_the_compose_prompt_is_short_and_ends_with_the_clock():
     assert p.rstrip().endswith("The current date and time is X.")
     assert "tool" not in p.lower(), "no schemas, no routing guidance: the decision is made"
     assert len(p.split()) < 140, "a compose prompt re-prefills every turn; it must stay small"
+
+
+# ── small talk is tier 0 with no tool ──────────────────────────────
+
+@pytest.mark.parametrize("q", [
+    "thanks, that's all", "hi, what can you do?", "hello there", "ok bye",
+    "good morning", "thank you so much",
+])
+def test_small_talk_is_tier_0_with_no_tool(q):
+    """A greeting or a closing never reaches the model with tools: with
+    them, a model told to always look first runs a tool sweep on "thanks"
+    (granite4:micro, measured) and answers "I can't see right now"."""
+    d = _t0(q)
+    assert d is not None and d.routed and d.tool is None and d.reason == "small talk"
+    assert d.hintable is False
+    # Through decide() too, and whatever the camera list: a goodbye needs
+    # no camera, and an install with none still gets a civil answer.
+    full = router.decide(q, cameras=CAMS, advertised=ALL)
+    assert full.routed and full.tool is None
+    assert _t0(q, cameras=[]).routed
+
+
+@pytest.mark.parametrize("q", [
+    "thanks, and is anyone at the door?", "hi, what's on cam1?",
+    "ok, how many cars on cam2", "thanks — did anyone come by today?",
+])
+def test_one_real_word_makes_it_not_small_talk(q):
+    d = _t0(q)
+    assert d is None or not (d.routed and d.tool is None), q

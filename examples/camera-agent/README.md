@@ -40,7 +40,7 @@ examples/camera-agent/quickstart.sh --chat   # chat   (type your question instea
 examples/camera-agent/quickstart.sh --down   # stop
 ```
 
-First boot pulls the small LLM (default `qwen2.5:1.5b`) and warms the adapters.
+First boot pulls the small LLM (default `granite4:micro`) and warms the adapters.
 On a low-RAM box: `OLLAMA_MODEL=qwen2.5:0.5b examples/camera-agent/quickstart.sh`.
 
 ### Read in detail
@@ -81,7 +81,7 @@ On a low-RAM box: `OLLAMA_MODEL=qwen2.5:0.5b examples/camera-agent/quickstart.sh
                                              │ "what's at the porch?"
                                              ▼
                               ┌───────────────────────────────────┐
-                              │ Ollama adapter (qwen2.5:1.5b)     │
+                              │ Ollama adapter (granite4:micro)   │
                               │   5 registered tools              │
                               └──────────────┬────────────────────┘
                                              │ tool calls →
@@ -162,10 +162,11 @@ Real-world limitations the example does NOT yet handle:
   see the voice path in KAI-C's central history until v0.2. The
   tool calls into BLIP / YOLOv8 / InsightFace DO go through
   KAI-C and are fully audited.
-* **Model quality.** `qwen2.5:1.5b` (the default) is small, fast on
-  CPU, Apache-2.0, and non-thinking — the sweet spot for tool-calling
-  on a weak box. Drop to `qwen2.5:0.5b` on very low RAM, or bump to
-  `qwen2.5:3b` for better grounding at more RAM and slower inference.
+* **Model quality.** `granite4:micro` (the default) is the best
+  measured small model at calling the tools before it answers
+  (MODELS_AND_LATENCY.md), Apache-2.0 and non-thinking, at ~3 GB. Use
+  `qwen3:1.7b` for turns in about half the time, or `qwen2.5:0.5b` on
+  very low RAM.
   Set it via `OLLAMA_MODEL` in `.env` (or `llm_model` in your config).
 * **No memory across sessions.** Each new WebSocket connection
   starts fresh. "What did you tell me yesterday?" won't work.
@@ -204,7 +205,7 @@ cd ai-adapter
 docker compose up -d whisper ollama piper blip yolov8 insightface
 
 # 2. Pull a tool-capable LLM into Ollama (one-time, ~1GB).
-docker exec ai-adapter-ollama-1 ollama pull qwen2.5:1.5b
+docker exec ai-adapter-ollama-1 ollama pull granite4:micro
 
 # 3. Start KAI-C and register the vision adapters. Ports come from
 #    the docker-compose service definitions in ai-adapter — adjust
@@ -254,7 +255,7 @@ See `config.example.yml` for the full set. Key knobs:
 
 | Field | Default | Effect |
 |---|---|---|
-| `llm_model` | `qwen2.5:1.5b` | Tool-capable Ollama model (Apache-2.0, non-thinking). `qwen2.5:0.5b` for low RAM, `qwen2.5:3b` for better grounding. |
+| `llm_model` | `granite4:micro` | Tool-capable Ollama model (Apache-2.0, non-thinking). `qwen3:1.7b` for faster turns, `qwen2.5:0.5b` for low RAM. |
 | `llm_temperature` | `0.4` | Tool calling works best at low-but-not-zero temperatures. |
 | `frame_cache_ttl_seconds` | `2.0` | How long to reuse one camera's frame across tool calls in a single LLM turn. |
 | `event_ring_size` | `256` | Per-camera ring buffer size for the `recent_events` tool. |

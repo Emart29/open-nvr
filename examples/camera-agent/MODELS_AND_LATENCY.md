@@ -78,6 +78,7 @@ The router runs them FIRST, when they are sure.
 | **0** | every slot resolves: camera (named, "all", the one the UI is on, or the only one), tool, object, window; one question; no side effect; not about WHO | the tool runs at once; the model is asked only to **say** the answer, with a ~200-token compose prompt and **no tools** | one short call — the tool-calling iteration is skipped entirely |
 | **1** | the phrasing resembles one tool's but a slot is missing (two cameras, none named) | the full prompt goes out **unchanged** (the cached prefix holds) with one line in the user turn, next to the clock, naming the likely tool | as today, fewer wrong-tool iterations |
 | **2** | everything else — arm/watch/report/stop, "who came", two questions, a story | the loop, exactly as before | as today |
+| **0, no tool** | small talk: a greeting, thanks, a closing, "what can you do" | the loop with **no tools**: the model answers in words and cannot sweep the cameras; the anti-fabrication guard still runs, so a reply that claims a sighting anyway gets a real look | one call, no tool schemas |
 
 The trace shows the tier (`route: tier0 detect_objects` → `detect_objects`
 → `llm: compose`), and every turn logs `router: tier=… reason=…`, so the
@@ -326,7 +327,7 @@ itself — worth trying with your model; the template is the safe default.
 
 | Role | Default (snappy) | Upgrade (quality, slower) | Why |
 |------|------------------|---------------------------|-----|
-| LLM | sized by the installer: `qwen3:1.7b` (thinking off) on a CPU with 4+ cores, `qwen2.5:1.5b` where RAM is short, `qwen2.5:3b` on a GPU | `llama3.2:3b` with an accelerator | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
+| LLM | sized by the installer: `granite4:micro` on a CPU with 4+ cores or a GPU, `qwen2.5:0.5b` where RAM or cores are short | `qwen3:1.7b` when seconds matter more than the Investigate step (about half the time a turn) | Must support tool-calling — see "Measured: which small LLM picks the right tool" below. The installer sizes this to the machine. `qwen2.5:0.5b` is the low-RAM floor. |
 | STT | faster-whisper `base.en` | `small.en` | `.en` is English-only — faster and far fewer hallucinated tokens on quiet audio than multilingual. |
 | TTS | Piper `en_US-lessac-medium` (`PIPER_VOICE`) | `en_US-libritts-high` — 2-3x the compute | Piper is the CPU hog of the stack; the tier is the cost (rule 3). Pick the voice to match the persona gender. |
 | Detect | YOLOv8n (`yolov8n.onnx`) | YOLOv8s/m | n is the fastest; larger nets cost latency per frame and per poll. |
@@ -427,14 +428,14 @@ machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
 | Machine | LLM | Vision | Adapter | Whisper |
 |---|---|---|---|---|
 | 4 GB / 2 cores, CPU | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
-| 8 GB / 4 cores, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
-| 8 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
-| 16 GB / 8 threads, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
-| 16 GB / 4 cores, CPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
-| 32 GB / 16 cores, CPU | `qwen3:1.7b` | — | `moondream` | `small.en` |
-| 8 GB, GPU | `qwen3:1.7b` | — | `moondream` | `base.en` |
-| 16 GB, GPU | `qwen2.5:3b` | `gemma3:4b` | `ollamavlm` | `small.en` |
-| 32 GB, Apple Silicon | `qwen2.5:3b` | — | `moondream` | `small.en` |
+| 8 GB / 4 cores, CPU | `granite4:micro` | — | `moondream` | `base.en` |
+| 8 GB / 8 threads, CPU | `granite4:micro` | — | `moondream` | `base.en` |
+| 16 GB / 8 threads, CPU | `granite4:micro` | — | `moondream` | `small.en` |
+| 16 GB / 4 cores, CPU | `granite4:micro` | — | `moondream` | `base.en` |
+| 32 GB / 16 cores, CPU | `granite4:micro` | — | `moondream` | `small.en` |
+| 8 GB, GPU | `granite4:micro` | — | `moondream` | `base.en` |
+| 16 GB, GPU | `granite4:micro` | `gemma3:4b` | `ollamavlm` | `small.en` |
+| 32 GB, Apple Silicon | `granite4:micro` | — | `moondream` | `small.en` |
 | detection failed | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
 
 The resolved captioner decides whether core describes every recorded
@@ -532,6 +533,53 @@ carries a 95% interval per case). To add your hardware, run the same
 harness against your agent (see `AGENT_DESIGN.md`, "Measuring better") with
 the router on and off.
 
+### Measured again, 16 October 2026: the catalog's top five
+
+The table above is the run that chose `qwen3:1.7b`. Two things changed
+since: the agent (the router now handles small talk, the forced-grounding
+reads the reply) and the question — the Investigate step of Agentic
+Workflows, where the model has no router and no guard and must call the
+tools itself. The candidates were run on both harnesses: Investigate
+(`tools/investigate_eval.py`, 20 cases × 3 repeats, recorded tool
+results, no NVR) and tool choice (`tools/eval_harness.py`, 9 cases × 5
+repeats, a live agent on one still-image camera). Accuracy was measured
+on a Mac and reproduced the 4-vCPU VM's number for `qwen3:1.7b` exactly
+(21/60), so the pass columns compare; the seconds do not, and are
+given as a ratio against `qwen3:1.7b` on a 4-thread CPU instead.
+
+| Model | Resident | Investigate pass | Looked first | Tool choice, router on | Seconds a turn vs `qwen3:1.7b` |
+|---|---|---|---|---|---|
+| **`granite4:micro`** | 2.1 GB | **44/60 (73%)** | **56/60** | 35/45 → **45/45** with the small-talk tier | ~2× |
+| `granite4:tiny-h` (7B MoE, 1B active) | 4.2 GB | 35/60 | 49/60 | — | — |
+| `granite4:micro-h` | 2.1 GB | 34/60 | — | — | — |
+| `qwen3:1.7b` | 1.4 GB | 21/60 (35%) | 36/60 | 45/45 | 1× |
+| `LFM2-1.2B-Tool` | 1.3 GB | 19/60 | 37/60 | — | ~0.7× |
+| `qwen3:4b` | 2.5 GB | 9/60 | 9/60 | — | ~5× |
+| `xLAM-2-3b-fc` | 1.9 GB | 3/60 | — | — | its output format fights Ollama's schema mode (21 errors); not a fair run |
+
+What it says:
+
+- **`granite4:micro` is the default.** It more than doubles the
+  Investigate pass rate for one reason that is visible in the traces: it
+  calls the tools it is given (2.1 per step against 0.8) and then
+  decides, where `qwen3:1.7b` guesses and the bigger `qwen3:4b` reasons
+  without looking at all (zero tool calls in most runs). It still misses
+  the Investigate gate (the lower bound must reach 0.80); four of its
+  sixteen misses are one case where it wants a fifth tool call and the
+  CPU limit is four.
+- **Its two chat failures were the agent's, and are fixed.** On "thanks,
+  that's all" and "hi, what can you do?" it obeyed "always call a tool
+  before describing" to the letter and ran a three-tool sweep. Small talk
+  is now a router tier with no tools (the table at the top), for every
+  model.
+- **The cost is time**: about twice `qwen3:1.7b`'s seconds a turn on CPU
+  (prompt 104 against 214 tokens/s, generation 40 against 67, four
+  threads). On the 4-vCPU VM that is ~20-25 s a turn; `qwen3:1.7b` stays
+  in the catalog as the fast pick.
+- **Bigger Qwen is worse here, not better**, and `gemma3n` could not be
+  run (it needs a newer Ollama than 0.35). The remaining catalog entries
+  are the measured top five; the rest were dropped.
+
 ## Measured: can a small model run an Investigate step?
 
 RFC #620 offers a workflow's **Investigate** step on a site only when its
@@ -555,14 +603,16 @@ p95 inside the hardware class's seconds (CPU 4 tool calls / 120 s, GPU
 
 | Model, mode | Runs | Pass | 95% interval | Looked first | p50 / p95 per step | Qualifies |
 |---|---|---|---|---|---|---|
+| `granite4:micro`, CPU limits (Mac, accuracy only) | 60 | **44 (73%)** | 0.61-0.83 | 56/60 | — | **no**, the closest yet |
 | `qwen3:1.7b`, CPU limits | 60 | 21 (35%) | 0.24-0.48 | 36/60 | 12 s / 21 s | **no** |
 | `llama3.2:3b`, no time limit | 20 | 10 (50%) | 0.30-0.70 | 12/20 | 24 s / 39 s | **no** |
 | `qwen3:1.7b`, decision in the tool call | 60 | 0 (0%) | 0.00-0.06 | 6/60 | 5 s / 8 s | **no** |
 
 What it says:
 
-- **No CPU model qualifies for Investigate.** Not for lack of time:
-  both fit the 120 s limit with room to spare. They decide without
+- **No CPU model qualifies for Investigate yet**; `granite4:micro` is the
+  closest (see "Measured again"). Not for lack of time:
+  both Qwen runs fit the 120 s limit with room to spare. They decide without
   looking: about four runs in ten end without the tools the answer needs,
   and the reason then cites evidence that was never gathered ("the EVENT
   data shows a guard in a vest"). This is the camera agent's finding again
@@ -586,6 +636,45 @@ What it says:
 One CPU, few repeats: the intervals are wide on purpose. To add a GPU
 result, run the same command with `--hardware gpu`.
 
+## Measured: the vision models on coco128 (16 October 2026)
+
+`tools/vqa_eval.py` asks each model the agent's questions on coco128's
+128 frames and scores them against the labels: *present* ("is there a
+<class in the frame>?" → yes), *absent* ("is there a <class not in it>?"
+→ no; a yes is a hallucination, the failure that matters on a camera),
+*count* ("how many people?", exact and within one). Accuracy on a Mac
+GPU; the seconds column is a 4-thread CPU run on 12 frames. The shipped
+moondream is the adapter container (0.5b int8, CPU inside Docker),
+measured over its own `/infer`; Ollama's moondream answered nothing on
+Ollama 0.35.1 here and is not in the table.
+
+| Model | Present | Absent (no false yes) | Count exact / within one | Unanswered | CPU, a new frame | CPU, a follow-up |
+|---|---|---|---|---|---|---|
+| `moondream-adapter` (shipped, CPU default) | 117/126 | 104/126 | 27 / 42 of 61 | 0 | 7.6 s | 7.6 s |
+| `gemma3:4b` (GPU default) | 113/126 | **118/126** | 33 / **48** of 61 | 0 | 16.8 s | 16.8 s |
+| `qwen3-vl:2b` | 116/126 | **126/126** | 34 / 39 of 61 | 27 | 19.4 s | 1.2 s |
+| `qwen3-vl:4b` | 111/126 | 123/126 | 35 / 39 of 61 | 27 | — | — |
+
+What it says:
+
+- **The defaults stand.** The moondream adapter is the only one that
+  answers in single-digit seconds on CPU, and it answers; its weakness
+  is false yeses (22 of 126), which the agent's prompt should treat as a
+  reason to prefer the detector for "is there a person". `gemma3:4b`
+  earns the GPU slot: the fewest false yeses of the non-thinking models
+  and the best counter, at a cost (17 s a frame) only a GPU pays.
+- **Qwen3-VL never says yes to something that is not there**, and the
+  2b counts as well as gemma exactly, but as Ollama serves it it thinks
+  before every answer even with thinking off: 27 of 313 answers ran out
+  of a 256-token budget with nothing said, and a new frame costs ~19 s
+  on CPU (the prompt cache makes follow-ups on the same frame ~1 s).
+  Worth a look again when Ollama honours `think: false` for it; listed
+  with its numbers, not as tested with the agent, so the installer never
+  picks it over `gemma3:4b`.
+- Not measurable through Ollama here: LFM2-VL (no library entry, the
+  GGUF would not import) and Florence-2 (a caption/grounding model, not
+  a VQA one; it would be its own adapter).
+
 ## Model catalog (what each option is actually good at)
 
 The installer renders this catalog as the model-selection menu, annotated
@@ -600,12 +689,11 @@ first contribution. The LLM notes quote the measurements above.
 
 | Model | ~RAM | Speed | Status | Good at |
 |---|---|---|---|---|
-| `qwen2.5:0.5b` | 1 GB | fastest | tested | Any CPU, fastest answers; leans on the router — alone it chose the right tool 12/45 and armed no alarm |
-| `qwen2.5:1.5b` | 2 GB | fast | tested | Low-RAM pick with quick turns; measured weak at tool use alone (8/45) and drops the alarm `target` (0/10 armed) |
-| `qwen3:1.7b` | 3 GB | fast | tested | Best measured end result on CPU (30/45, ~9 s a turn on 4 vCPU) and arms alarms; camera questions lean on the router and guard; the default on CPU-only boxes with 4+ cores |
-| `qwen2.5:3b` | 4 GB | medium | tested | Chose the right tool itself 25/45; the default on a GPU (CUDA or Apple Silicon) with RAM to spare |
-| `qwen2.5:7b` | 8 GB | slower | untested | Strongest family reasoning; ~2× slower per answer |
-| `llama3.2:3b` | 4 GB | slower | tested | Best measured at choosing tools itself (30/45) and arms every alarm; ~4× slower than `qwen3:1.7b` on CPU — the pick for an accelerator |
+| `qwen2.5:0.5b` | 1 GB | fastest | tested | The floor for a 2-core or 4 GB box: fastest answers, leans on the router; alone it chose the right tool 12/45 and armed no alarm |
+| `granite4:micro` | 3 GB | medium | tested | **The default.** Best measured by a wide margin: Investigate 44/60 (`qwen3:1.7b` 21/60) because it looks before it decides; 45/45 on the chat cases with the router; about 2× `qwen3:1.7b`'s seconds a turn on CPU |
+| `qwen3:1.7b` | 3 GB | fast | tested | The fast pick where seconds matter more than the Investigate step: 45/45 on the chat cases, 21/60 on Investigate; the agent disables its thinking mode |
+| `granite4:micro-h` | 3 GB | medium | untested | The hybrid (Mamba) build of the default: 34/60 on Investigate, same RAM; not yet run on the chat cases |
+| `granite4:tiny-h` | 5 GB | medium | untested | 7B mixture of experts, 1B active: 35/60 on Investigate at 4.2 GB on disk; for a box with RAM to spare; not yet run on the chat cases |
 
 ### VLMs (the agent's eyes — used via `CAPTION_ADAPTER=ollamavlm`)
 
@@ -618,13 +706,11 @@ captioner via its own adapter, outside this menu.)
 
 | Model | ~RAM | Speed | Status | Good at |
 |---|---|---|---|---|
-| `moondream` | 3 GB | fast | tested | Edge-optimized VQA at low cost; the tested low-RAM default |
-| `gemma3:4b` | 4 GB | medium | tested | Field-tested: clearly better scene answers than moondream; the default where RAM allows |
+| `moondream` | 3 GB | fast | tested | The CPU default. The shipped adapter (0.5b int8) measured: 117/126 present, 104/126 absent (22 false yeses), people within one 42/61, 7.6 s an answer on CPU |
+| `gemma3:4b` | 4 GB | medium | tested | The GPU default. Measured: 113/126, 118/126 (8 false yeses), the best counter (within one 48/61); 17 s an answer on a 4-thread CPU, 5 s on a GPU |
+| `qwen3-vl:2b` | 3 GB | medium | measured, not through the agent | Measured: 116/126, 126/126 (no false yes), within one 39/61; thinks before every answer even with thinking off (27/313 unanswered, ~19 s a new frame on CPU) |
+| `qwen3-vl:4b` | 5 GB | medium | measured, not through the agent | Measured: 111/126, 123/126, within one 39/61; the same thinking cost and slower than the 2b |
 | `qwen2.5vl:3b` | 5 GB | medium | untested | Best text READER of its size (signs, labels, plates) |
-| `qwen3-vl:4b` | 5 GB | medium | untested | Newest Qwen vision family; strong all-round scene + text reading |
-| `minicpm-v` | 6 GB | medium | untested | OCR standout: dense/small text (delivery labels, screens) |
-| `llava:7b` | 6 GB | slower | untested | Classic general VQA; most descriptive free-form answers |
-| `llama3.2-vision:11b` | 9 GB | slowest | untested | Strongest scene reasoning; wants a GPU with headroom |
 
 Picking for a security camera: **counting and "is something there" never
 needs a VLM** (YOLOv8 does that); the VLM answers "what/who/how does it
