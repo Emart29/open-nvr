@@ -14,6 +14,13 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `open_vocab_detection` task in the validator's known set, both of which
   0.1.8 shipped on `main` without a PyPI release. Additive; nothing in
   0.8.0 changes.
+- **The SDK runs an Investigate step.** `run_investigate()` calls the
+  step's tools, then decides in a separate call (RFC #620). Every call goes
+  through one gate: tools off the step's list or `unavailable` are refused,
+  bad arguments go back to the model, and a tool that moves things cannot be
+  built at all. A tool in `ask` mode suspends the step with its state as
+  plain JSON; `resume()` carries on, after a restart if need be, and the
+  time spent waiting for a person is not counted.
 
 ## [0.1.8] — 2026-10-17
 

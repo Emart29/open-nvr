@@ -138,6 +138,7 @@ class Decision:
     self_reported: float | None = None
     unsure_reason: str | None = None
     proposed: str | None = None
+    evidence: list[str] = field(default_factory=list)   # ids of the tool rows that worked
     trace: list[TraceRow] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
 

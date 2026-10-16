@@ -30,12 +30,25 @@ A Look step (RFC #620) is one call that answers with a typed decision::
 The read tools' model-facing definitions (names, descriptions, argument
 schemas) live here too, in :mod:`.tool_definitions`, so the camera agent
 and core's workflow engine advertise the same text; each implements the
-handlers itself. Investigate, the tool loop, lands next; see the design
-note on #620.
+handlers itself. An Investigate step calls tools first, and may suspend
+while a person answers an ``ask`` tool::
+
+    out = await run_investigate(llm, spec, goal="...", tools=[Tool(...)])
+    if isinstance(out, Suspended):      # persist out.state; later:
+        out = await resume(llm, spec, out.state, answer, tools=[Tool(...)])
+
+See the design note on #620.
 """
 from __future__ import annotations
 
 from .decision import UNSURE, UNSURE_REASONS, Decision, DecisionSpec, Usage
+from .investigate import (
+    Suspended,
+    decide_message,
+    investigate_messages,
+    resume,
+    run_investigate,
+)
 from .limits import Limits
 from .llm import (
     ChatResult,
@@ -51,6 +64,7 @@ from .llm import (
 )
 from .look import look_messages, run_look
 from .tool_definitions import READ_TOOL_NAMES, build_tool_definitions
+from .tools import Tool, ToolResult, check_arguments, effective_mode
 from .trace import TraceRow
 
 __all__ = [
@@ -69,10 +83,19 @@ __all__ = [
     "Limits",
     "OllamaChat",
     "OpenAIChat",
+    "Suspended",
+    "Tool",
     "ToolCall",
+    "ToolResult",
     "TraceRow",
     "Usage",
     "build_tool_definitions",
+    "check_arguments",
+    "decide_message",
+    "effective_mode",
+    "investigate_messages",
     "look_messages",
+    "resume",
+    "run_investigate",
     "run_look",
 ]
