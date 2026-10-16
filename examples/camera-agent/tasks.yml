@@ -237,11 +237,11 @@
   # rather than a task of its own; the adapter takes the language as a
   # param. Without these two the whisper adapter is unroutable.
   aliases: [asr, stt, transcription, audio_transcription, audio_translation]
-  suggested_adapters: [whisper]
+  suggested_adapters: [parakeet, whisper]
   hardware:
-    min: 4-core CPU (small/base models)
-    recommended: NVIDIA GPU (CUDA) for medium+ models or many concurrent speakers
-    note: Voice mode only — chat mode skips ASR entirely.
+    min: 4-core CPU (parakeet takes ~0.3 s an utterance)
+    recommended: NVIDIA GPU (CUDA) for whisper medium+ or many concurrent speakers
+    note: Voice mode only — chat mode skips ASR entirely. Parakeet is the default, whisper for translation or Hindi.
 
 - task: text_to_speech
   label: Text to Speech

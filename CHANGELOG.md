@@ -8,6 +8,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Parakeet is the agent's speech-to-text.** `STT_ADAPTER` picks the
+  image in the whisper slot (`parakeet`, the default, or `whisper`); the
+  service name, port and result shape are unchanged, so the agent's
+  `whisper_url` is untouched. Measured on the agent's own phrasings:
+  Parakeet TDT 0.6B v3 (onnx-asr, int8) WER 1.4 % at 0.31 s an utterance
+  on four cores, faster-whisper base.en 3.3 % at 1.42 s. Parakeet does
+  not translate and has no Hindi; `STT_ADAPTER=whisper` keeps those.
+  Catalog entry `parakeet-asr`.
+
+### Changed
+
 - **`granite4:micro` is the agent's default model.** Measured on both
   harnesses against the catalog's candidates: 44/60 on the Investigate
   step where `qwen3:1.7b` scores 21/60, because it calls the tools it is

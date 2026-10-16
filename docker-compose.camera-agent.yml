@@ -54,9 +54,19 @@ services:
   # selected model on boot; first run may download faster-whisper weights into
   # the persisted cache, then later boots reuse them.
   # ──────────────────────────────────────────────────────────────
+  # The agent's speech-to-text slot. The SERVICE keeps the whisper name
+  # (the agent dials whisper_url = http://whisper-adapter:9003 and the
+  # register step calls it "whisper"); STT_ADAPTER picks the IMAGE, the
+  # caption-adapter pattern below: `parakeet` (the default — Parakeet
+  # TDT 0.6B v3, WER 1.4 % at 0.31 s an utterance on four cores,
+  # English + 25 European languages, no translation) or `whisper`
+  # (faster-whisper base.en, 3.3 % at 1.42 s; Hindi, translation).
+  # Both serve the same §5.3 result on port 9003. Parakeet is newer
+  # than adapter release 0.1.7, so it rides its own tag variable.
   whisper-adapter:
     profiles: [camera-agent]
-    image: ghcr.io/open-nvr/whisper-adapter:${ADAPTER_TAG:-latest}
+    image: ghcr.io/open-nvr/${STT_ADAPTER:-parakeet}-adapter:${STT_ADAPTER_TAG:-${ADAPTER_TAG:-latest}}
+    command: ["uvicorn", "adapters.${STT_ADAPTER:-parakeet}.main:app", "--host", "0.0.0.0", "--port", "9003"]
     container_name: opennvr_whisper_adapter
     logging: *svc-logs
     restart: unless-stopped
@@ -68,6 +78,7 @@ services:
       # CTranslate2 threads on CPU; empty = all cores. Adapter 1.0.1+.
       - OPENNVR_WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-}
     volumes:
+      # Whisper's download cache; inert for parakeet (weights baked in).
       - opennvr_whisper_models:/app/model_weights/whisper
     networks:
       - opennvr_internal
