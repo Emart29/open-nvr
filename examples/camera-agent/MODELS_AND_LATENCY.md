@@ -586,6 +586,45 @@ What it says:
 One CPU, few repeats: the intervals are wide on purpose. To add a GPU
 result, run the same command with `--hardware gpu`.
 
+## Measured: the vision models on coco128 (16 October 2026)
+
+`tools/vqa_eval.py` asks each model the agent's questions on coco128's
+128 frames and scores them against the labels: *present* ("is there a
+<class in the frame>?" → yes), *absent* ("is there a <class not in it>?"
+→ no; a yes is a hallucination, the failure that matters on a camera),
+*count* ("how many people?", exact and within one). Accuracy on a Mac
+GPU; the seconds column is a 4-thread CPU run on 12 frames. The shipped
+moondream is the adapter container (0.5b int8, CPU inside Docker),
+measured over its own `/infer`; Ollama's moondream answered nothing on
+Ollama 0.35.1 here and is not in the table.
+
+| Model | Present | Absent (no false yes) | Count exact / within one | Unanswered | CPU, a new frame | CPU, a follow-up |
+|---|---|---|---|---|---|---|
+| `moondream-adapter` (shipped, CPU default) | 117/126 | 104/126 | 27 / 42 of 61 | 0 | 7.6 s | 7.6 s |
+| `gemma3:4b` (GPU default) | 113/126 | **118/126** | 33 / **48** of 61 | 0 | 16.8 s | 16.8 s |
+| `qwen3-vl:2b` | 116/126 | **126/126** | 34 / 39 of 61 | 27 | 19.4 s | 1.2 s |
+| `qwen3-vl:4b` | 111/126 | 123/126 | 35 / 39 of 61 | 27 | — | — |
+
+What it says:
+
+- **The defaults stand.** The moondream adapter is the only one that
+  answers in single-digit seconds on CPU, and it answers; its weakness
+  is false yeses (22 of 126), which the agent's prompt should treat as a
+  reason to prefer the detector for "is there a person". `gemma3:4b`
+  earns the GPU slot: the fewest false yeses of the non-thinking models
+  and the best counter, at a cost (17 s a frame) only a GPU pays.
+- **Qwen3-VL never says yes to something that is not there**, and the
+  2b counts as well as gemma exactly, but as Ollama serves it it thinks
+  before every answer even with thinking off: 27 of 313 answers ran out
+  of a 256-token budget with nothing said, and a new frame costs ~19 s
+  on CPU (the prompt cache makes follow-ups on the same frame ~1 s).
+  Worth a look again when Ollama honours `think: false` for it; listed
+  with its numbers, not as tested with the agent, so the installer never
+  picks it over `gemma3:4b`.
+- Not measurable through Ollama here: LFM2-VL (no library entry, the
+  GGUF would not import) and Florence-2 (a caption/grounding model, not
+  a VQA one; it would be its own adapter).
+
 ## Model catalog (what each option is actually good at)
 
 The installer renders this catalog as the model-selection menu, annotated
@@ -618,13 +657,11 @@ captioner via its own adapter, outside this menu.)
 
 | Model | ~RAM | Speed | Status | Good at |
 |---|---|---|---|---|
-| `moondream` | 3 GB | fast | tested | Edge-optimized VQA at low cost; the tested low-RAM default |
-| `gemma3:4b` | 4 GB | medium | tested | Field-tested: clearly better scene answers than moondream; the default where RAM allows |
+| `moondream` | 3 GB | fast | tested | The CPU default. The shipped adapter (0.5b int8) measured: 117/126 present, 104/126 absent (22 false yeses), people within one 42/61, 7.6 s an answer on CPU |
+| `gemma3:4b` | 4 GB | medium | tested | The GPU default. Measured: 113/126, 118/126 (8 false yeses), the best counter (within one 48/61); 17 s an answer on a 4-thread CPU, 5 s on a GPU |
+| `qwen3-vl:2b` | 3 GB | medium | measured, not through the agent | Measured: 116/126, 126/126 (no false yes), within one 39/61; thinks before every answer even with thinking off (27/313 unanswered, ~19 s a new frame on CPU) |
+| `qwen3-vl:4b` | 5 GB | medium | measured, not through the agent | Measured: 111/126, 123/126, within one 39/61; the same thinking cost and slower than the 2b |
 | `qwen2.5vl:3b` | 5 GB | medium | untested | Best text READER of its size (signs, labels, plates) |
-| `qwen3-vl:4b` | 5 GB | medium | untested | Newest Qwen vision family; strong all-round scene + text reading |
-| `minicpm-v` | 6 GB | medium | untested | OCR standout: dense/small text (delivery labels, screens) |
-| `llava:7b` | 6 GB | slower | untested | Classic general VQA; most descriptive free-form answers |
-| `llama3.2-vision:11b` | 9 GB | slowest | untested | Strongest scene reasoning; wants a GPU with headroom |
 
 Picking for a security camera: **counting and "is something there" never
 needs a VLM** (YOLOv8 does that); the VLM answers "what/who/how does it
