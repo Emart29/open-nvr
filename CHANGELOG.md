@@ -6,6 +6,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **App SDK 0.9.0.** Publishes the Look step of an AI workflow —
+  `opennvr_app_sdk.agent.run_look()` with `DecisionSpec`, `Decision`,
+  `Limits` and the trace rows (#651, by @Emart29) — and the registry's
+  `open_vocab_detection` task in the validator's known set, both of which
+  0.1.8 shipped on `main` without a PyPI release. Additive; nothing in
+  0.8.0 changes.
+
 ## [0.1.8] — 2026-10-17
 
 Better defaults, each one measured. The agent's model, its speech to
