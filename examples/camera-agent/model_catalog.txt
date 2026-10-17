@@ -23,9 +23,9 @@ llm|granite4:tiny-h|5|no|medium|7B mixture of experts with 1B active: 35/60 on I
 # Ollama). Note: 'moondream' here is Ollama's moondream2 (~1.8b) — the
 # separate moondream-adapter container ships the smaller 0.5b-int8 build.
 vlm|moondream|3|yes|fast|The CPU default. The shipped moondream-adapter (0.5b int8) measured on coco128: is-there right 117/126 when present, 104/126 when absent (22 false yeses), people within one 42/61, 7.6 s an answer on CPU
-vlm|gemma3:4b|4|yes|medium|The GPU default. Measured: 113/126 present, 118/126 absent (8 false yeses), the best counter (within one 48/61); 17 s an answer on a 4-thread CPU, 5 s on a GPU
-vlm|qwen3-vl:2b|3|no|medium|Measured on the VQA harness, not run through the agent: 116/126 present, 126/126 absent (no false yes), within one 39/61. Thinks before every answer even with thinking off, so 27 of 313 answers ran out of budget and a new frame costs ~19 s on CPU (follow-ups ~1 s)
-vlm|qwen3-vl:4b|5|no|medium|Measured on the VQA harness, not run through the agent: 111/126 present, 123/126 absent, within one 39/61; the same thinking cost as the 2b and slower, so the 2b is the better Qwen here
+vlm|qwen3-vl:2b-instruct|4|yes|medium|The GPU default. The non-thinking build (the plain qwen3-vl:2b tag thinks and cannot be told not to). Measured: 115/126 present, 126/126 absent (no false yes), the best counter (within one 50/61), nothing unanswered; 3 s a frame on a GPU then follow-ups free, but ~18 s to encode a frame on four CPU cores, which is why moondream keeps CPU
+vlm|gemma3:4b|4|yes|medium|The previous GPU default. Measured: 113/126 present, 118/126 absent (8 false yeses), within one 48/61; 17 s an answer on a 4-thread CPU, 5 s on a GPU, no cache between questions on a frame
+vlm|qwen3-vl:4b|5|no|medium|The thinking build at 4b: measured 111/126, 123/126, within one 39/61, with the thinking cost the 2b-instruct does not pay; not run through the agent
 vlm|qwen2.5vl:3b|5|no|medium|Strong scene understanding and the best READER of its size (signs, labels, plates); GPU recommended
 vlm|minicpm-v|6|no|medium|OCR standout: reads dense or small text (delivery labels, screens) better than most; 8b-class
 vlm|llava:7b|6|no|slower|The classic general VQA: most descriptive free-form answers; weaker at reading text than qwen2.5vl

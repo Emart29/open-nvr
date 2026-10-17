@@ -862,7 +862,7 @@ function Choose-Example {
             'moondream | blip | ollamavlm - all local.'
         if ((Get-EnvValue CAPTION_ADAPTER) -eq 'ollamavlm') {
             if ([string]::IsNullOrWhiteSpace($vlmSuggest)) { $vlmSuggest = $vlmIfChosen }
-            Explain 'Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. gemma3:4b (tested - clearly better answers) is suggested where RAM allows; moondream is the tested low-RAM pick.' 'yes' $vlmSuggest
+            Explain 'Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. qwen3-vl:2b-instruct (measured: no false yeses, the best counter) is suggested on an accelerator; moondream is the tested CPU pick.' 'yes' $vlmSuggest
             Set-EnvValue OLLAMA_VLM_MODEL (Pick-ModelFromCatalog 'vlm' $vlmSuggest 'Vision model (Ollama)' $budgetGb)
         }
 

@@ -1294,7 +1294,7 @@ choose_example() {
             # left): still preselect something real, sized to what is
             # left, so Enter never writes an empty model name.
             [[ -z "$vlm_suggest" ]] && vlm_suggest="$SUGGEST_VLM_IF_CHOSEN"
-            explain "Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. gemma3:4b (tested — clearly better answers) is suggested where RAM allows; moondream is the tested low-RAM pick." \
+            explain "Multimodal Ollama model the ollamavlm adapter uses for scene questions; the adapter auto-pulls it. qwen3-vl:2b-instruct (measured: no false yeses, the best counter) is suggested on an accelerator; moondream is the tested CPU pick." \
                 "yes" "$vlm_suggest"
             pick_model_from_catalog vlm "$vlm_suggest" "Vision model (Ollama)"
             env_set OLLAMA_VLM_MODEL "$PICKED_MODEL"

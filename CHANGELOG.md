@@ -6,6 +6,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`qwen3-vl:2b-instruct` is the vision model on an accelerator**, in
+  place of `gemma3:4b`. Measured on coco128 through the adapter's own
+  call path: no false yes in 126 absent-object questions, the best
+  people counter (within one 50/61), nothing unanswered, 3 s a frame on
+  a GPU with every further question on that frame free; a gigabyte
+  smaller than gemma. Moondream keeps CPU: Qwen takes ~18 s to encode a
+  frame on four cores. The plain `qwen3-vl:2b` tag is the thinking
+  build and the reason the first run looked worse.
+
 ### Added
 
 - **Hardware requirements on the catalog, derived from the tasks.** Every
