@@ -180,7 +180,7 @@ function LiveTile({ cam, spotlit, onSpotlight, playing }: {
         </button>
         <button
           type="button"
-          onClick={() => navigate('/live')}
+          onClick={() => navigate(`/live?camera=${cam.id}`)}
           className="p-1.5 bg-black/60 hover:bg-black/80 text-white/90 border border-white/10"
           title={t('dashboard.openLiveView')}
           aria-label={t('dashboard.openLiveView')}
