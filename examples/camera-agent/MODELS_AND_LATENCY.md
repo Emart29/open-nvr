@@ -434,7 +434,7 @@ machines: `gemma3:4b` was gated on `RAM ≥ 8` alone, so an 8 GB box got
 | 16 GB / 4 cores, CPU | `granite4:micro` | — | `moondream` | `base.en` |
 | 32 GB / 16 cores, CPU | `granite4:micro` | — | `moondream` | `small.en` |
 | 8 GB, GPU | `granite4:micro` | — | `moondream` | `base.en` |
-| 16 GB, GPU | `granite4:micro` | `gemma3:4b` | `ollamavlm` | `small.en` |
+| 16 GB, GPU | `granite4:micro` | `qwen3-vl:2b-instruct` | `ollamavlm` | `small.en` |
 | 32 GB, Apple Silicon | `granite4:micro` | — | `moondream` | `small.en` |
 | detection failed | `qwen2.5:0.5b` | — | `moondream` | `tiny.en` |
 
@@ -651,26 +651,30 @@ Ollama 0.35.1 here and is not in the table.
 | Model | Present | Absent (no false yes) | Count exact / within one | Unanswered | CPU, a new frame | CPU, a follow-up |
 |---|---|---|---|---|---|---|
 | `moondream-adapter` (shipped, CPU default) | 117/126 | 104/126 | 27 / 42 of 61 | 0 | 7.6 s | 7.6 s |
-| `gemma3:4b` (GPU default) | 113/126 | **118/126** | 33 / **48** of 61 | 0 | 16.8 s | 16.8 s |
-| `qwen3-vl:2b` | 116/126 | **126/126** | 34 / 39 of 61 | 27 | 19.4 s | 1.2 s |
-| `qwen3-vl:4b` | 111/126 | 123/126 | 35 / 39 of 61 | 27 | — | — |
+| **`qwen3-vl:2b-instruct`** (GPU default) | 115/126 | **126/126** | **38 / 50** of 61 | 0 | 18.2 s | **0.16 s** |
+| `gemma3:4b` (the previous GPU default) | 113/126 | 118/126 | 33 / 48 of 61 | 0 | 16.8 s | 16.8 s |
+| `qwen3-vl:2b` (the thinking tag) | 116/126 | 126/126 | 34 / 39 of 61 | 27 | 19.4 s | 1.2 s |
+| `qwen3-vl:4b` (thinking) | 111/126 | 123/126 | 35 / 39 of 61 | 27 | — | — |
 
 What it says:
 
-- **The defaults stand.** The moondream adapter is the only one that
-  answers in single-digit seconds on CPU, and it answers; its weakness
-  is false yeses (22 of 126), which the agent's prompt should treat as a
-  reason to prefer the detector for "is there a person". `gemma3:4b`
-  earns the GPU slot: the fewest false yeses of the non-thinking models
-  and the best counter, at a cost (17 s a frame) only a GPU pays.
-- **Qwen3-VL never says yes to something that is not there**, and the
-  2b counts as well as gemma exactly, but as Ollama serves it it thinks
-  before every answer even with thinking off: 27 of 313 answers ran out
-  of a 256-token budget with nothing said, and a new frame costs ~19 s
-  on CPU (the prompt cache makes follow-ups on the same frame ~1 s).
-  Worth a look again when Ollama honours `think: false` for it; listed
-  with its numbers, not as tested with the agent, so the installer never
-  picks it over `gemma3:4b`.
+- **Moondream keeps CPU.** It is the only one that answers in
+  single-digit seconds on four cores, and it answers; its weakness is
+  false yeses (22 of 126), which matters less than it looks because the
+  agent never asks a VLM "is there a person" or "how many" — those go to
+  the detector. A better answer after the moment is a worse answer.
+- **`qwen3-vl:2b-instruct` takes the GPU slot** (17 October): no false
+  yes in 126, the best counter, nothing unanswered, 3 s a frame on a
+  GPU and every further question on that frame free — better than
+  `gemma3:4b` on every axis and a gigabyte smaller. Its one cost is
+  encoding the frame, ~18 s on four CPU cores, which is why it is not
+  the CPU pick: Moondream is 2.4× faster for a single question. A step
+  that asks several questions of one frame (Investigate) crosses over
+  after the third question even on CPU — a routing option for later.
+- **The plain `qwen3-vl:2b` tag is the thinking build** and cannot be
+  told not to think (27 of 313 answers ran out of budget with nothing
+  said); the `-instruct` tag is the same model without it. The
+  earlier run was that tag, not Ollama ignoring `think: false`.
 - Not measurable through Ollama here: LFM2-VL (no library entry, the
   GGUF would not import) and Florence-2 (a caption/grounding model, not
   a VQA one; it would be its own adapter).
@@ -765,15 +769,15 @@ captioner via its own adapter, outside this menu.)
 | Model | ~RAM | Speed | Status | Good at |
 |---|---|---|---|---|
 | `moondream` | 3 GB | fast | tested | The CPU default. The shipped adapter (0.5b int8) measured: 117/126 present, 104/126 absent (22 false yeses), people within one 42/61, 7.6 s an answer on CPU |
-| `gemma3:4b` | 4 GB | medium | tested | The GPU default. Measured: 113/126, 118/126 (8 false yeses), the best counter (within one 48/61); 17 s an answer on a 4-thread CPU, 5 s on a GPU |
-| `qwen3-vl:2b` | 3 GB | medium | measured, not through the agent | Measured: 116/126, 126/126 (no false yes), within one 39/61; thinks before every answer even with thinking off (27/313 unanswered, ~19 s a new frame on CPU) |
-| `qwen3-vl:4b` | 5 GB | medium | measured, not through the agent | Measured: 111/126, 123/126, within one 39/61; the same thinking cost and slower than the 2b |
+| `qwen3-vl:2b-instruct` | 4 GB | medium | tested | The GPU default. Measured: 115/126 present, 126/126 absent (no false yes), the best counter (within one 50/61); 3 s a frame on a GPU then follow-ups free, ~18 s to encode a frame on four CPU cores. The plain `qwen3-vl:2b` tag thinks and cannot be told not to |
+| `gemma3:4b` | 4 GB | medium | tested | The previous GPU default. Measured: 113/126, 118/126 (8 false yeses), within one 48/61; 17 s an answer on a 4-thread CPU, 5 s on a GPU |
+| `qwen3-vl:4b` | 5 GB | medium | measured, not through the agent | The thinking build at 4b: 111/126, 123/126, within one 39/61, with the thinking cost |
 | `qwen2.5vl:3b` | 5 GB | medium | untested | Best text READER of its size (signs, labels, plates) |
 
 Picking for a security camera: **counting and "is something there" never
 needs a VLM** (YOLOv8 does that); the VLM answers "what/who/how does it
-look". `gemma3:4b` is the tested all-rounder; `moondream` covers the
-same cheaply on small boxes. Reach for `qwen2.5vl:3b` or
+look". `qwen3-vl:2b-instruct` is the measured all-rounder on an
+accelerator; `moondream` covers the same cheaply on small boxes. Reach for `qwen2.5vl:3b` or
 `minicpm-v` when your questions involve **reading** (plates, parcel
 labels, uniforms with text); reach for the big ones only when answer
 richness matters more than latency.

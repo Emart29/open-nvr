@@ -394,10 +394,10 @@ grep -q 'captionSuggest -eq .ollamavlm.' scripts/install.ps1 && pass \
 # Field report: on a Mac (no CUDA, so no vision suggestion) the operator
 # picked ollamavlm anyway and the vision menu opened with "[]" — Enter
 # wrote an EMPTY OLLAMA_VLM_MODEL into .env.
-start_test "Apple Silicon with RAM to spare preselects gemma3:4b if ollamavlm is chosen"
+start_test "Apple Silicon with RAM to spare preselects qwen3-vl:2b-instruct if ollamavlm is chosen"
 size 32 10 metal >/dev/null
-[[ -z "$SUGGEST_VLM" && "$SUGGEST_VLM_IF_CHOSEN" == "gemma3:4b" ]] && pass \
-    || fail "expected no suggestion but gemma3:4b if chosen; got VLM='${SUGGEST_VLM}' if-chosen='${SUGGEST_VLM_IF_CHOSEN}'"
+[[ -z "$SUGGEST_VLM" && "$SUGGEST_VLM_IF_CHOSEN" == "qwen3-vl:2b-instruct" ]] && pass \
+    || fail "expected no suggestion but qwen3-vl:2b-instruct if chosen; got VLM='${SUGGEST_VLM}' if-chosen='${SUGGEST_VLM_IF_CHOSEN}'"
 
 start_test "a box with no vision budget preselects the low-RAM moondream if ollamavlm is chosen"
 size 8 4 cpu >/dev/null
