@@ -160,11 +160,39 @@ def ghcr_manifest_exists(image: str, tag: str) -> bool:
         raise
 
 
+#: Images this repository's own release tag publishes (publish-images,
+#: publish-detect-pipeline). On a release PR they cannot exist yet: the
+#: PR sets CORE_TAG to the version whose tag builds them, and the tag is
+#: pushed after the merge. Treating them as missing made every release
+#: PR red on the one check that was meant to protect fresh installs, and
+#: twice the tag was pushed before the merge to get around it. So: a core
+#: image at a CORE_TAG whose git tag does not exist yet is "built by this
+#: release", reported and not failed. Once the tag exists the exemption
+#: ends, and a core image missing at a tagged version is a failure again.
+CORE_IMAGES = ("core", "detect-pipeline", "camera-agent")
+
+
+def release_tag_exists(version: str) -> bool:
+    """Does ``v<version>`` exist on origin? Asked over the network, not
+    the local tag list, so a stale checkout cannot answer."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "ls-remote", "--tags", "origin", f"refs/tags/v{version}"],
+            capture_output=True, text=True, timeout=30, check=False,
+        ).stdout
+        return bool(out.strip())
+    except (OSError, subprocess.SubprocessError):
+        return True  # cannot tell: do not exempt
+
+
 def main() -> int:
     pins = load_env_pins(ENV_EXAMPLE)
     failures: list[str] = []
     checked = 0
     all_refs, buildable = collect_image_refs()
+    core_tag = pins.get("CORE_TAG", "")
+    pending_release = bool(core_tag) and not release_tag_exists(core_tag)
     for raw in all_refs:
         resolved = substitute(raw, pins)
         if not resolved.startswith(GHCR_PREFIX):
@@ -183,6 +211,11 @@ def main() -> int:
         exists = ghcr_manifest_exists(image, tag)
         if exists:
             status = "ok "
+        elif (pending_release and tag == core_tag
+              and image.rsplit("/", 1)[-1] in CORE_IMAGES):
+            # Built by the release this PR is: the v{CORE_TAG} tag does
+            # not exist yet, and pushing it is what publishes these.
+            status = "release"
         elif raw in buildable:
             # Not a release blocker: this service declares a `build:`,
             # so compose builds the image when the pull fails and the
@@ -204,6 +237,10 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    if pending_release:
+        print(f"\nAll {checked} pinned GHCR images exist or are built by the "
+              f"v{core_tag} tag this release pushes. Install path is pullable once it is.")
+        return 0
     print(f"\nAll {checked} pinned GHCR images exist. Install path is pullable.")
     return 0
 
