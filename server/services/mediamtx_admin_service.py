@@ -40,6 +40,7 @@ This service maps our CameraConfig into PathConf fields and handles RTSP stream 
 NOTE: All public methods are async — callers must await them.
 """
 
+import re
 import threading
 import time
 from typing import Any
@@ -55,6 +56,135 @@ from utils.url_redaction import redact_url_credentials
 
 # Shared timeout for all MediaMTX Admin API calls (seconds)
 _TIMEOUT = httpx.Timeout(10.0)
+
+_DURATION_DAY_PREFIX = re.compile(r"^(-?[0-9]+)d")
+_DURATION_PART = re.compile(r"([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(ns|us|\u00b5s|ms|s|m|h)")
+_DURATION_UNITS_NS = {
+    "ns": 1,
+    "us": 1_000,
+    "\u00b5s": 1_000,
+    "ms": 1_000_000,
+    "s": 1_000_000_000,
+    "m": 60_000_000_000,
+    "h": 3_600_000_000_000,
+}
+_MAX_DURATION_NS = (1 << 63) - 1
+_MIN_DURATION_NS = -(1 << 63)
+# Keep fractional parsing bounded consistently with the browser validator and
+# below Python's default integer-string conversion limit.
+_MAX_DURATION_FRACTION_DIGITS = 1_000
+_DURATION_FIELDS = (
+    "recordSegmentDuration",
+    "recordPartDuration",
+    "sourceOnDemandStartTimeout",
+    "sourceOnDemandCloseAfter",
+)
+
+
+def _parse_mediamtx_duration_ns(value: Any) -> int:
+    """Parse MediaMTX v1.15.4 duration syntax to signed 64-bit nanoseconds.
+
+    MediaMTX adds an optional integer-day prefix to Go's time.ParseDuration
+    syntax. Empty strings and zero are valid zero durations; negative values
+    are also accepted by the parser. Day prefixes whose nanosecond value is
+    outside int64 are rejected deliberately: MediaMTX v1.15.4's day arithmetic
+    can overflow because it ignores ParseInt errors and multiplies unchecked.
+    This keeps the accepted API range safe and identical in the UI and backend.
+    """
+    if value is None:
+        return 0
+    if not isinstance(value, str):
+        raise ValueError("must be a duration string")
+    if value == "" or value in {"0", "+0", "-0"}:
+        return 0
+
+    negative_days = False
+    days_ns = 0
+    day_match = _DURATION_DAY_PREFIX.match(value)
+    if day_match:
+        try:
+            days = int(day_match.group(1))
+        except ValueError as exc:
+            raise ValueError("contains an invalid day value") from exc
+        negative_days = days < 0
+        days_ns = abs(days) * 86_400_000_000_000
+        if days_ns > _MAX_DURATION_NS:
+            raise ValueError("exceeds the supported duration range")
+        value = value[day_match.end():]
+
+    if not value:
+        parsed_ns = 0
+    else:
+        sign = 1
+        if value.startswith(("+", "-")):
+            if value[0] == "-":
+                sign = -1
+            value = value[1:]
+        if not value:
+            raise ValueError("has invalid duration syntax or units")
+        if value == "0":
+            parsed_ns = 0
+        else:
+            parsed_ns = 0
+            position = 0
+            while position < len(value):
+                match = _DURATION_PART.match(value, position)
+                if match is None:
+                    raise ValueError("has invalid duration syntax or units")
+                whole, _, fraction = match.group(1).partition(".")
+                if len(fraction) > _MAX_DURATION_FRACTION_DIGITS:
+                    raise ValueError(
+                        f"fraction exceeds {_MAX_DURATION_FRACTION_DIGITS} digits"
+                    )
+                try:
+                    amount = int(whole or "0") * _DURATION_UNITS_NS[match.group(2)]
+                    if fraction:
+                        amount += int(fraction) * _DURATION_UNITS_NS[match.group(2)] // (10 ** len(fraction))
+                except ValueError as exc:
+                    raise ValueError("exceeds the supported duration range") from exc
+                parsed_ns += amount
+                if parsed_ns > _MAX_DURATION_NS + (1 if sign < 0 else 0):
+                    raise ValueError("exceeds the supported duration range")
+                position = match.end()
+            parsed_ns *= sign
+
+    if negative_days:
+        parsed_ns = -(days_ns + parsed_ns)
+    else:
+        parsed_ns += days_ns
+    if parsed_ns > _MAX_DURATION_NS or parsed_ns < _MIN_DURATION_NS:
+        raise ValueError("exceeds the supported duration range")
+    return int(parsed_ns)
+
+
+def _validate_pathdefaults_durations(payload: dict[str, Any]) -> None:
+    """Validate submitted duration fields using MediaMTX v1.15.4 semantics."""
+    for field in _DURATION_FIELDS:
+        if field not in payload:
+            continue
+        try:
+            duration_ns = _parse_mediamtx_duration_ns(payload[field])
+        except ValueError as exc:
+            raise ValueError(f"Invalid {field}: {exc}.") from exc
+        # MediaMTX v1.15.4's Path.Validate only bounds segment duration above.
+        if field == "recordSegmentDuration" and duration_ns > 86_400_000_000_000:
+            raise ValueError(
+                "Invalid recordSegmentDuration: maximum segment duration is 1 day."
+            )
+
+
+def _pathdefaults_patch_failure(result: dict[str, Any]) -> tuple[int, str] | None:
+    """Map a MediaMTX path-defaults result to an HTTP error, if it failed."""
+    if result.get("status") == "ok":
+        return None
+    details = result.get("details")
+    message = result.get("message")
+    if isinstance(details, dict):
+        message = details.get("error") or details.get("message") or message
+    if not message:
+        message = "MediaMTX rejected the path defaults update"
+    status_code = 503 if result.get("status") == "no_admin_api" else 502
+    return status_code, str(message)
 
 # Fields containing sensitive data (hooks with hardcoded secrets) - COMPLETELY HIDDEN from UI
 SENSITIVE_HOOK_FIELDS = [
@@ -523,17 +653,18 @@ class MediaMtxAdminService:
     @staticmethod
     async def pathdefaults_patch(payload: dict[str, Any]) -> dict[str, Any]:
         """Update path defaults configuration (validates that protected fields are not modified)."""
+        _validate_pathdefaults_durations(payload)
         if not MediaMtxAdminService.is_configured():
             return {
                 "status": "no_admin_api",
                 "message": "mediamtx_admin_api not configured",
             }
 
-        # Validate that user isn't trying to modify protected fields
+        # Preserve the result-dict contract used by non-router callers.
         try:
             _validate_patch_payload(payload)
-        except ValueError as e:
-            return {"status": "error", "message": str(e)}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc), "validation_error": True}
 
         url = MediaMtxAdminService._base() + "/config/pathdefaults/patch"
         try:

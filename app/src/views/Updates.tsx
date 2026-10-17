@@ -20,6 +20,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { apiService } from '../lib/apiService'
 import { useTranslation } from '../i18n'
 import { useAuth } from '../auth/AuthContext'
+import { durationFieldError } from '../utils/mediamtxDuration'
 import { Link } from 'react-router-dom'
 import { ChevronDown, Check, X, RotateCcw, AlertTriangle, FileText, Settings } from 'lucide-react'
 
@@ -56,18 +57,20 @@ function Switch({ label, checked, onChange, disabled }: { label: string; checked
   )
 }
 
-function Input({ label, value, onChange, disabled, placeholder = '' }: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; placeholder?: string }) {
+function Input({ label, value, onChange, disabled, placeholder = '', error }: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; placeholder?: string; error?: string }) {
   return (
     <div className="py-2">
       <label className="block text-sm font-medium mb-1">{label}</label>
       <input
         type="text"
-        className="w-full border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50"
+        className={`w-full border ${error ? 'border-[var(--danger)]' : 'border-[var(--border)]'} bg-[var(--bg)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
+        aria-invalid={!!error}
       />
+      {error && <div role="alert" className="mt-1 text-xs text-[var(--danger)]">{error}</div>}
     </div>
   )
 }
@@ -97,7 +100,7 @@ function Select({ label, value, onChange, options, disabled }: { label: string; 
   )
 }
 
-function PathDefaultsForm({ config, onChange, disabled }: { config: any; onChange: (newConfig: any) => void; disabled?: boolean }) {
+function PathDefaultsForm({ config, onChange, disabled, durationErrors }: { config: any; onChange: (newConfig: any) => void; disabled?: boolean; durationErrors: Record<string, string | undefined> }) {
   const handleChange = (key: string, value: any) => {
     onChange({ ...config, [key]: value })
   }
@@ -147,6 +150,7 @@ function PathDefaultsForm({ config, onChange, disabled }: { config: any; onChang
         onChange={(v) => handleChange('recordSegmentDuration', v)} 
         disabled={disabled} 
         placeholder="1h0m0s"
+        error={durationErrors.recordSegmentDuration}
       />
       <Input 
         label="Part Duration" 
@@ -154,6 +158,7 @@ function PathDefaultsForm({ config, onChange, disabled }: { config: any; onChang
         onChange={(v) => handleChange('recordPartDuration', v)} 
         disabled={disabled} 
         placeholder="1s"
+        error={durationErrors.recordPartDuration}
       />
       <Input 
         label="Retention (Delete After)" 
@@ -185,12 +190,14 @@ function PathDefaultsForm({ config, onChange, disabled }: { config: any; onChang
         value={config.sourceOnDemandStartTimeout ?? '10s'} 
         onChange={(v) => handleChange('sourceOnDemandStartTimeout', v)} 
         disabled={disabled} 
+        error={durationErrors.sourceOnDemandStartTimeout}
       />
        <Input 
         label="Source On Demand Close After" 
         value={config.sourceOnDemandCloseAfter ?? '10s'} 
         onChange={(v) => handleChange('sourceOnDemandCloseAfter', v)} 
         disabled={disabled} 
+        error={durationErrors.sourceOnDemandCloseAfter}
       />
       <Input 
         label="Max Viewers (0 = unlimited)" 
@@ -314,6 +321,14 @@ export function Updates() {
   const currentPdObj = useMemo(() => {
      try { return JSON.parse(pdDraft || '{}') } catch { return pdCfg || {} }
   }, [pdDraft, pdCfg])
+
+  const pathDefaultsDurationErrors = useMemo(() => ({
+    recordSegmentDuration: durationFieldError('recordSegmentDuration', currentPdObj.recordSegmentDuration),
+    recordPartDuration: durationFieldError('recordPartDuration', currentPdObj.recordPartDuration),
+    sourceOnDemandStartTimeout: durationFieldError('sourceOnDemandStartTimeout', currentPdObj.sourceOnDemandStartTimeout),
+    sourceOnDemandCloseAfter: durationFieldError('sourceOnDemandCloseAfter', currentPdObj.sourceOnDemandCloseAfter),
+  }), [currentPdObj])
+  const pathDefaultsDurationsValid = Object.values(pathDefaultsDurationErrors).every((error) => !error)
 
 
   async function saveGlobal() {
@@ -508,18 +523,21 @@ export function Updates() {
                 ><RotateCcw size={14} className="mr-2" /> {t('updates.revert')}</button>
                 <button
                   className="btn btn-primary min-w-[100px]"
-                  disabled={!canAdmin || !pdValid || pdSaving}
+                  disabled={!canAdmin || !pdValid || !pathDefaultsDurationsValid || pdSaving}
                   onClick={savePathDefaults}
                 >{pdSaving ? 'Saving…' : t('updates.save')}</button>
               </div>
             </div>
 
             {viewMode === 'form' ? (
-                <PathDefaultsForm config={currentPdObj} onChange={handlePdFormChange} disabled={loading || !canAdmin} />
+                <PathDefaultsForm config={currentPdObj} onChange={handlePdFormChange} disabled={loading || !canAdmin} durationErrors={pathDefaultsDurationErrors} />
             ) : (
                 <>
                     <TextAreaJson value={pdDraft} onChange={setPdDraft} disabled={loading || !canAdmin} />
                     {!pdValid && <div className="mt-2 text-xs text-[var(--danger)] font-medium">⚠ Invalid JSON: Please fix syntax errors before saving.</div>}
+                    {Object.values(pathDefaultsDurationErrors).filter(Boolean).map((message) => (
+                      <div key={message} role="alert" className="mt-2 text-xs text-[var(--danger)] font-medium">{message}</div>
+                    ))}
                 </>
             )}
              <div className="mt-6 text-xs text-[var(--text-dim)] bg-[var(--bg)] p-3 border border-[var(--border)]">
