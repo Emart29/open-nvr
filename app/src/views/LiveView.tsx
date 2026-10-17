@@ -27,7 +27,7 @@ import { useFullscreen } from '../hooks/useFullscreen'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { usePermissions } from '../hooks/usePermissions'
 import { useCameraStatus } from '../hooks/useCameraStatus'
-import { Camera, CameraOff, Maximize, Minimize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, LayoutGrid, Menu as MenuIcon, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye, Tv } from 'lucide-react'
+import { Camera, CameraOff, Maximize, Minimize, Play, Settings, Save, Image as ImageIcon, Book, HardDrive, Power, LayoutGrid, Menu as MenuIcon, Move, Square, Plus, Minus, ChevronDown, ChevronUp, Video, Search, AlertCircle, Expand, Scan, ScanEye, Tv, ArrowLeftRight, Minimize2 } from 'lucide-react'
 import { 
   DndContext, 
   DragOverlay, 
@@ -42,7 +42,7 @@ import {
 } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { useTranslation } from '../i18n'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSnackbar } from '../components/Snackbar'
 import { Modal } from '../components/Modal'
 import { useConfirm } from '../components/ui/ConfirmDialog'
@@ -81,7 +81,24 @@ export function LiveView() {
   // FS toolbar visibility — toggled by the bottom-center handle button
   const [fsToolbarVisible, setFsToolbarVisible] = useState(false)
   const [availableCameras, setAvailableCameras] = useState<Array<{id: number, name: string, live_online?: boolean | null, display_aspect_ratio?: AspectOverride | null}>>([])
-  
+  const [camerasLoaded, setCamerasLoaded] = useState(false)
+  const { showWarning } = useSnackbar()
+
+  // Cameras → View and the dashboard wall link here as /live?camera=<id>:
+  // that camera is shown on its own. Deliberately kept out of the saved
+  // display order — following a link must not rearrange the operator's wall.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const focusParam = Number(searchParams.get('camera'))
+  const focusCameraId = Number.isInteger(focusParam) && focusParam > 0 ? focusParam : null
+  const focusCamera = focusCameraId ? availableCameras.find(c => c.id === focusCameraId) : undefined
+  const exitFocus = () => setSearchParams({}, { replace: true })
+  useEffect(() => {
+    if (focusCameraId && camerasLoaded && !focusCamera) {
+      showWarning(t('live.notFound', { id: focusCameraId }))
+      setSearchParams({}, { replace: true })
+    }
+  }, [focusCameraId, camerasLoaded, focusCamera, setSearchParams, showWarning, t])
+
   // Camera display order - array of camera IDs in display sequence
   // This determines which camera appears in which tile position
   const [cameraDisplayOrder, setCameraDisplayOrder] = useState<number[]>(() => {
@@ -176,7 +193,8 @@ export function LiveView() {
         display_aspect_ratio: cam.display_aspect_ratio,
       }))
       setAvailableCameras(cameraList)
-      
+      setCamerasLoaded(true)
+
       // Update display order: add new cameras, remove deleted ones
       setCameraDisplayOrder(prevOrder => {
         const existingIds = new Set(cameraList.map((c: {id: number}) => c.id))
@@ -294,7 +312,21 @@ export function LiveView() {
     return PREDEFINED_LAYOUTS[currentLayout] || PREDEFINED_LAYOUTS['3x3']
   }
   
-  const layoutDef = getLayoutDef()
+  const layoutDef = focusCameraId ? PREDEFINED_LAYOUTS['1x1'] : getLayoutDef()
+
+  // Which tile each on-screen camera sits on, for the picker's "On tile N".
+  const tileOf = new Map<number, number>()
+  if (!focusCameraId) {
+    layoutDef.tiles.forEach((_, i) => {
+      if (cameraDisplayOrder[i]) tileOf.set(cameraDisplayOrder[i], i)
+    })
+  }
+
+  // Picking a layout leaves the single-camera view.
+  const selectLayout = (id: string) => {
+    if (focusCameraId) exitFocus()
+    setCurrentLayout(id)
+  }
 
   // Fit the grid to the available area while keeping every cell 16:9: the
   // largest cell size is computed from the container's width AND height, so
@@ -377,12 +409,22 @@ export function LiveView() {
       <header className="h-8 shrink-0 flex items-center gap-2 px-2.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
         <Tv size={13} className="text-[var(--text-dim)] shrink-0" aria-hidden="true" />
         <h1 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text)] whitespace-nowrap">{t('live.title')}</h1>
-        <span className="hidden sm:inline text-[11px] text-[var(--text-dim)] font-mono tabular-nums truncate min-w-0">
-          {availableCameras.length} {t('dashboard.camerasPlural')} · {layoutDef.name}
-        </span>
+        {focusCameraId ? (
+          <>
+            <span className="text-[11px] text-[var(--text)] truncate min-w-0">{focusCamera?.name ?? ''}</span>
+            <HeadButton onClick={exitFocus} title={t('dashboard.backToWall')}>
+              <Minimize2 size={11} aria-hidden="true" />
+              {t('dashboard.backToWall')}
+            </HeadButton>
+          </>
+        ) : (
+          <span className="hidden sm:inline text-[11px] text-[var(--text-dim)] font-mono tabular-nums truncate min-w-0">
+            {availableCameras.length} {t('dashboard.camerasPlural')} · {layoutDef.name}
+          </span>
+        )}
         <ToolbarContents
-          currentLayout={currentLayout}
-          setCurrentLayout={setCurrentLayout}
+          currentLayout={focusCameraId ? '' : currentLayout}
+          setCurrentLayout={selectLayout}
           availableLayouts={availableLayouts}
           onOpenMenu={() => setMenuOpen(true)}
           onToggleFullscreen={toggleFs}
@@ -418,8 +460,8 @@ export function LiveView() {
           {layoutDef.tiles.map((tile, i) => {
             // cameraDisplayOrder maps tile index → camera id; 0 (or missing)
             // marks an empty tile, so empty slots can sit anywhere.
-            const assignedCameraId = cameraDisplayOrder[i] || null
-            
+            const assignedCameraId = focusCameraId ?? (cameraDisplayOrder[i] || null)
+
             return (
               <div
                 key={i}
@@ -431,13 +473,17 @@ export function LiveView() {
                 <DroppableTile tileId={`tile-${i}`}>
                   <DraggableTile 
                     tileId={`tile-${i}`}
-                    hasCameraAssigned={!!assignedCameraId}
+                    hasCameraAssigned={!focusCameraId && !!assignedCameraId}
                   >
-                    <Tile 
-                      index={i} 
-                      availableCameras={availableCameras} 
-                      assignedCameraId={assignedCameraId} 
-                      onCameraSelected={(cameraId) => assignCameraToTile(i, cameraId)}
+                    <Tile
+                      index={i}
+                      availableCameras={availableCameras}
+                      assignedCameraId={assignedCameraId}
+                      tileOf={tileOf}
+                      onCameraSelected={(cameraId) =>
+                        focusCameraId
+                          ? setSearchParams({ camera: String(cameraId) }, { replace: true })
+                          : assignCameraToTile(i, cameraId)}
                       onCameraAdded={loadCameras}
                       isDragging={activeDragId === `tile-${i}`}
                       canManage={canManageCameras}
@@ -462,8 +508,8 @@ export function LiveView() {
               {fsToolbarVisible && (
                 <div className="pointer-events-auto self-stretch h-8 flex items-center gap-2 px-2.5 bg-[var(--panel-2)] border-t border-[var(--border)]">
                   <ToolbarContents
-                    currentLayout={currentLayout}
-                    setCurrentLayout={setCurrentLayout}
+                    currentLayout={focusCameraId ? '' : currentLayout}
+                    setCurrentLayout={selectLayout}
                     availableLayouts={availableLayouts}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleFullscreen={toggleFs}
@@ -559,15 +605,17 @@ function Tile({
   index, 
   availableCameras, 
   assignedCameraId,
+  tileOf,
   onCameraSelected,
   onCameraAdded,
   isDragging = false,
   canManage = false,
   showDetections = false,
-}: { 
+}: {
   index: number
   availableCameras: Array<{id: number, name: string, live_online?: boolean | null, display_aspect_ratio?: AspectOverride | null}>
   assignedCameraId?: number | null
+  tileOf: Map<number, number>
   onCameraSelected?: (cameraId: number) => void
   onCameraAdded?: () => void
   isDragging?: boolean
@@ -581,6 +629,7 @@ function Tile({
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [ptzOpen, setPtzOpen] = useState(false)
   const [showCameraDialog, setShowCameraDialog] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
 
   // Close the PTZ pad when the tile's camera changes.
   useEffect(() => {
@@ -686,7 +735,7 @@ function Tile({
         : 'degraded'
 
   return (
-    <div className="relative h-full overflow-hidden bg-black">
+    <div className="group/tile relative h-full overflow-hidden bg-black">
       {/* Absolute so the <video>'s intrinsic size (e.g. a 1:1 stream) can't
           stretch this box — the player sizes itself to the stream's DISPLAY
           aspect inside it and letterboxes against black. */}
@@ -750,7 +799,18 @@ function Tile({
                 <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.clickToAdd')}</span>
               </>
             ) : (
-              <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.noAssigned')}</span>
+              <>
+                <span className="text-[10px] font-mono uppercase tracking-[0.2em]">{t('live.noAssigned')}</span>
+                {availableCameras.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[10px] px-2 py-1 border border-white/20 hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                    onClick={() => setShowPicker(true)}
+                  >
+                    {t('live.chooseCamera')}
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -789,6 +849,39 @@ function Tile({
             </span>
           </div>
         </>
+      )}
+
+      {/* Change camera — any tile that has one. Choosing which camera sits
+          where is the viewer's own wall, so it needs no manage permission.
+          Below the label band, clear of the player's bottom controls. */}
+      {cameraId && (
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setShowPicker(true)}
+          className="absolute right-1.5 top-8 z-30 p-1.5 bg-black/60 hover:bg-black/80 text-white/90 border border-white/10 opacity-0 group-hover/tile:opacity-100 focus-visible:opacity-100 transition-opacity"
+          title={t('live.changeCamera')}
+          aria-label={t('live.changeCamera')}
+        >
+          <ArrowLeftRight size={12} />
+        </button>
+      )}
+
+      {showPicker && (
+        // The picker renders inside the draggable tile; keep its pointer
+        // events (scrolling the list, say) from starting a tile drag.
+        <div onPointerDown={(e) => e.stopPropagation()}>
+        <CameraPicker
+          cameras={availableCameras}
+          currentId={cameraId}
+          tileOf={tileOf}
+          onPick={(id) => {
+            setShowPicker(false)
+            if (id !== cameraId) onCameraSelected?.(id)
+          }}
+          onClose={() => setShowPicker(false)}
+        />
+        </div>
       )}
 
       {/* Camera Selection/Add Dialog */}
@@ -965,6 +1058,95 @@ function HeadButton({ active = false, className, children, ...rest }: React.Butt
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * Pick the camera for one tile from every camera there is — the way to put a
+ * camera on screen when there are more cameras than tiles. Choosing one that
+ * is already on another tile swaps the two (see assignCameraToTile).
+ */
+function CameraPicker({
+  cameras,
+  currentId,
+  tileOf,
+  onPick,
+  onClose,
+}: {
+  cameras: Array<{ id: number; name: string; live_online?: boolean | null }>
+  currentId: number | null
+  tileOf: Map<number, number>
+  onPick: (cameraId: number) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const list = useMemo(
+    () =>
+      cameras
+        .filter((c) => !q || c.name.toLowerCase().includes(q) || String(c.id) === q)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    [cameras, q],
+  )
+
+  return (
+    <Modal open title={t('live.chooseCamera')} onClose={onClose} widthClassName="w-[420px] max-w-[92vw]">
+      <div className="relative">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" aria-hidden="true" />
+        <input
+          type="search"
+          autoFocus
+          className="w-full bg-[var(--bg-2)] border border-[var(--border)] focus:border-[var(--accent)] outline-none pl-8 pr-3 py-1.5 text-sm"
+          placeholder={t('cameraDialog.search')}
+          aria-label={t('cameraDialog.search')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && list.length > 0) {
+              e.preventDefault()
+              onPick(list[0].id)
+            }
+          }}
+        />
+      </div>
+      <div className="mt-2 max-h-[55vh] overflow-y-auto space-y-px">
+        {list.length === 0 ? (
+          <div className="text-center text-sm text-[var(--text-dim)] py-6">{t('catalog.noResults')}</div>
+        ) : (
+          list.map((c) => {
+            const tile = tileOf.get(c.id)
+            const current = c.id === currentId
+            return (
+              <button
+                key={c.id}
+                type="button"
+                aria-current={current || undefined}
+                onClick={() => onPick(c.id)}
+                className={clsx(
+                  'w-full text-left px-2.5 py-1.5 flex items-center gap-2 text-sm border',
+                  current
+                    ? 'border-[var(--accent)] bg-[var(--accent)]/10'
+                    : 'border-transparent hover:bg-[var(--panel)] hover:border-[var(--border)]',
+                )}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: STATE_INK[c.live_online === false ? 'offline' : c.live_online ? 'online' : 'degraded'] }}
+                  aria-hidden="true"
+                />
+                <span className="truncate">{c.name}</span>
+                {tile !== undefined && (
+                  <span className="ml-auto shrink-0 text-[10px] font-mono text-[var(--text-dim)]">
+                    {t('live.onTile', { n: tile + 1 })}
+                  </span>
+                )}
+              </button>
+            )
+          })
+        )}
+      </div>
+    </Modal>
   )
 }
 
