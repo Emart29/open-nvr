@@ -6,16 +6,23 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
+## [0.1.8] — 2026-10-17
 
-- **`qwen3-vl:2b-instruct` is the vision model on an accelerator**, in
-  place of `gemma3:4b`. Measured on coco128 through the adapter's own
-  call path: no false yes in 126 absent-object questions, the best
-  people counter (within one 50/61), nothing unanswered, 3 s a frame on
-  a GPU with every further question on that frame free; a gigabyte
-  smaller than gemma. Moondream keeps CPU: Qwen takes ~18 s to encode a
-  frame on four cores. The plain `qwen3-vl:2b` tag is the thinking
-  build and the reason the first run looked worse.
+Better defaults, each one measured. The agent's model, its speech to
+text, the always-on detector, the vision model on a GPU and the
+embedding model all change, and
+every change is a number in `examples/camera-agent/MODELS_AND_LATENCY.md`
+with the harness that produced it beside it. The catalog says what
+hardware an app or an adapter needs and whether this box has it.
+Adapter release 0.1.8 ships alongside with the same version number.
+
+Upgrading: set `CORE_TAG=0.1.8`, `ADAPTER_TAG=0.1.8`,
+`YOLO_POSE_ADAPTER_TAG=0.1.8`, `OPEN_VOCAB_ADAPTER_TAG=0.1.8` and
+`STT_ADAPTER_TAG=0.1.8` in `.env`; `docker compose pull && ./start.sh
+up`. The detector's weights-init copies `yolo26n.onnx` beside your
+volume's `yolov8n.onnx`; the embedding store re-embeds history by
+itself; `OLLAMA_MODEL` and `STT_ADAPTER` only change for installs that
+take the new `.env.example` defaults.
 
 ### Added
 
@@ -31,8 +38,6 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/api/v1/ai-models/capabilities` and the new
   `GET /api/v1/system/hardware`. Advisory, never a gate.
 
-### Added
-
 - **Three more measurement harnesses** beside the camera agent, with
   their October 2026 results in `MODELS_AND_LATENCY.md`:
   `tools/stt_eval.py` (+ `stt_synthesise.sh`) for speech to text on the
@@ -41,7 +46,47 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   embedding checkpoint on coco128. They are what chose Parakeet, kept
   Piper, and chose SigLIP 2.
 
+- **The SDK runs a Look step.** `opennvr_app_sdk.agent.run_look()` asks a
+  model once, with the output constrained to the step's options, and returns
+  a typed `Decision` (RFC #620). It never raises: a model that is down, a
+  step out of time or an answer the step does not allow decide "unsure"
+  with the reason. With `DecisionSpec`, hardware `Limits`, and `TraceRow`
+  for the workflow trace. Images work over Ollama and OpenAI-compatible
+  servers.
+
+- **Investigate eval cases.** `examples/camera-agent/tools/investigate_eval.py`
+  runs 20 Agentic Workflows AI steps (RFC #620) with recorded tool results,
+  scores decisions against the Wilson-bound gate, and measures confidence
+  signals. First result, in MODELS_AND_LATENCY.md: no CPU model qualifies
+  for Investigate, and the decision needs its own call.
+
+- **App SDK 0.8.0.** Publishes `opennvr_app_sdk.agent`, which 0.1.7
+  added on `main` (the model clients with schema-constrained output and
+  the read tools' shared definitions, #636 and #637), so an app can
+  `pip install opennvr-app-sdk` and get it. Additive; nothing in 0.7.0
+  changes.
+
+- **Open-vocabulary detection in the catalog.** A new task,
+  `open_vocab_detection`: a box and a score for any phrase the caller
+  writes — "red truck", "forklift", "person wearing a hard hat" — where
+  the always-on detector knows only its eighty classes. The adapter
+  (OWL-ViT v2, `ghcr.io/open-nvr/open-vocab-adapter`, ai-adapter #60)
+  is listed in `adapters_index.yml` and composed under the `open-vocab`
+  profile in `docker-compose.apps.yml`; weights baked into the image,
+  no network egress, boots on a sealed box. On demand, not per frame: seconds a
+  frame on CPU. An app declares `requires_tasks: [open_vocab_detection]`
+  and asks it a phrase; the App SDK's validator knows the task.
+
 ### Changed
+
+- **`qwen3-vl:2b-instruct` is the vision model on an accelerator**, in
+  place of `gemma3:4b`. Measured on coco128 through the adapter's own
+  call path: no false yes in 126 absent-object questions, the best
+  people counter (within one 50/61), nothing unanswered, 3 s a frame on
+  a GPU with every further question on that frame free; a gigabyte
+  smaller than gemma. Moondream keeps CPU: Qwen takes ~18 s to encode a
+  frame on four cores. The plain `qwen3-vl:2b` tag is the thinking
+  build and the reason the first run looked worse.
 
 - **A model change behind the embedding adapter re-embeds the store.**
   `event_embeddings.model` now records the producer as
@@ -52,8 +97,6 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (ai-adapter, measured mAP 0.672 vs 0.571 on coco128 retrieval), which
   search would otherwise have skipped row by row.
 
-### Changed
-
 - **Parakeet is the agent's speech-to-text.** `STT_ADAPTER` picks the
   image in the whisper slot (`parakeet`, the default, or `whisper`); the
   service name, port and result shape are unchanged, so the agent's
@@ -62,8 +105,6 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on four cores, faster-whisper base.en 3.3 % at 1.42 s. Parakeet does
   not translate and has no Hindi; `STT_ADAPTER=whisper` keeps those.
   Catalog entry `parakeet-asr`.
-
-### Changed
 
 - **`granite4:micro` is the agent's default model.** Measured on both
   harnesses against the catalog's candidates: 44/60 on the Investigate
@@ -76,6 +117,7 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `granite4:tiny-h`); `qwen2.5:1.5b`, `qwen2.5:3b`, `qwen2.5:7b` and
   `llama3.2:3b` are dropped. Numbers in
   `examples/camera-agent/MODELS_AND_LATENCY.md`, "Measured again".
+
 - **The always-on detector is YOLO26n.** The weights image bakes
   `yolo26n.onnx` (ultralytics 8.4.177, assets v8.4.0) exported with the
   same flags as before, so it emits the same `(1, 84, 8400)` tensor and
@@ -86,35 +128,11 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `yolov8n.onnx`; the adapter is told the name through
   `YOLOV8_WEIGHTS_FILE` (adapter release 0.1.7). Same AGPL-3.0 licence.
 
-### Added
-
-- **The SDK runs a Look step.** `opennvr_app_sdk.agent.run_look()` asks a
-  model once, with the output constrained to the step's options, and returns
-  a typed `Decision` (RFC #620). It never raises: a model that is down, a
-  step out of time or an answer the step does not allow decide "unsure"
-  with the reason. With `DecisionSpec`, hardware `Limits`, and `TraceRow`
-  for the workflow trace. Images work over Ollama and OpenAI-compatible
-  servers.
-- **Investigate eval cases.** `examples/camera-agent/tools/investigate_eval.py`
-  runs 20 Agentic Workflows AI steps (RFC #620) with recorded tool results,
-  scores decisions against the Wilson-bound gate, and measures confidence
-  signals. First result, in MODELS_AND_LATENCY.md: no CPU model qualifies
-  for Investigate, and the decision needs its own call.
-- **App SDK 0.8.0.** Publishes `opennvr_app_sdk.agent`, which 0.1.7
-  added on `main` (the model clients with schema-constrained output and
-  the read tools' shared definitions, #636 and #637), so an app can
-  `pip install opennvr-app-sdk` and get it. Additive; nothing in 0.7.0
-  changes.
-- **Open-vocabulary detection in the catalog.** A new task,
-  `open_vocab_detection`: a box and a score for any phrase the caller
-  writes — "red truck", "forklift", "person wearing a hard hat" — where
-  the always-on detector knows only its eighty classes. The adapter
-  (OWL-ViT v2, `ghcr.io/open-nvr/open-vocab-adapter`, ai-adapter #60)
-  is listed in `adapters_index.yml` and composed under the `open-vocab`
-  profile in `docker-compose.apps.yml`; weights baked into the image,
-  no network egress, boots on a sealed box. On demand, not per frame: seconds a
-  frame on CPU. An app declares `requires_tasks: [open_vocab_detection]`
-  and asks it a phrase; the App SDK's validator knows the task.
+- **The embedding model is SigLIP 2.** Adapter release 0.1.8 moves the
+  `clip` adapter from CLIP ViT-B/32 (512-d) to SigLIP 2 B/16 (768-d,
+  Apache-2.0): coco128 text-to-image retrieval mAP 0.672 against 0.571.
+  The store re-embeds itself on upgrade (above), at the backfill's own
+  pace; search's `semantic.note` says "Mixed producers" while it does.
 
 ## [0.1.7] — 2026-10-13
 

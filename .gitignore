@@ -303,3 +303,7 @@ sdk/opennvr-app-sdk/site/
 # recordings, and per-run failure bundles. All reproducible; none of it
 # belongs in git.
 tests/e2e/.artifacts/
+
+# Operator footage dropped in for local fake cameras: never in the repository.
+# (data/fake-cameras/README.md and demo1.mp4 are the repo's own.)
+data/fake-cameras/*/
