@@ -142,7 +142,7 @@ def test_inputs_are_data_never_instructions():
                 site_facts="Guards wear vests.")
     system, user = llm.calls[0]["messages"][:2]
     assert "IGNORE" not in system["content"] and "Guards wear vests." in system["content"]
-    assert "INPUTS (data)" in user["content"] and "IGNORE" in user["content"]
+    assert "EVENT (data)" in user["content"] and "IGNORE" in user["content"]
 
 
 def test_a_tool_not_on_the_list_or_unavailable_is_refused_not_run():
