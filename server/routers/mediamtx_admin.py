@@ -38,7 +38,10 @@ from models import Camera, User
 
 # Import hook token verification (shared with mediamtx_hooks router)
 from routers.mediamtx_hooks import _verify_hook_token
-from services.mediamtx_admin_service import MediaMtxAdminService
+from services.mediamtx_admin_service import (
+    MediaMtxAdminService,
+    _pathdefaults_patch_failure,
+)
 from services.mediamtx_config_service import MediaMtxConfigService
 from services.storage_service import get_effective_recordings_base_path
 
@@ -129,7 +132,18 @@ async def mtx_pathdefaults_patch(
     payload: dict[str, Any],
     current_user=Depends(get_current_superuser),
 ):
-    return await MediaMtxAdminService.pathdefaults_patch(payload)
+    try:
+        result = await MediaMtxAdminService.pathdefaults_patch(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if result.get("validation_error"):
+        raise HTTPException(status_code=422, detail=result.get("message", "Invalid path defaults"))
+    failure = _pathdefaults_patch_failure(result)
+    if failure:
+        status_code, message = failure
+        raise HTTPException(status_code=status_code, detail=message)
+    return result
 
 
 @router.patch("/admin/paths/{camera_id}")
