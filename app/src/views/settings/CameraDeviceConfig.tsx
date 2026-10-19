@@ -64,7 +64,7 @@ export function CameraDeviceConfig() {
     apiService
       // active_only=false so a temporarily-offline camera can still be
       // configured; the list endpoint answers {cameras: [...], total: n}.
-      .getCameras({ limit: 200, active_only: false })
+      .getCameras({ active_only: false })
       .then((res: any) => {
         if (!alive) return
         const list: Cam[] = Array.isArray(res.data?.cameras)
