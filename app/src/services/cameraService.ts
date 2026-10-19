@@ -38,7 +38,24 @@ export const cameraService = {
   getStreamUrls: (cameraId: number) => api.get(`/api/v1/streams/${cameraId}/info`), // Alias
 
   // Camera Management
-  getCameras: (params: Record<string, any> = {}) => api.get('/api/v1/cameras/', { params }),
+  // With a `limit`, one page, for callers that page themselves (the Cameras
+  // table). Without one, EVERY camera: the endpoint pages at 100 by default,
+  // and pickers, the dashboard and Live View used to stop there (#671).
+  getCameras: async (params: Record<string, any> = {}) => {
+    if (params.limit != null) return api.get('/api/v1/cameras/', { params })
+    const pageSize = 500
+    const cameras: any[] = []
+    for (;;) {
+      const res = await api.get('/api/v1/cameras/', {
+        params: { ...params, skip: cameras.length, limit: pageSize },
+      })
+      const rows = res.data?.cameras ?? []
+      cameras.push(...rows)
+      if (rows.length < pageSize || cameras.length >= (res.data?.total ?? 0)) {
+        return { ...res, data: { ...res.data, cameras, total: res.data?.total ?? cameras.length } }
+      }
+    }
+  },
   // Named areas of a camera's picture (HA-109).
   listCameraZones: (cameraId: number) => api.get(`/api/v1/cameras/${cameraId}/zones`),
   createCameraZone: (cameraId: number, body: { name: string; polygon: number[][]; labels: string[] | null }) =>

@@ -187,7 +187,7 @@ export function AIModelsBYOM() {
 
   async function loadCameras() {
     try {
-      const { data } = await apiService.getCameras({ limit: 200, active_only: true })
+      const { data } = await apiService.getCameras({ active_only: true })
       const cameraList = Array.isArray(data?.cameras) ? data.cameras : []
       
       // Fetch camera configs to get RTSP URLs

@@ -89,7 +89,7 @@ export type CameraListParams = {
  *   transition is ever published for it.
  */
 export function useCameras(
-  params: CameraListParams = { limit: 100, active_only: true },
+  params: CameraListParams = { active_only: true },
 ) {
   return useQuery({
     queryKey: ['cameras', params],
@@ -114,7 +114,7 @@ export function useCameras(
  * it means "auto", and the known-mode detection in lib/aspect.ts still runs.
  */
 export function useCameraAspects(): Record<number, CameraAspect> {
-  const { data } = useCameras({ limit: 200, active_only: false })
+  const { data } = useCameras({ active_only: false })
   return useMemo(() => {
     const out: Record<number, CameraAspect> = {}
     for (const c of data?.cameras ?? []) {

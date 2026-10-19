@@ -56,6 +56,10 @@ from utils.url_redaction import redact_url_credentials
 
 # Shared timeout for all MediaMTX Admin API calls (seconds)
 _TIMEOUT = httpx.Timeout(10.0)
+# /v3/paths/list paging: 1000 paths (500 cameras) per request, and a ceiling
+# so a misbehaving server can't keep the loop going forever.
+_PATHS_PAGE_SIZE = 1000
+_PATHS_MAX_PAGES = 50
 
 _DURATION_DAY_PREFIX = re.compile(r"^(-?[0-9]+)d")
 _DURATION_PART = re.compile(r"([0-9]+(?:\.[0-9]*)?|\.[0-9]+)(ns|us|\u00b5s|ms|s|m|h)")
@@ -770,11 +774,37 @@ class MediaMtxAdminService:
                 "message": "mediamtx_admin_api not configured",
             }
 
+        # MediaMTX pages this list (100 items by default) and every camera
+        # holds two paths, main and -sub: reading one page saw ~50 cameras
+        # and the status reconciler marked the rest offline (#671). Walk
+        # every page and hand back one list, as if it were never paged.
         url = MediaMtxAdminService._base() + "/paths/list"
+        items: list[Any] = []
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(url, headers=MediaMtxAdminService._headers())
-            return MediaMtxAdminService._to_result("paths", resp)
+                for page in range(_PATHS_MAX_PAGES):
+                    resp = await client.get(
+                        url,
+                        headers=MediaMtxAdminService._headers(),
+                        params={"itemsPerPage": _PATHS_PAGE_SIZE, "page": page},
+                    )
+                    result = MediaMtxAdminService._to_result("paths", resp)
+                    if result["status"] != "ok":
+                        # A partial list would read as cameras gone offline;
+                        # fail the whole call so callers skip this pass.
+                        return result
+                    details = result["details"] if isinstance(result["details"], dict) else {}
+                    items.extend(details.get("items") or [])
+                    if page + 1 >= int(details.get("pageCount") or 1):
+                        break
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"paths/list still paging after {_PATHS_MAX_PAGES} pages",
+                    }
+            result["details"] = {**details, "items": items,
+                                 "itemCount": len(items), "pageCount": 1}
+            return result
         except Exception as e:
             return {"status": "error", "message": f"Request failed: {e!s}"}
 

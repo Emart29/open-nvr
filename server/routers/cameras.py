@@ -609,82 +609,32 @@ def get_cameras(
         user_agent=request.headers.get("user-agent") if request else None,
     )
 
-    from services.api_tokens import is_token_principal
+    from services.camera_scope import visible_camera_ids
 
-    if is_token_principal(current_user):
-        # An API token lists exactly the cameras it may see: its owner's
-        # visible cameras narrowed to its allow-list (camera_scope does
-        # both). The branches below key off is_superuser, which a token
-        # never is, so an admin-owned token would otherwise see only the
-        # cameras that admin happens to own.
-        from services.camera_scope import visible_camera_ids
-
-        scope = visible_camera_ids(db, current_user)
-        query = db.query(Camera).filter(Camera.deleted_at.is_(None))
-        if active_only:
-            query = query.filter(Camera.is_active == True)  # noqa: E712
-        if scope is not None:
-            query = query.filter(Camera.id.in_(scope or {-1}))
-        match = camera_search_filter(q)
-        if match is not None:
-            query = query.filter(match)
-        total = query.count()
-        cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
-    elif current_user.is_superuser:
-        cameras = CameraService.get_all_cameras(
-            db=db, skip=skip, limit=limit, active_only=active_only, search=q
-        )
-        # Binned cameras never count; active_only additionally hides paused ones.
-        total_query = db.query(Camera).filter(Camera.deleted_at.is_(None))
-        if active_only:
-            total_query = total_query.filter(Camera.is_active == True)
-        match = camera_search_filter(q)
-        if match is not None:
-            total_query = total_query.filter(match)
-        total = total_query.count()
-        camera_logger.log_action(
-            "camera.list_success_admin",
-            user_id=current_user.id,
-            message=f"Superuser retrieved {len(cameras)} cameras (total: {total})",
-            extra_data={"camera_count": len(cameras), "total": total},
-            ip_address=request.client.host if request and request.client else None,
-        )
-    else:
-        own = CameraService.get_cameras_by_owner(
-            db=db,
-            owner_id=current_user.id,
-            skip=skip,
-            limit=limit,
-            active_only=active_only,
-            search=q,
-        )
-        permitted = CameraService.get_cameras_permitted(
-            db=db,
-            user_id=current_user.id,
-            skip=skip,
-            limit=limit,
-            active_only=active_only,
-            search=q,
-        )
-        # Merge unique by id
-        seen = set()
-        cameras = []
-        for c in own + permitted:
-            if c.id not in seen:
-                seen.add(c.id)
-                cameras.append(c)
-        total = len(cameras)
-        camera_logger.log_action(
-            "camera.list_success_user",
-            user_id=current_user.id,
-            message=f"User retrieved {len(cameras)} cameras ({len(own)} owned, {len(permitted)} permitted)",
-            extra_data={
-                "camera_count": len(cameras),
-                "own_count": len(own),
-                "permitted_count": len(permitted),
-            },
-            ip_address=request.client.host if request and request.client else None,
-        )
+    # One query for every caller, narrowed to what they may see: a superuser
+    # everything, a user own + can_view grants, an API token its owner's view
+    # cut to its allow-list (camera_scope does all three). Users used to page
+    # their owned and granted cameras separately and merge the two pages,
+    # which skipped rows on later pages and put the page size in `total`
+    # (#671). Ordered by id so skip/limit pages are stable.
+    scope = visible_camera_ids(db, current_user)
+    query = db.query(Camera).filter(Camera.deleted_at.is_(None))
+    if active_only:
+        query = query.filter(Camera.is_active == True)  # noqa: E712
+    if scope is not None:
+        query = query.filter(Camera.id.in_(scope or {-1}))
+    match = camera_search_filter(q)
+    if match is not None:
+        query = query.filter(match)
+    total = query.count()
+    cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
+    camera_logger.log_action(
+        "camera.list_success",
+        user_id=current_user.id,
+        message=f"Retrieved {len(cameras)} cameras (total: {total})",
+        extra_data={"camera_count": len(cameras), "total": total},
+        ip_address=request.client.host if request and request.client else None,
+    )
 
     # Two page-scoped grouped queries before the loop, never per-camera — this
     # list serves up to `limit` rows.

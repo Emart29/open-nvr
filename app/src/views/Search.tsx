@@ -41,6 +41,7 @@ import {
   Search as SearchIcon, Sparkles, Tag, Type, UserRound, X,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { apiService } from '../lib/apiService'
 import { PageTitleBar, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
 import SearchAnswer, { type SearchAnswerData } from '../components/SearchAnswer'
 import { AuthedImage } from '../components/AuthedImage'
@@ -268,7 +269,7 @@ export function Search() {
   const camerasQuery = useQuery({
     queryKey: ['cameras'],
     queryFn: async () => {
-      const { data } = await api.get('/api/v1/cameras')
+      const { data } = await apiService.getCameras()
       const list = Array.isArray(data) ? data : (data as any)?.cameras
       return (Array.isArray(list) ? list : []) as { id: number; name: string }[]
     },

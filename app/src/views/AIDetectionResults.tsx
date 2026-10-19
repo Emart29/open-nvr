@@ -293,7 +293,7 @@ export function AIDetectionResults() {
 
   async function loadCameras() {
     try {
-      const res = await apiService.getCameras({ limit: 200 })
+      const res = await apiService.getCameras()
       setCameras(res.data.cameras || res.data || [])
     } catch (e) {
       console.error('Failed to load cameras:', e)

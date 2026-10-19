@@ -353,7 +353,7 @@ export function AddCameraDialog({
   // Purely advisory: on failure we just show no badges.
   useEffect(() => {
     let cancelled = false
-    apiService.getCameras({ limit: 500 }).then((res: any) => {
+    apiService.getCameras().then((res: any) => {
       if (cancelled) return
       const map = new Map<string, string>()
       for (const c of res?.data?.cameras || []) {
