@@ -22,6 +22,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plain JSON; `resume()` carries on, after a restart if need be, and the
   time spent waiting for a person is not counted.
 
+### Changed
+
+- **The Investigate eval runs the SDK's `run_investigate()`.** The harness
+  kept its own copy of the step loop, and the two drifted: a rewording in
+  the library cost granite4:micro 7 runs in 60 before the copy could show
+  it (#674). Now the gate measures the code that ships; the harness keeps
+  only the fixture tools and the scoring. `--combined` is gone (its finding,
+  that the decision needs its own call, is in MODELS_AND_LATENCY.md).
+
 ## [0.1.8] — 2026-10-17
 
 Better defaults, each one measured. The agent's model, its speech to

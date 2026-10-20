@@ -587,8 +587,10 @@ language model passes the Investigate cases. `tools/investigate_eval.py`
 runs them: each case is one AI step (a goal, site facts, the event as
 data, at most five read tools, then one decision call constrained to the
 step's options), with **recorded tool results**, so no NVR is involved and
-only the model varies. There is no router and no forced grounding: in a
-workflow, every tool call is the model's own.
+only the model varies. Each step runs through the SDK's
+`run_investigate()`, the code a workflow runs, so the gate measures what
+ships. There is no router and no forced grounding: in a workflow, every
+tool call is the model's own.
 
 ```bash
 python tools/investigate_eval.py --model qwen3:1.7b --hardware cpu --repeat 3
@@ -604,9 +606,10 @@ p95 inside the hardware class's seconds (CPU 4 tool calls / 120 s, GPU
 | Model, mode | Runs | Pass | 95% interval | Looked first | p50 / p95 per step | Qualifies |
 |---|---|---|---|---|---|---|
 | `granite4:micro`, CPU limits (Mac, accuracy only) | 60 | **44 (73%)** | 0.61-0.83 | 56/60 | — | **no**, the closest yet |
+| `granite4:micro`, CPU limits (4 vCPU, through `run_investigate`) | 60 | **45 (75%)** | 0.63-0.84 | 56/60 | 28 s / 43 s | **no**, fits the time with room |
 | `qwen3:1.7b`, CPU limits | 60 | 21 (35%) | 0.24-0.48 | 36/60 | 12 s / 21 s | **no** |
 | `llama3.2:3b`, no time limit | 20 | 10 (50%) | 0.30-0.70 | 12/20 | 24 s / 39 s | **no** |
-| `qwen3:1.7b`, decision in the tool call | 60 | 0 (0%) | 0.00-0.06 | 6/60 | 5 s / 8 s | **no** |
+| `qwen3:1.7b`, decision in the tool call (#649's harness, `--combined`) | 60 | 0 (0%) | 0.00-0.06 | 6/60 | 5 s / 8 s | **no** |
 
 What it says:
 
