@@ -1,9 +1,10 @@
 # Copyright (c) 2026 OpenNVR
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The Investigate eval (tools/investigate_eval.py): the case file, the
-fixture tools, scoring and the summary are pure and tested here, and so
-is the step loop, against a scripted model. Runs against real models stay
-out of CI, like the other harnesses."""
+fixture tools, scoring and the summary are pure and tested here. The step
+itself is the SDK's run_investigate (tested in the SDK); here, that the
+harness drives it with the case's tools and reads its decision right,
+against a scripted model. Runs against real models stay out of CI."""
 from __future__ import annotations
 
 import importlib.util
@@ -176,7 +177,8 @@ def test_the_tool_call_limit_ends_the_tool_phase_and_the_step_still_decides():
     case = _case()
     llm = Script([("describe_camera", {"camera_id": "yard"})] * 5, DECIDE_STAFF)
     r = run(llm, case, hardware="cpu")
-    assert len(r.calls) == ie.LIMITS["cpu"]["tool_calls"] and r.limit_hit == "tool_calls"
+    ran = [c for c in r.calls if c["status"] == "ok"]
+    assert len(ran) == ie.LIMITS["cpu"]["tool_calls"] and r.limit_hit == "tool_calls"
     assert r.decision == "ignore"
 
 
@@ -194,7 +196,8 @@ def test_two_malformed_calls_end_the_tool_phase():
                      message={"role": "assistant", "content": ""})
     llm = Script(bad, bad, DECIDE_STAFF)
     r = run(llm, case)
-    assert [c["status"] for c in r.calls] == ["malformed", "malformed"]
+    assert [c["status"] for c in r.calls] == ["failed", "failed"]
+    assert all(c["args"] == "{oops" for c in r.calls), "recorded as the model sent them"
     assert r.decision == "ignore" and len(llm.calls) == 3
 
 
@@ -212,23 +215,33 @@ def test_a_model_that_is_down_is_unsure_and_never_raises():
     assert "unreachable" in r.error
 
 
-def test_combined_mode_decides_in_the_tool_phase():
-    case = _case()
-    llm = Script([("describe_camera", {"camera_id": "yard"})], DECIDE_STAFF)
-    r = run(llm, case, combined=True)
-    assert r.decision == "ignore" and len(llm.calls) == 2
-    assert all(c["format"] and c["tools"] for c in llm.calls)
-
-
-def test_agreement_draws_are_extra_and_hotter():
+def test_agreement_is_the_sdks_draws_and_never_turns_an_answer_unsure():
     case = _case()
     other = {**DECIDE_STAFF, "decision": "alert"}
     llm = Script([("describe_camera", {"camera_id": "yard"})], "", DECIDE_STAFF,
                  DECIDE_STAFF, other)
     r = run(llm, case, samples=3)
-    assert r.samples == ["ignore", "ignore", "alert"]
-    assert [c["temperature"] for c in llm.calls[-2:]] == [0.8, 0.8]
+    assert [c["temperature"] for c in llm.calls[-3:]] == [0.2, 0.8, 0.8]
+    assert r.agreement == pytest.approx(2 / 3)
+    assert r.decision == "ignore", "the harness scores the answer; the floor is 0"
     assert ie.score(case, r)["signals"]["agreement"] == pytest.approx(2 / 3)
+
+
+def test_the_step_is_the_sdks_run_investigate(monkeypatch):
+    """The gate measures the code that ships, not a copy of it (#674)."""
+    seen = {}
+
+    async def fake(llm, spec, **kw):
+        seen.update(kw, spec=spec)
+        return ie.Decision("ignore", {"who": "staff"}, "ok", confidence=1.0)
+    monkeypatch.setattr(ie, "run_investigate", fake)
+    case = _case()
+    r = run(Script(), case, hardware="gpu", samples=3)
+    assert r.decision == "ignore"
+    assert seen["spec"].options == ("ignore", "alert") and seen["spec"].floor == 0.0
+    assert seen["inputs"] == case["event"] and seen["goal"] == "Decide."
+    assert seen["limits"] == ie.Limits(tool_calls=6, seconds=45.0) and seen["samples"] == 3
+    assert [t.name for t in seen["tools"]] == case["tools"]
 
 
 # ── scoring and the summary ────────────────────────────────────────────
@@ -323,3 +336,13 @@ def test_a_saved_run_rescores_against_the_current_cases():
     (again,) = ie.rescore(json.loads(json.dumps(saved)), [fixed])
     assert again["pass"] and again["seconds"] == saved["runs"][0]["seconds"]
     assert ie.rescore(saved, [_case(id="other")]) == []
+
+
+def test_a_fixture_error_is_a_failed_call_the_model_sees():
+    case = _case(fixtures={"describe_camera": [{"error": "yard appears to be offline"}]})
+    llm = Script([("describe_camera", {"camera_id": "yard"})], "",
+                 {**DECIDE_STAFF, "decision": "unsure"})
+    r = run(llm, case)
+    assert [c["status"] for c in r.calls] == ["failed"]
+    assert "ERROR: yard appears to be offline" in json.dumps(llm.calls[-1]["messages"])
+    assert ie.score(case, r)["signals"]["evidence"] == 0.0
