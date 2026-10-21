@@ -24,6 +24,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The Investigate cases answer like the real tools.** A failure analysis
+  of granite4:micro's failing runs found fixtures that answered made-up event
+  ids and a search default that hid visits; both now behave as the tools do,
+  with a test. granite4:micro stays at 45/60; qwen3:1.7b goes from 21 to 16,
+  having been rewarded for inventing ids. The remaining failures are the
+  model deciding against its own evidence (MODELS_AND_LATENCY.md).
 - **The Investigate eval runs the SDK's `run_investigate()`.** The harness
   kept its own copy of the step loop, and the two drifted: a rewording in
   the library cost granite4:micro 7 runs in 60 before the copy could show
