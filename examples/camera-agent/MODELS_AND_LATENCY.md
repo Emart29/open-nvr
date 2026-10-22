@@ -658,6 +658,47 @@ One CPU, few repeats: the intervals are wide on purpose, and two identical
 runs differ by one or two passes on a single case, so read totals, not
 cases. To add a GPU result, run the same command with `--hardware gpu`.
 
+### Facts + rules, on cases the rules never saw (22 October 2026)
+
+With a rule table (`--rules tools/investigate_rules.yml`) the model never
+chooses the outcome: it reports the template's facts, and the first
+matching rule decides (RFC #620). The table is each template's
+instructions written as rules, frozen in commit `65304f8` **before** the
+20 held-out cases (`tools/investigate_cases_heldout.yml`, commit `21be471`)
+were written. Raw runs:
+[`benchmarks/investigate-rules-heldout-2026-10.json`](benchmarks/investigate-rules-heldout-2026-10.json).
+
+| CPU limits, 20 cases × 3 | Seen, model decides | Seen, rules decide | **Held out, model decides** | **Held out, rules decide** |
+|---|---|---|---|---|
+| `granite4:micro` | 45 (0.63-0.84) | 51 (0.74-0.92) | **29 (0.36-0.61)** | **30 (0.38-0.62)** |
+| `qwen3:1.7b` | 16 (0.17-0.39) | 24 (0.29-0.53) | **15 (0.16-0.37)** | **17 (0.19-0.41)** |
+
+What it says:
+
+- **The gain did not hold on held-out cases.** Paired run by run, the
+  rules fixed 6 and broke 5 granite4:micro runs (sign test p = 1.0), and
+  fixed 4, broke 2 for qwen3:1.7b. On the decision and fields alone,
+  with the needed-tools check aside, they lean the right way (7 fixed /
+  3 broken, 7 / 2) but not beyond noise. On the seen cases the rules
+  fixed "right facts, wrong action"; on fresh ones most failures are
+  **wrong facts** (condensation reported as a power fault, a half-open
+  shutter reported as nothing left open, "yes" to a name the history
+  does not contain, no history search at all), and a rule cannot fix a
+  wrong fact.
+- **The seen cases flatter the model.** granite4:micro passes 45 of 60
+  on them and 29 on fresh ones, with nothing else changed. It was chosen
+  as the default on those 20 cases, and the cases were corrected with it
+  in view; the held-out number is the honest one. Read 45/60 as an
+  upper bound.
+- **Rules are still the safer shape**, for a different reason than
+  accuracy: a step's outcome can no longer contradict its own facts, and
+  the trace says which rule fired. That is a design choice, not a
+  measured accuracy gain.
+- One held-out case is too strict and is left as written (held-out cases
+  are not edited after their results): `ho-offline-turned-to-the-sky`
+  requires the live camera, but the stored event is equal evidence of
+  tampering. It costs the rules run one pass.
+
 ## Measured: the vision models on coco128 (16 October 2026)
 
 `tools/vqa_eval.py` asks each model the agent's questions on coco128's

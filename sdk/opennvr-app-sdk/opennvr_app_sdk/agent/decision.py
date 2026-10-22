@@ -14,10 +14,12 @@ honour the schema loosely.
 With ``rules``, the model never chooses the outcome. It reports typed
 facts (the fields), a reason and a confidence; the first :class:`Rule`
 whose ``when`` matches the facts gives the outcome, and when none matches
-the step is ``"unsure"`` (``no_rule``). On the Investigate cases the
-models mostly wrote the right reason and then picked an option that
-contradicted it; with the action left to a rule taken from the author's
-instructions, granite4:micro went from 45/60 to 51/60 (#620).
+the step is ``"unsure"`` (``no_rule``). The outcome then cannot
+contradict the step's own facts, and the trace says which rule decided.
+Measured on the Investigate cases (#620): rules fixed "right facts, wrong
+action" on the cases they were written from (granite4:micro 45 to 51 of
+60) but not on 20 held-out cases (29 to 30), where most failures are
+wrong facts. Use them for that guarantee, not for accuracy.
 """
 from __future__ import annotations
 

@@ -8,6 +8,13 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Rule tables in AI steps.** `DecisionSpec(rules=...)`: the model reports
+  typed facts, a reason and a confidence, and the first matching `Rule`
+  decides; no match is `unsure` (`no_rule`). The Investigate eval gains
+  `--rules`, a rule table frozen before 20 new held-out cases were written,
+  and the raw runs. On the held-out cases the rules did not raise the pass
+  rate (granite4:micro 29 → 30/60), and the original cases overstate the
+  models (45/60 there); see MODELS_AND_LATENCY.md.
 - **App SDK 0.9.0.** Publishes the Look step of an AI workflow —
   `opennvr_app_sdk.agent.run_look()` with `DecisionSpec`, `Decision`,
   `Limits` and the trace rows (#651, by @Emart29) — and the registry's
