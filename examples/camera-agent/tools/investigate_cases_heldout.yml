@@ -1,6 +1,7 @@
 # Held-out Investigate cases (RFC #620), written AFTER the rule tables in
-# investigate_rules.yml were frozen (commit 65304f8): the rules never saw
-# these cases. Same format and the same four templates as
+# investigate_rules.yml were frozen: the rules never saw these cases. The
+# order is in git (authored 22 Oct 2026, 10:23 UTC for the rules, 10:25 for
+# this file): git log --follow --format='%ad %s' on both files. Same format and the same four templates as
 # investigate_cases.yml, with new scenes, sites and wording. Scored the
 # same way; see that file for the keys.
 #

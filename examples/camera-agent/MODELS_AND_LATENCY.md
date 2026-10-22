@@ -663,9 +663,10 @@ cases. To add a GPU result, run the same command with `--hardware gpu`.
 With a rule table (`--rules tools/investigate_rules.yml`) the model never
 chooses the outcome: it reports the template's facts, and the first
 matching rule decides (RFC #620). The table is each template's
-instructions written as rules, frozen in commit `65304f8` **before** the
-20 held-out cases (`tools/investigate_cases_heldout.yml`, commit `21be471`)
-were written. Raw runs:
+instructions written as rules, frozen **before** the 20 held-out cases
+(`tools/investigate_cases_heldout.yml`) were written: the rules' commit is
+authored 10:23 UTC on 22 October, the cases' 10:25 (`git log --follow` on
+both files). Raw runs:
 [`benchmarks/investigate-rules-heldout-2026-10.json`](benchmarks/investigate-rules-heldout-2026-10.json).
 
 | CPU limits, 20 cases × 3 | Seen, model decides | Seen, rules decide | **Held out, model decides** | **Held out, rules decide** |

@@ -1,5 +1,5 @@
 {
- "what": "Facts + rules (RFC #620): the rule table in tools/investigate_rules.yml was frozen in commit 65304f8, before the held-out cases (tools/investigate_cases_heldout.yml, commit 21be471) were written. Each set run with the model deciding and with the rules deciding.",
+ "what": "Facts + rules (RFC #620): the rule table in tools/investigate_rules.yml was frozen (commit authored 2026-10-22 10:23 UTC) before the held-out cases in tools/investigate_cases_heldout.yml were written (10:25 UTC). Each set run with the model deciding and with the rules deciding.",
  "hardware": "4 vCPU cloud VM, no GPU; CPU limits (4 tool calls / 120 s)",
  "runtime": "Ollama, think off, opennvr_app_sdk.agent.run_investigate",
  "rules_sha256": "ce5bb7dbf10c5813aece6855a07b6e0483a5fcc232de0448c0beec7cb0c2e374",
