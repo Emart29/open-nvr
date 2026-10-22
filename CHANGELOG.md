@@ -14,6 +14,10 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `open_vocab_detection` task in the validator's known set, both of which
   0.1.8 shipped on `main` without a PyPI release. Additive; nothing in
   0.8.0 changes.
+- **App SDK 0.10.0.** Publishes the Investigate step:
+  `opennvr_app_sdk.agent.run_investigate()`, `resume()`, `Suspended` and
+  `Tool` (#670, #674, by @Emart29), which `main` carried since 0.9.0
+  without a PyPI release. Additive; nothing in 0.9.0 changes.
 - **The SDK runs an Investigate step.** `run_investigate()` calls the
   step's tools, then decides in a separate call (RFC #620). Every call goes
   through one gate: tools off the step's list or `unavailable` are refused,
