@@ -25,6 +25,11 @@
 #
 # Write the right answer from the fixtures alone: if a careful person
 # reading the same tool results would hesitate, the answer is "unsure".
+#
+# Fixtures answer like the real tools: a tool keyed by an id (describe_event)
+# answers only for ids its case's other results printed, and "no stored
+# photo" for any other; a search with no filter returns what is there. A
+# fixture that answers a made-up id rewards the model for inventing it.
 
 # ── night intrusion triage ──────────────────────────────────────────────
 
@@ -218,6 +223,7 @@
 
 - id: offline-still-down
   template: camera_offline_triage
+  note: "A power-over-Ethernet fault is the switch port's power and its network; either cause is fair."
   goal: *offline_goal
   instructions: *offline_instr
   site_facts: *offline_facts
@@ -231,7 +237,7 @@
     recent_events: "Recent events:\n2700s ago — loading_bay: stream lost\n2710s ago — loading_bay: power over ethernet fault reported by switch port 7"
   expect:
     decision: notify_maintenance
-    fields: {cause: [power, unknown]}
+    fields: {cause: [power, network, unknown]}
     needs: [[describe_camera, recent_events]]
 
 - id: offline-sprayed-lens
@@ -247,7 +253,10 @@
   fixtures:
     describe_camera: "gate: The image is almost entirely black with a smeared, sticky-looking film across the lens."
     search_history: "I remember 1 person visit(s) between 02:00 and 02:10: [#8812] 02:08–02:09 on camera gate (photo kept)."
-    describe_event: "Event 8812: A person in a balaclava reaching up towards the camera with a spray can."
+    describe_event:
+      - when: {event_id: 8812}
+        result: "Event 8812: A person in a balaclava reaching up towards the camera with a spray can."
+      - result: "I don't have a stored photo for that event."
   expect:
     decision: alert
     fields: {cause: tamper}
@@ -290,8 +299,13 @@
     search_history:
       - when: {label: person}
         result: "I remember 4 person visit(s) between 20:00 and 06:00: [#901] 22:10–22:14 on camera yard (photo kept); [#902] 00:05–00:09 on camera gate (photo kept); [#903] 02:12–02:16 on camera yard (photo kept); [#904] 04:01–04:05 on camera gate (photo kept). Faces matched: Ade (staff) at 22:10, Bisi (staff) at 00:05, Ade (staff) at 02:12, Bisi (staff) at 04:01."
-      - result: "No car visits remembered between 20:00 and 06:00."
-    describe_event: "Event 903: A guard in a high-visibility vest checking the padlock on the yard gate with a torch."
+      - when: {label: [car, vehicle, truck]}
+        result: "No car visits remembered between 20:00 and 06:00."
+      - result: "I remember 4 visit(s) between 20:00 and 06:00, all people: [#901] 22:10–22:14 on camera yard (photo kept); [#902] 00:05–00:09 on camera gate (photo kept); [#903] 02:12–02:16 on camera yard (photo kept); [#904] 04:01–04:05 on camera gate (photo kept). Faces matched: Ade (staff) at 22:10, Bisi (staff) at 00:05, Ade (staff) at 02:12, Bisi (staff) at 04:01."
+    describe_event:
+      - when: {event_id: [901, 902, 903, 904]}
+        result: "A guard in a high-visibility vest checking the padlocks with a torch."
+      - result: "I don't have a stored photo for that event."
   expect:
     decision: all_clear
     needs: [search_history]
@@ -309,17 +323,22 @@
     search_history:
       - when: {label: person}
         result: "I remember 3 person visit(s) between 20:00 and 06:00: [#951] 22:12–22:15 on camera yard (photo kept); [#952] 01:37–01:44 on camera loading_bay (photo kept); [#953] 04:03–04:06 on camera gate (photo kept). Faces matched: Ade (staff) at 22:12, Bisi (staff) at 04:03; 01:37 not recognised."
-      - result: "No car visits remembered between 20:00 and 06:00."
+      - when: {label: [car, vehicle, truck]}
+        result: "No car visits remembered between 20:00 and 06:00."
+      - result: "I remember 3 visit(s) between 20:00 and 06:00, all people: [#951] 22:12–22:15 on camera yard (photo kept); [#952] 01:37–01:44 on camera loading_bay (photo kept); [#953] 04:03–04:06 on camera gate (photo kept). Faces matched: Ade (staff) at 22:12, Bisi (staff) at 04:03; 01:37 not recognised."
     describe_event:
       - when: {event_id: 952}
         result: "Event 952: A person in a dark hoodie without a vest carrying a box away from the loading bay shutter."
-      - result: "A guard in a high-visibility vest on patrol."
+      - when: {event_id: [951, 953]}
+        result: "A guard in a high-visibility vest on patrol."
+      - result: "I don't have a stored photo for that event."
   expect:
     decision: review
     needs: [search_history]
 
 - id: morning-gate-left-open
   template: morning_site_report
+  note: "Seeing the gate open settles it; the history adds nothing the answer needs."
   goal: *morning_goal
   instructions: *morning_instr
   site_facts: *night_facts
@@ -335,7 +354,7 @@
       - result: "yard: An empty yard at dawn."
   expect:
     decision: review
-    needs: [search_history, describe_camera]
+    needs: [describe_camera]
 
 # ── investigate on request ──────────────────────────────────────────────
 

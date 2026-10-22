@@ -606,8 +606,8 @@ p95 inside the hardware class's seconds (CPU 4 tool calls / 120 s, GPU
 | Model, mode | Runs | Pass | 95% interval | Looked first | p50 / p95 per step | Qualifies |
 |---|---|---|---|---|---|---|
 | `granite4:micro`, CPU limits (Mac, accuracy only) | 60 | **44 (73%)** | 0.61-0.83 | 56/60 | — | **no**, the closest yet |
-| `granite4:micro`, CPU limits (4 vCPU, through `run_investigate`) | 60 | **45 (75%)** | 0.63-0.84 | 56/60 | 28 s / 43 s | **no**, fits the time with room |
-| `qwen3:1.7b`, CPU limits | 60 | 21 (35%) | 0.24-0.48 | 36/60 | 12 s / 21 s | **no** |
+| `granite4:micro`, CPU limits (4 vCPU, through `run_investigate`, corrected cases) | 60 | **45 (75%)** | 0.63-0.84 | 59/60 | 30 s / 44 s | **no**, fits the time with room |
+| `qwen3:1.7b`, CPU limits (corrected cases) | 60 | 16 (27%) | 0.17-0.39 | 36/60 | 12 s / 22 s | **no** (21/60 before the cases were corrected) |
 | `llama3.2:3b`, no time limit | 20 | 10 (50%) | 0.30-0.70 | 12/20 | 24 s / 39 s | **no** |
 | `qwen3:1.7b`, decision in the tool call (#649's harness, `--combined`) | 60 | 0 (0%) | 0.00-0.06 | 6/60 | 5 s / 8 s | **no** |
 
@@ -636,8 +636,27 @@ What it says:
 - The camera-agent pick for tool choice, `llama3.2:3b`, does better
   (half the cases) but not near the gate, on one repeat.
 
-One CPU, few repeats: the intervals are wide on purpose. To add a GPU
-result, run the same command with `--hardware gpu`.
+- **Why granite4:micro still fails: it looks, then decides against what it
+  saw.** Of its 15 failing runs, all but one called the tools it needed
+  (59/60). The decision contradicts the run's own reason: "authorised,
+  matches the bakery schedule" then *alert*; "tampering by a person with a
+  spray can" then *notify_maintenance* where the instructions say tampering
+  is an alert; "the gate was open" then *all clear*; an event read as "a
+  person in a dark hoodie carrying a box away" then "all patrols
+  recognised". Restating the step's instructions in the decision message,
+  right before the answer, did not help: granite4:micro 45/60 both ways,
+  qwen3:1.7b 16 to 19 (within noise). Not shipped.
+- **The cases were corrected after a failure analysis** (October 21). A
+  `describe_event` fixture answered any event id, so an id the model made
+  up came back as "a guard on patrol"; it now answers only ids the case
+  printed, as the real tool does, and a test keeps it so. A search with no
+  label now returns what is there. Two expectations were too strict. The
+  correction left granite4:micro at 45/60 and took qwen3:1.7b from 21 to
+  16: it had been rewarded for inventing ids.
+
+One CPU, few repeats: the intervals are wide on purpose, and two identical
+runs differ by one or two passes on a single case, so read totals, not
+cases. To add a GPU result, run the same command with `--hardware gpu`.
 
 ## Measured: the vision models on coco128 (16 October 2026)
 

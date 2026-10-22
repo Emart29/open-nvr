@@ -346,3 +346,14 @@ def test_a_fixture_error_is_a_failed_call_the_model_sees():
     assert [c["status"] for c in r.calls] == ["failed"]
     assert "ERROR: yard appears to be offline" in json.dumps(llm.calls[-1]["messages"])
     assert ie.score(case, r)["signals"]["evidence"] == 0.0
+
+
+def test_no_shipped_case_answers_an_event_id_it_never_printed():
+    """A fixture that answers a made-up id rewards the model for inventing
+    it: granite4:micro asked about event 12345, got "a guard on patrol",
+    and called a night with an intruder all clear."""
+    for c in ie.load_cases(CASES):
+        if "describe_event" not in c["fixtures"]:
+            continue
+        text, _ = ie.fixture_result(c, "describe_event", {"event_id": 12345})
+        assert "don't have a stored photo" in text, c["id"]
