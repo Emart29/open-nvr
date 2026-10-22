@@ -215,12 +215,39 @@ def _arg_matches(actual: Any, expected: Any) -> bool:
 # ── the step ───────────────────────────────────────────────────────────
 
 
-def spec_for(case: dict[str, Any]) -> DecisionSpec:
+def load_rules(path: str | pathlib.Path) -> dict[str, dict[str, Any]]:
+    """The rule tables, per template: ``{template: {"facts", "rules"}}``.
+    Each is checked by building a spec from it, so a table that cannot
+    work fails here, before any model call."""
+    raw = eh._load_yaml(pathlib.Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not raw:
+        raise CaseError(f"{path}: a mapping of template -> {{facts, rules}}")
+    tables = {}
+    for template, t in raw.items():
+        if not isinstance(t, dict) or set(t) != {"facts", "rules"}:
+            raise CaseError(f"{path}: {template} needs exactly 'facts' and 'rules'")
+        facts = {str(k): [str(x) for x in _as_list(v)] for k, v in t["facts"].items()}
+        tables[str(template)] = {"facts": facts, "rules": list(t["rules"])}
+    return tables
+
+
+def spec_for(case: dict[str, Any], tables: dict[str, dict[str, Any]] | None = None) -> DecisionSpec:
     """The case's decision as the SDK's spec. The floor is 0, so the
-    harness scores what the model answered; whether a floor on any
-    confidence signal would have helped is what the AUROC columns say."""
-    return DecisionSpec(options=tuple(case["options"]),
-                        fields={k: tuple(v) for k, v in case["fields"].items()}, floor=0.0)
+    harness scores what the outcome was; whether a floor on any
+    confidence signal would have helped is what the AUROC columns say.
+
+    With a rule table for the case's template, the template's facts join
+    the case's fields and the table decides: the model never chooses."""
+    fields = {k: tuple(v) for k, v in case["fields"].items()}
+    table = (tables or {}).get(case["template"])
+    if table is None:
+        return DecisionSpec(options=tuple(case["options"]), fields=fields, floor=0.0)
+    for k, v in table["facts"].items():
+        if k in fields and set(fields[k]) != set(v):
+            raise CaseError(f"{case['id']}: field {k} differs from the template's fact")
+        fields[k] = tuple(v)
+    return DecisionSpec(options=tuple(case["options"]), fields=fields, floor=0.0,
+                        rules=tuple(table["rules"]))
 
 
 def tools_for(case: dict[str, Any]) -> list[Tool]:
@@ -273,12 +300,13 @@ def step_result(d: Decision) -> StepResult:
 
 async def run_step(llm: LLMClient, case: dict[str, Any], *, hardware: str = "cpu",
                    samples: int = 1, model_name: str = "llm",
+                   rules: dict[str, dict[str, Any]] | None = None,
                    clock: Callable[[], float] = time.monotonic) -> StepResult:
     """One AI step on the case, run by the SDK's run_investigate, the code
     a workflow runs, inside the hardware class's limits. Never raises."""
     lim = LIMITS[hardware]
     out = await run_investigate(
-        llm, spec_for(case), goal=case["goal"], instructions=case["instructions"],
+        llm, spec_for(case, rules), goal=case["goal"], instructions=case["instructions"],
         site_facts=case["site_facts"], inputs=case["event"], tools=tools_for(case),
         limits=Limits(tool_calls=lim["tool_calls"], seconds=lim["seconds"]),
         samples=samples, model_name=model_name, clock=clock)
@@ -413,6 +441,11 @@ def format_report(s: dict[str, Any], meta: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _sha256(path: str) -> str:
+    import hashlib
+    return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+
 def _fmt(v: float | None) -> str:
     return "-" if v is None else f"{v:.1f}s"
 
@@ -422,6 +455,7 @@ def _fmt(v: float | None) -> str:
 
 async def run(llm: LLMClient, cases: list[dict[str, Any]], *, repeat: int, hardware: str,
               samples: int, model_name: str = "llm",
+              rules: dict[str, dict[str, Any]] | None = None,
               progress: Callable[[str], None] = lambda _: None) -> list[dict[str, Any]]:
     runs = []
     # Load the model before the clock starts: a cold load on CPU takes
@@ -430,7 +464,7 @@ async def run(llm: LLMClient, cases: list[dict[str, Any]], *, repeat: int, hardw
     for case in cases:
         for i in range(repeat):
             r = await run_step(llm, case, hardware=hardware, samples=samples,
-                               model_name=model_name)
+                               model_name=model_name, rules=rules)
             row = score(case, r)
             row["repeat"] = i
             runs.append(row)
@@ -475,12 +509,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--think", choices=["on", "off", "default"], default="off")
     ap.add_argument("--num-thread", type=int)
     ap.add_argument("--gate", type=float, default=0.8)
+    ap.add_argument("--rules", metavar="RULES_YML",
+                    help="rule tables (tools/investigate_rules.yml): the model reports facts "
+                         "and the template's rules decide")
     ap.add_argument("--out")
     ap.add_argument("--rescore", metavar="RUN_JSON",
                     help="score a saved --out file against the current cases; no model is called")
     a = ap.parse_args(argv)
 
     cases = load_cases(a.cases)
+    rules = load_rules(a.rules) if a.rules else None
+    if rules:
+        for c in cases:
+            spec_for(c, rules)      # a case that cannot take its table fails now
     if a.only:
         cases = [c for c in cases if c["id"] in a.only]
         if not cases:
@@ -502,13 +543,14 @@ def main(argv: list[str] | None = None) -> int:
     async def go() -> list[dict[str, Any]]:
         async with llm:
             return await run(llm, cases, repeat=a.repeat, hardware=a.hardware,
-                             samples=a.samples, model_name=a.model,
+                             samples=a.samples, model_name=a.model, rules=rules,
                              progress=lambda m: print(m, file=sys.stderr, flush=True))
 
     runs = asyncio.run(go())
     summary = summarise(runs, hardware=a.hardware, gate=a.gate)
     meta = {"model": a.model, "hardware": a.hardware, "repeat": a.repeat,
             "samples": a.samples, "engine": "opennvr_app_sdk.agent.run_investigate",
+            "rules": a.rules, "rules_sha256": _sha256(a.rules) if a.rules else None,
             "think": a.think,
             "cases": a.cases}
     print(format_report(summary, meta))

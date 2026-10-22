@@ -357,3 +357,38 @@ def test_no_shipped_case_answers_an_event_id_it_never_printed():
             continue
         text, _ = ie.fixture_result(c, "describe_event", {"event_id": 12345})
         assert "don't have a stored photo" in text, c["id"]
+
+
+# ── rule tables ────────────────────────────────────────────────────────
+
+RULES = _TOOLS / "investigate_rules.yml"
+
+
+def test_the_shipped_rule_tables_fit_every_case_and_every_answer_is_reachable():
+    import itertools as it
+    tables = ie.load_rules(RULES)
+    for c in ie.load_cases(CASES):
+        spec = ie.spec_for(c, tables)
+        if not spec.rules:
+            continue
+        names = list(spec.fields)
+        reachable = {spec.outcome(dict(zip(names, combo, strict=True))) or ie.UNSURE
+                     for combo in it.product(*(spec.fields[n] for n in names))}
+        assert set(c["expect"]["decision"]) & reachable, c["id"]
+
+
+def test_with_rules_the_facts_decide_not_the_model():
+    tables = ie.load_rules(RULES)
+    case = _case(options=["ignore", "watch", "alert"],
+                 fields={"who": ["staff", "visitor", "intruder", "animal", "unknown"]})
+    facts = {"reason": "a person climbing the fence", "who": "intruder", "confidence": 0.9}
+    llm = Script([("describe_camera", {"camera_id": "yard"})], "", facts)
+    r = run(llm, case, rules=tables)
+    assert r.decision == "alert" and r.fields == {"who": "intruder"}
+    assert "decision" not in llm.calls[-1]["format"]["properties"]
+
+
+def test_a_case_whose_field_disagrees_with_its_template_fact_is_refused():
+    tables = ie.load_rules(RULES)
+    with pytest.raises(ie.CaseError, match="differs from the template"):
+        ie.spec_for(_case(fields={"who": ["staff", "intruder"]}), tables)
