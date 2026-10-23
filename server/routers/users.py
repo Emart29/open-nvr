@@ -54,7 +54,7 @@ def create_user(
 
     ``is_superuser: true`` creates another superuser — the API's most
     privileged write (every permission, every camera), so it takes the
-    caller's current TOTP code in ``X-MFA-Code`` like delete does.
+    caller's current TOTP code in ``X-MFA-Code`` like permanent deletion does.
     """
     if user_create.is_superuser:
         _require_mfa_code(current_user, mfa_code)
@@ -85,15 +85,23 @@ def get_users(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
+    is_active: bool | None = None,
     q: str = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser),
 ):
     """Get list of users (superuser only). Optionally filter by username/email with q parameter."""
     users = UserService.get_users(
-        db=db, skip=skip, limit=limit, active_only=active_only, q=q
+        db=db,
+        skip=skip,
+        limit=limit,
+        active_only=active_only,
+        is_active=is_active,
+        q=q,
     )
-    total = db.query(User).count()
+    total = UserService.count_users(
+        db=db, active_only=active_only, is_active=is_active, q=q
+    )
     return UserList(users=users, total=total)
 
 
@@ -278,21 +286,17 @@ def delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_superuser),
     request: Request = None,
-    mfa_code: str | None = Header(None, alias="X-MFA-Code"),
 ):
     """Delete a user (soft delete, superuser only).
 
-    Requires the caller's current TOTP code in the X-MFA-Code header, and a
-    user can never delete their own account — a soft-deleted user cannot log
-    in, so self-deletion bricks single-admin deployments (issue #176).
+    This is reversible deactivation. Permanent deletion is a separate,
+    MFA-gated operation. A user can never deactivate their own account.
     """
     if user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot delete your own account.",
         )
-
-    _require_mfa_code(current_user, mfa_code)
 
     target = db.query(User).filter(User.id == user_id).first()
     if target is not None and target.is_superuser and target.is_active \
@@ -323,6 +327,62 @@ def delete_user(
     return {"message": "User deleted successfully"}
 
 
+@router.delete("/{user_id}/permanent")
+def permanently_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superuser),
+    request: Request = None,
+    mfa_code: str | None = Header(None, alias="X-MFA-Code"),
+):
+    """Permanently delete a user when no required records still reference them."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account.",
+        )
+
+    _require_mfa_code(current_user, mfa_code)
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if target is not None and target.is_superuser and target.is_active \
+            and _active_superusers(db, excluding=user_id) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the last active superuser.",
+        )
+
+    username = target.username if target else None
+    references = UserService.permanently_delete_user(db=db, user_id=user_id)
+    if references is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    if references:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot permanently delete this user while required records "
+                f"still reference them: {', '.join(references)}. "
+                "Resolve those references first."
+            ),
+        )
+    try:
+        write_audit_log(
+            db,
+            action="user.permanent_delete",
+            user_id=current_user.id,
+            entity_type="user",
+            entity_id=user_id,
+            details={"username": username},
+            ip=request.client.host if request and request.client else None,
+            user_agent=request.headers.get("user-agent") if request else None,
+        )
+    except Exception as e:
+        main_logger.warning(f"Failed to write audit log (user.permanent_delete): {e}")
+    return {"message": "User permanently deleted successfully"}
+
+
 @router.post("/{user_id}/activate", response_model=UserResponse)
 def activate_user(
     user_id: int,
@@ -333,8 +393,8 @@ def activate_user(
 ):
     """Reactivate a soft-deleted user (superuser only).
 
-    Undoes a delete: the account can log in again. Requires the caller's
-    current TOTP code in the X-MFA-Code header, same as deletion.
+    Undoes a deactivation: the account can log in again. Requires the
+    caller's current TOTP code in the X-MFA-Code header.
     """
     _require_mfa_code(current_user, mfa_code)
 
