@@ -23,8 +23,9 @@ rebaseline_seconds: 600
 blur_ratio: 0.3           # sharpness below this fraction of the reference → defocused
 dark_fraction: 0.85       # this fraction of pixels near black → covered
 uniform_std: 6            # or the picture has almost no contrast at all → covered
-moved_correlation: 0.45   # correlation with the reference below this → moved
-freeze_polls: 6           # this many identical frames in a row → frozen
+moved_correlation: 0.45   # edge correlation with the reference below this → moved
+freeze_polls: 6           # this many unchanged frames in a row → frozen
+frozen_mad: 0.2           # mean pixel change (0-255) under which two frames count as unchanged
 
 alert_severity: "high"    # covered / defocused / moved / frozen
 attach_snapshot: true     # the offending frame on the alert

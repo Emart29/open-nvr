@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageFilter
 
-from camera_tamper import AppConfig, CameraTamper, correlation, sharpness, to_gray
+from camera_tamper import AppConfig, CameraTamper, correlation, frame_change, sharpness, structure_correlation, to_gray
 from opennvr_app_sdk.testing import RecorderChannel, app_config
 
 W, H = 320, 240
@@ -91,8 +91,14 @@ def test_arithmetic_tells_sharp_from_blurred_and_same_from_moved():
     blurred = to_gray(_jpeg(scene().filter(ImageFilter.GaussianBlur(6))))
     assert sharpness(blurred) < 0.3 * sharpness(base)
     shifted = to_gray(_jpeg(scene().transform(scene().size, Image.AFFINE, (1, 0, 120, 0, 1, 80))))
-    assert correlation(base, to_gray(_jpeg(with_noise(scene(), 9)))) > 0.9
-    assert correlation(base, shifted) < 0.45
+    noisy = to_gray(_jpeg(with_noise(scene(), 9)))
+    assert correlation(base, noisy) > 0.9 and structure_correlation(base, noisy) > 0.9
+    assert structure_correlation(base, shifted) < 0.45
+    # A 60% crop of the same scene, scaled back up: brightness correlation
+    # stays high (same sky, same asphalt), edge correlation does not.
+    zoomed = to_gray(_jpeg(scene().crop((110, 30, 300, 170)).resize((W, H))))
+    assert structure_correlation(base, zoomed) < 0.45
+    assert frame_change(base, noisy) > 0.2 and frame_change(base, base) == 0.0
 
 
 def test_normal_frames_learn_a_reference_and_fire_nothing():
@@ -122,13 +128,27 @@ def test_each_condition_alerts_once_after_the_confirm_delay(condition, make_fram
     assert len(rec.alerts) == 1
 
 
-def test_frozen_stream_alerts_on_identical_bytes_and_clears_when_it_moves():
+def _ticking_corner(im: Image.Image, i: int) -> Image.Image:
+    """The same picture with a few pixels changing, as a frozen decoder
+    with a burned-in clock would send: not the same bytes, still frozen."""
+    a = np.asarray(im.convert("L")).copy()
+    a[2:8, 2:8] = (i * 40) % 255
+    return Image.fromarray(a).convert("RGB")
+
+
+@pytest.mark.parametrize("how", ["same-bytes", "nearly-same-picture"])
+def test_frozen_stream_alerts_on_an_unchanging_picture_and_clears_when_it_moves(how):
+    """A frozen stream arrives as identical bytes, or as different bytes of
+    a picture that does not change. Both are frozen; sensor noise on a
+    live camera (see learn_reference's frames) is not."""
     app, rec, src, clock = make_app(confirm_seconds=0, freeze_polls=3, attach_snapshot=False)
     learn_reference(app, src, clock)
-    same = _jpeg(scene())
-    run_ticks(app, src, clock, [same, same])
+    still = scene()
+    frames = ([_jpeg(still)] * 3 if how == "same-bytes"
+              else [_jpeg(_ticking_corner(still, i)) for i in range(3)])
+    run_ticks(app, src, clock, frames[:2])
     assert rec.alerts == []
-    run_ticks(app, src, clock, [same])            # third identical frame
+    run_ticks(app, src, clock, frames[2:])        # third unchanged frame
     assert [a.alert_type for a in rec.alerts] == ["tamper_frozen"]
     run_ticks(app, src, clock, [_jpeg(with_noise(scene(), 42))])
     assert [a.alert_type for a in rec.alerts] == ["tamper_frozen", "tamper_cleared"]
@@ -172,6 +192,8 @@ def test_config_rejects_nonsense():
         AppConfig(alert_severity="loud")
     with pytest.raises(ValueError):
         AppConfig(freeze_polls=1)
+    with pytest.raises(ValueError):
+        AppConfig(frozen_mad=-1)
 
 
 

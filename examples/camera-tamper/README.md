@@ -19,8 +19,8 @@ cameras that have none and the faults the camera cannot judge about itself.
 |---|---|---|
 | `tamper_covered` | most of the picture is near black, or it has no contrast at all | `alert_severity` |
 | `tamper_defocused` | sharpness has dropped below `blur_ratio` of the reference | `alert_severity` |
-| `tamper_moved` | the picture no longer correlates with the reference view | `alert_severity` |
-| `tamper_frozen` | `freeze_polls` identical frames in a row | `alert_severity` |
+| `tamper_moved` | the picture's edges no longer line up with the reference view (plain brightness correlation forgives a zoom of the same scene; edge correlation does not) | `alert_severity` |
+| `tamper_frozen` | `freeze_polls` frames in a row that did not change (same bytes, or a mean pixel change under `frozen_mad`) | `alert_severity` |
 | `tamper_cleared` | the camera looks normal again after an alert | low |
 
 A condition has to hold for `confirm_seconds` before it alerts, so a hand

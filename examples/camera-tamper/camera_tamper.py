@@ -12,8 +12,10 @@ itself:
 * **covered** — most pixels near black, or no contrast at all;
 * **defocused** — sharpness (variance of the Laplacian) fell below a
   fraction of the reference's;
-* **moved** — the picture no longer correlates with the reference;
-* **frozen** — the same bytes arrive poll after poll.
+* **moved** — the picture's edges no longer line up with the reference's
+  (plain brightness correlation forgives a zoom of the same scene; edge
+  correlation does not);
+* **frozen** — poll after poll the picture does not change at all.
 
 A condition must hold for ``confirm_seconds`` before it alerts; the same
 condition on the same camera then stays quiet for ``cooldown_seconds``.
@@ -99,9 +101,12 @@ MANIFEST = AppManifest(
         Param("uniform_std", float, default=6.0,
               description="A picture with less contrast than this is 'covered'."),
         Param("moved_correlation", float, default=0.45,
-              description="Correlation with the reference below this is 'moved'."),
+              description="Edge correlation with the reference below this is 'moved'."),
         Param("freeze_polls", int, default=6,
-              description="This many identical frames in a row is 'frozen'."),
+              description="This many unchanged frames in a row is 'frozen'."),
+        Param("frozen_mad", float, default=0.2,
+              description="Mean pixel change (0-255, on the small greyscale copy) below which two "
+                          "consecutive frames count as unchanged. Raise on a very still night scene."),
         Param("alert_severity", str, default="high", choices=list(SEVERITIES),
               description="Severity of covered / defocused / moved / frozen alerts."),
         Param("attach_snapshot", bool, default=True,
@@ -131,6 +136,7 @@ class AppConfig(BaseAppConfig):
     uniform_std: float = 6.0
     moved_correlation: float = 0.45
     freeze_polls: int = 6
+    frozen_mad: float = 0.2
     alert_severity: str = "high"
     attach_snapshot: bool = True
     #: Standalone only: ``[{camera_id, frame_url}]``. On a compose install
@@ -150,6 +156,8 @@ class AppConfig(BaseAppConfig):
             raise ValueError("moved_correlation must be below 1")
         if int(self.freeze_polls) < 2:
             raise ValueError("freeze_polls must be at least 2")
+        if self.frozen_mad < 0:
+            raise ValueError("frozen_mad must be >= 0")
 
 
 # ── the arithmetic ────────────────────────────────────────────────────
@@ -184,21 +192,50 @@ def correlation(a: np.ndarray, b: np.ndarray) -> float:
     return float((a0 * b0).sum() / denom)
 
 
+def structure(g: np.ndarray) -> np.ndarray:
+    """Edge-magnitude map, box-blurred 3x3 so a pixel or two of jitter still
+    lines up. Correlating these is what tells a re-aimed camera from the
+    same view: brightness correlation stays high for a zoom of the same
+    scene (sky above, asphalt below), edge correlation collapses."""
+    gx = np.zeros_like(g)
+    gy = np.zeros_like(g)
+    gx[:, 1:-1] = g[:, 2:] - g[:, :-2]
+    gy[1:-1, :] = g[2:, :] - g[:-2, :]
+    m = np.sqrt(gx * gx + gy * gy)
+    p = np.pad(m, 1, mode="edge")
+    h, w = m.shape
+    return sum(p[i:i + h, j:j + w] for i in range(3) for j in range(3)) / 9.0
+
+
+def structure_correlation(a: np.ndarray, b: np.ndarray) -> float:
+    return correlation(structure(a), structure(b))
+
+
+def frame_change(a: np.ndarray, b: np.ndarray) -> float:
+    """Mean absolute pixel difference between two working copies."""
+    return float(np.abs(a - b).mean())
+
+
 @dataclass
 class Scores:
     sharpness: float
     dark: float
     std: float
-    corr: float | None          # None until a reference exists
+    corr: float | None          # brightness correlation, None until a reference exists
+    edge_corr: float | None     # edge correlation, the one 'moved' is judged on
+    change: float | None        # mean pixel change since the previous frame
     digest: str
 
 
-def score(g: np.ndarray, frame_bytes: bytes, reference: np.ndarray | None) -> Scores:
+def score(g: np.ndarray, frame_bytes: bytes, reference: np.ndarray | None,
+          previous: np.ndarray | None = None) -> Scores:
     return Scores(
         sharpness=sharpness(g),
         dark=dark_share(g),
         std=float(g.std()),
         corr=correlation(g, reference) if reference is not None else None,
+        edge_corr=structure_correlation(g, reference) if reference is not None else None,
+        change=frame_change(g, previous) if previous is not None else None,
         digest=hashlib.sha1(frame_bytes).hexdigest(),
     )
 
@@ -216,6 +253,7 @@ class CameraState:
     reference: np.ndarray | None = None
     reference_sharpness: float = 0.0
     last_digest: str | None = None
+    last_gray: np.ndarray | None = None
     same_in_a_row: int = 0
     condition: str | None = None       # what this tick saw, after judging
     since: float = 0.0                 # when the current condition began
@@ -241,18 +279,20 @@ class CameraTamper(FrameApp):
 
     def judge(self, st: CameraState, s: Scores) -> str | None:
         """Which condition, if any, this frame shows. Order matters: a
-        covered lens is also blurry and uncorrelated, so it is tested
-        first; a frozen stream is tested on bytes, independently."""
+        covered lens is also blurry, uncorrelated and, being dark, nearly
+        unchanging, so it is tested first and names the fault; frozen is
+        next, on the picture not changing at all; the two view tests
+        need a reference."""
         cfg = self.cfg
-        if st.same_in_a_row >= int(cfg.freeze_polls) - 1:
-            return "frozen"
         if s.dark >= cfg.dark_fraction or s.std <= cfg.uniform_std:
             return "covered"
+        if st.same_in_a_row >= int(cfg.freeze_polls) - 1:
+            return "frozen"
         if st.reference is None:
             return None
         if st.reference_sharpness > 0 and s.sharpness < cfg.blur_ratio * st.reference_sharpness:
             return "defocused"
-        if s.corr is not None and s.corr < cfg.moved_correlation:
+        if s.edge_corr is not None and s.edge_corr < cfg.moved_correlation:
             return "moved"
         return None
 
@@ -260,9 +300,12 @@ class CameraTamper(FrameApp):
         st = self._state.setdefault(camera_id, CameraState())
         now = self._clock()
         g = to_gray(frame_bytes)
-        s = score(g, frame_bytes, st.reference)
-        st.same_in_a_row = st.same_in_a_row + 1 if s.digest == st.last_digest else 0
+        s = score(g, frame_bytes, st.reference, st.last_gray)
+        unchanged = s.digest == st.last_digest or (
+            s.change is not None and s.change <= self.cfg.frozen_mad)
+        st.same_in_a_row = st.same_in_a_row + 1 if unchanged else 0
         st.last_digest = s.digest
+        st.last_gray = g
         st.last_scores = s
         st.checks += 1
 
@@ -330,6 +373,8 @@ class CameraTamper(FrameApp):
             "dark_fraction": round(s.dark, 3),
             "contrast_std": round(s.std, 1),
             "correlation": None if s.corr is None else round(s.corr, 3),
+            "edge_correlation": None if s.edge_corr is None else round(s.edge_corr, 3),
+            "frame_change": None if s.change is None else round(s.change, 3),
         }
         self._alerts_fired += 1
         return Alert(
@@ -372,7 +417,7 @@ class CameraTamper(FrameApp):
     LIVE_KNOBS = {
         "poll_interval_seconds": float, "confirm_seconds": float, "cooldown_seconds": float,
         "rebaseline_seconds": float, "blur_ratio": float, "dark_fraction": float,
-        "uniform_std": float, "moved_correlation": float, "freeze_polls": int,
+        "uniform_std": float, "moved_correlation": float, "freeze_polls": int, "frozen_mad": float,
         "alert_severity": str, "attach_snapshot": bool,
     }
 
@@ -414,6 +459,8 @@ class CameraTamper(FrameApp):
                 "reference_sharpness": round(st.reference_sharpness, 1),
                 "dark_fraction": None if s is None else round(s.dark, 3),
                 "correlation": None if s is None or s.corr is None else round(s.corr, 3),
+                "edge_correlation": None if s is None or s.edge_corr is None else round(s.edge_corr, 3),
+                "frame_change": None if s is None or s.change is None else round(s.change, 3),
                 "same_in_a_row": st.same_in_a_row,
             }
         return {"cameras": cams, "alerts_fired": self._alerts_fired}

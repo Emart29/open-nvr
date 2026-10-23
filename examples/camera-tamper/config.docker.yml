@@ -11,6 +11,7 @@ dark_fraction: 0.85
 uniform_std: 6
 moved_correlation: 0.45
 freeze_polls: 6
+frozen_mad: 0.2
 alert_severity: "high"
 attach_snapshot: true
 cameras: []
