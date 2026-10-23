@@ -48,6 +48,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only the fixture tools and the scoring. `--combined` is gone (its finding,
   that the decision needs its own call, is in MODELS_AND_LATENCY.md).
 
+### Fixed
+
+- **The "today" search tests no longer fail just after midnight.** The API
+  parsed "today" against the wall clock while the rows were stamped a few
+  minutes earlier, so a run near local midnight put them on yesterday
+  (`[] == [1]` in CI). The tests now pin the search parser's clock to the
+  rows' and keep that clock clear of midnight; checked with the local time
+  set to 23:59:50, 00:00:30, 00:01:30, 00:04 and 00:39.
+
 ## [0.1.8] — 2026-10-17
 
 Better defaults, each one measured. The agent's model, its speech to
