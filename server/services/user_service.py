@@ -20,7 +20,7 @@ Handles user creation, updates, authentication, and management.
 """
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_
+from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
 from core.auth import get_password_hash, verify_password
@@ -94,10 +94,17 @@ class UserService:
 
     @staticmethod
     def get_users(
-        db: Session, skip: int = 0, limit: int = 100, active_only: bool = True, q: str = None
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        active_only: bool = True,
+        is_active: bool | None = None,
+        q: str = None,
     ) -> list[User]:
         query = db.query(User)
-        if active_only:
+        if is_active is not None:
+            query = query.filter(User.is_active == is_active)
+        elif active_only:
             query = query.filter(User.is_active == True)
         if q:
             search_term = f"%{q}%"
@@ -105,6 +112,25 @@ class UserService:
                 (User.username.ilike(search_term)) | (User.email.ilike(search_term))
             )
         return query.offset(skip).limit(limit).all()
+
+    @staticmethod
+    def count_users(
+        db: Session,
+        active_only: bool = True,
+        is_active: bool | None = None,
+        q: str = None,
+    ) -> int:
+        query = db.query(User)
+        if is_active is not None:
+            query = query.filter(User.is_active == is_active)
+        elif active_only:
+            query = query.filter(User.is_active == True)
+        if q:
+            search_term = f"%{q}%"
+            query = query.filter(
+                (User.username.ilike(search_term)) | (User.email.ilike(search_term))
+            )
+        return query.count()
 
     @staticmethod
     def update_user(db: Session, user_id: int, user_update: UserUpdate) -> User | None:
@@ -163,6 +189,58 @@ class UserService:
         db_user.is_active = False
         db.commit()
         return True
+
+    @staticmethod
+    def permanently_delete_user(db: Session, user_id: int) -> list[str] | None:
+        """Delete a user only when no required records still reference them.
+
+        Nullable references are cleared so historical records, including audit
+        logs, remain available without retaining a foreign key to the deleted
+        account. Returns the required-reference table names when blocked, or
+        None when the user does not exist; an empty list means success.
+        """
+        db_user = db.query(User).filter(User.id == user_id).first()
+        if not db_user:
+            return None
+
+        nullable_references = []
+        blocking_tables = set()
+        for table in User.__table__.metadata.tables.values():
+            if table is User.__table__:
+                continue
+            for column in table.columns:
+                if not any(
+                    foreign_key.column.table is User.__table__
+                    and foreign_key.column.name == "id"
+                    for foreign_key in column.foreign_keys
+                ):
+                    continue
+                has_reference = db.execute(
+                    select(column).where(column == user_id).limit(1)
+                ).first()
+                if not has_reference:
+                    continue
+                if column.nullable:
+                    nullable_references.append(column)
+                else:
+                    blocking_tables.add(table.name)
+
+        if blocking_tables:
+            return sorted(blocking_tables)
+
+        try:
+            for column in nullable_references:
+                db.execute(
+                    update(column.table)
+                    .where(column == user_id)
+                    .values({column.name: None})
+                )
+            db.delete(db_user)
+            db.commit()
+            return []
+        except Exception:
+            db.rollback()
+            raise
 
     @staticmethod
     def authenticate_user(db: Session, username: str, password: str) -> User | None:
