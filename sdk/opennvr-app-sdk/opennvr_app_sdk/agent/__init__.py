@@ -41,7 +41,7 @@ See the design note on #620.
 """
 from __future__ import annotations
 
-from .decision import UNSURE, UNSURE_REASONS, Decision, DecisionSpec, Usage
+from .decision import UNSURE, UNSURE_REASONS, Decision, DecisionSpec, Rule, Usage
 from .investigate import (
     Suspended,
     decide_message,
@@ -83,6 +83,7 @@ __all__ = [
     "Limits",
     "OllamaChat",
     "OpenAIChat",
+    "Rule",
     "Suspended",
     "Tool",
     "ToolCall",
