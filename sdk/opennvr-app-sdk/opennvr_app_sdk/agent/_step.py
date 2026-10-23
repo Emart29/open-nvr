@@ -105,7 +105,8 @@ class StepRun:
         confidence = votes.count(decision) / len(votes)
         out = Decision(decision, fields, reason, confidence=confidence,
                        confidence_source=f"agreement of {len(votes)}",
-                       self_reported=self_reported)
+                       self_reported=self_reported,
+                       rule=spec.rule_for(fields) if spec.rules else None)
         if decision != UNSURE and confidence < spec.floor:
             out.proposed, out.decision, out.fields = decision, UNSURE, {}
             out.unsure_reason = "below_floor"

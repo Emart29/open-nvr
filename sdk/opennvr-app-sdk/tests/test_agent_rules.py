@@ -145,3 +145,26 @@ def test_agreement_compares_outcomes_not_wording():
     d = asyncio.run(run_look(Script(facts("staff"), facts("animal"), facts("intruder")),
                              NIGHT, prompt="Who?", samples=3))
     assert d.confidence == pytest.approx(2 / 3)
+
+
+def test_the_decision_names_the_rule_that_fired():
+    assert NIGHT.rule_for({"who": "animal"}) == 2
+    assert NIGHT.rule_for({"who": "nobody"}) is None
+    d = asyncio.run(run_look(Script(facts("animal")), NIGHT, prompt="Who?"))
+    assert (d.decision, d.rule) == ("ignore", 2)
+
+
+def test_the_rule_is_kept_when_the_floor_makes_it_unsure():
+    llm = Script(facts("intruder"), facts("staff"), facts("staff"))
+    d = asyncio.run(run_look(llm, NIGHT, prompt="Who?", samples=3))
+    assert (d.decision, d.unsure_reason, d.proposed, d.rule) == (UNSURE, "below_floor", "alert", 1)
+
+
+def test_without_rules_or_without_a_match_there_is_no_rule():
+    plain = DecisionSpec(options=("ignore", "alert"))
+    d = asyncio.run(run_look(Script({"reason": "r", "decision": "alert", "confidence": 1}),
+                             plain, prompt="Who?"))
+    assert d.rule is None
+    spec = DecisionSpec(options=("alert",), fields={"who": ("intruder", "staff")},
+                        rules=(Rule(when={"who": "intruder"}, then="alert"),))
+    assert asyncio.run(run_look(Script(facts("staff")), spec, prompt="Who?")).rule is None
