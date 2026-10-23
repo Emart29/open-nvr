@@ -123,9 +123,15 @@ class DecisionSpec:
 
     def outcome(self, facts: Mapping[str, str]) -> str | None:
         """The first matching rule's outcome, or None when none matches."""
-        for r in self.rules:
+        n = self.rule_for(facts)
+        return None if n is None else self.rules[n - 1].then
+
+    def rule_for(self, facts: Mapping[str, str]) -> int | None:
+        """The number of the first rule that matches, counted from 1 as
+        the refusal messages count them, or None when none matches."""
+        for i, r in enumerate(self.rules, 1):
             if r.matches(facts):
-                return r.then
+                return i
         return None
 
     def schema(self) -> dict[str, Any]:
@@ -200,7 +206,10 @@ class Decision:
     ``decision`` is one of the spec's options or ``"unsure"``. When the
     step, not the model, made it unsure, ``unsure_reason`` says why (one of
     :data:`UNSURE_REASONS`) and ``proposed`` keeps what the model said, if
-    anything. ``confidence`` is what the floor was applied to and
+    anything. ``rule`` is the number of the rule that gave the outcome
+    (from 1, as :meth:`DecisionSpec.rule_for` counts), kept when the floor
+    then made it unsure, and None without rules. ``confidence`` is what
+    the floor was applied to and
     ``confidence_source`` how it was computed; ``self_reported`` is the
     model's own number, kept for calibration and never gated on: on the
     Investigate eval it did not separate right answers from wrong ones
@@ -215,6 +224,7 @@ class Decision:
     self_reported: float | None = None
     unsure_reason: str | None = None
     proposed: str | None = None
+    rule: int | None = None
     evidence: list[str] = field(default_factory=list)   # ids of the tool rows that worked
     trace: list[TraceRow] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
