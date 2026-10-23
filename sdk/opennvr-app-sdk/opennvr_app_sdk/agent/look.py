@@ -42,7 +42,8 @@ def look_messages(spec: DecisionSpec, *, prompt: str, inputs: dict[str, Any] | N
     inputs, so they never reach the instructions (RFC #620, section 7)."""
     options = ", ".join([*spec.options, UNSURE])
     user = f"INPUTS (data):\n```json\n{json.dumps(inputs or {}, indent=1, default=str)}\n```"
-    user += f"\n\nAnswer with JSON. decision: one of {options}."
+    user += ("\n\nAnswer with JSON: what you see." if spec.rules
+             else f"\n\nAnswer with JSON. decision: one of {options}.")
     for name, values in spec.fields.items():
         user += f" {name}: one of {', '.join(values)}."
     msg: dict[str, Any] = {"role": "user", "content": user}

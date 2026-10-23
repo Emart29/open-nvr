@@ -24,6 +24,7 @@ sys.modules["investigate_eval"] = ie     # dataclasses look their module up
 _spec.loader.exec_module(ie)
 
 CASES = _TOOLS / "investigate_cases.yml"
+HELDOUT = _TOOLS / "investigate_cases_heldout.yml"
 
 
 def _case(**over):
@@ -348,12 +349,56 @@ def test_a_fixture_error_is_a_failed_call_the_model_sees():
     assert ie.score(case, r)["signals"]["evidence"] == 0.0
 
 
-def test_no_shipped_case_answers_an_event_id_it_never_printed():
+@pytest.mark.parametrize("path", [CASES, HELDOUT], ids=["cases", "heldout"])
+def test_no_shipped_case_answers_an_event_id_it_never_printed(path):
     """A fixture that answers a made-up id rewards the model for inventing
     it: granite4:micro asked about event 12345, got "a guard on patrol",
     and called a night with an intruder all clear."""
-    for c in ie.load_cases(CASES):
+    for c in ie.load_cases(path):
         if "describe_event" not in c["fixtures"]:
             continue
         text, _ = ie.fixture_result(c, "describe_event", {"event_id": 12345})
         assert "don't have a stored photo" in text, c["id"]
+
+
+# ── rule tables ────────────────────────────────────────────────────────
+
+RULES = _TOOLS / "investigate_rules.yml"
+
+
+@pytest.mark.parametrize("path", [CASES, HELDOUT], ids=["cases", "heldout"])
+def test_the_shipped_rule_tables_fit_every_case_and_every_answer_is_reachable(path):
+    import itertools as it
+    tables = ie.load_rules(RULES)
+    for c in ie.load_cases(path):
+        spec = ie.spec_for(c, tables)
+        if not spec.rules:
+            continue
+        names = list(spec.fields)
+        reachable = {spec.outcome(dict(zip(names, combo, strict=True))) or ie.UNSURE
+                     for combo in it.product(*(spec.fields[n] for n in names))}
+        assert set(c["expect"]["decision"]) & reachable, c["id"]
+
+
+def test_with_rules_the_facts_decide_not_the_model():
+    tables = ie.load_rules(RULES)
+    case = _case(options=["ignore", "watch", "alert"],
+                 fields={"who": ["staff", "visitor", "intruder", "animal", "unknown"]})
+    facts = {"reason": "a person climbing the fence", "who": "intruder", "confidence": 0.9}
+    llm = Script([("describe_camera", {"camera_id": "yard"})], "", facts)
+    r = run(llm, case, rules=tables)
+    assert r.decision == "alert" and r.fields == {"who": "intruder"}
+    assert "decision" not in llm.calls[-1]["format"]["properties"]
+
+
+def test_a_case_whose_field_disagrees_with_its_template_fact_is_refused():
+    tables = ie.load_rules(RULES)
+    with pytest.raises(ie.CaseError, match="differs from the template"):
+        ie.spec_for(_case(fields={"who": ["staff", "intruder"]}), tables)
+
+
+def test_the_heldout_cases_are_new_and_cover_the_same_templates():
+    seen, held = ie.load_cases(CASES), ie.load_cases(HELDOUT)
+    assert len(held) == 20
+    assert {c["template"] for c in held} == {c["template"] for c in seen}
+    assert not {c["id"] for c in held} & {c["id"] for c in seen}
