@@ -90,6 +90,9 @@ class StepRun:
         if first is None:
             return Decision(UNSURE, unsure_reason="invalid_output")
         decision, fields, reason, self_reported = first
+        if spec.rules and not decision:      # the facts matched no rule
+            return Decision(UNSURE, fields, reason, self_reported=self_reported,
+                            unsure_reason="no_rule")
         votes = [decision]
         for _ in range(max(0, samples - 1)):
             if self.remaining() <= 0:
@@ -102,7 +105,8 @@ class StepRun:
         confidence = votes.count(decision) / len(votes)
         out = Decision(decision, fields, reason, confidence=confidence,
                        confidence_source=f"agreement of {len(votes)}",
-                       self_reported=self_reported)
+                       self_reported=self_reported,
+                       rule=spec.rule_for(fields) if spec.rules else None)
         if decision != UNSURE and confidence < spec.floor:
             out.proposed, out.decision, out.fields = decision, UNSURE, {}
             out.unsure_reason = "below_floor"
