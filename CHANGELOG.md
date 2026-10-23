@@ -8,6 +8,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The workflow file's `ai:` step, checked and run.**
+  `opennvr_app_sdk.workflows`: `check_ai_step()` lists everything wrong
+  with a step (an actuator or unknown skill as a tool, a rule naming an
+  unknown field or outcome, an outcome with no path, a placeholder in the
+  instructions, YAML's unquoted yes/no), and `run_ai_step()` runs a Look or
+  Investigate step to its outcome, its path, the `workflow_run_steps` row
+  and the trace rows; an `ask` tool suspends into the row and
+  `resume_ai_step()` carries on. Defaults for #620's open questions: rules
+  required in Investigate, optional in Look; the hardware class comes from
+  the engine (CPU when unset); the severity cap is the `alert` action's.
+  `Decision.rule` now says which rule fired.
 - **Rule tables in AI steps.** `DecisionSpec(rules=...)`: the model reports
   typed facts, a reason and a confidence, and the first matching `Rule`
   decides; no match is `unsure` (`no_rule`). The Investigate eval gains
