@@ -115,7 +115,8 @@ TASK_DESCRIPTORS: dict[str, dict[str, Any]] = {
         # Asked one question per descriptor kind ("what colour is this
         # vehicle?"), which is how a general model becomes a specific
         # claim with a confidence.
-        "kinds": ["colour", "vehicle_type", "clothing_top", "carrying"],
+        "kinds": ["colour", "vehicle_type", "clothing_top", "carrying",
+                  "gender", "clothing_bottom", "headwear"],
         "labels": [],
     },
 }

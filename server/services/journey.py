@@ -96,6 +96,9 @@ KIND_WEIGHT: dict[str, float] = {
     "vehicle_type": 1.4,
     "clothing_top": 1.2,
     "carrying": 1.0,
+    "gender": 1.1,
+    "headwear": 1.0,
+    "clothing_bottom": 0.9,
     "colour": 0.7,
 }
 DEFAULT_WEIGHT = 0.8
