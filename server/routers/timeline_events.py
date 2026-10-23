@@ -577,6 +577,31 @@ async def get_gate_occupancy(
     )
 
 
+@router.get("/events/vehicle-counts")
+async def get_vehicle_counts(
+    hours: int = 24,
+    bucket: str = "hour",
+    camera_id: str = "",
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Vehicles seen per camera per hour or day over the last ``hours``,
+    by type and colour (enrichment claims, falling back to the detector's
+    label). Owner-scoped like /events. ``camera_id`` is a comma-separated
+    list; empty means every visible camera."""
+    from services.timeline_service import vehicle_counts
+
+    if bucket not in ("hour", "day"):
+        raise HTTPException(status_code=422, detail="bucket must be hour or day")
+    return vehicle_counts(
+        db,
+        hours=max(1, min(int(hours), 24 * 31)),
+        bucket=bucket,
+        camera_ids=set(_parse_camera_ids(camera_id)) or None,
+        scope=visible_camera_ids(db, current_user),
+    )
+
+
 @router.get("/events/vehicle-report")
 async def get_vehicle_report(
     year: int,
