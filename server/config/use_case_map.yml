@@ -73,3 +73,9 @@
   needs_capability: vqa
   suggested_apps: [gate-watch]
   suggested_adapters: [moondream]
+
+- use_case: "Is someone dumping garbage here?"
+  intent: "Alert when garbage appears in a no-dumping zone and say how much."
+  needs_capability: open_vocab_detection
+  suggested_apps: [garbage-dumping]
+  suggested_adapters: [open-vocab-detection]

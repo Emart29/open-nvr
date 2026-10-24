@@ -212,7 +212,7 @@ class GateWatch(FrameApp):
         self._kaic: KaiCClient | None = None
         self._adapter: str | None = (self.cfg.vqa_adapter or "").strip() or None
         self._asker: Asker | None = None
-        self._alerts_fired = 0
+        self._app_alerts_fired = 0
         for cam in getattr(self.cfg, "cameras", None) or []:
             cid = str(cam.get("camera_id") or "") if isinstance(cam, dict) else ""
             if cid and isinstance(cam.get("gate"), list):
@@ -316,7 +316,7 @@ class GateWatch(FrameApp):
             "closed": "The gate closed again.",
             "unknown": "The vision model could not tell whether the gate is open; check the camera's view of it.",
         }
-        self._alerts_fired += 1
+        self._app_alerts_fired += 1
         return Alert(
             title=titles[kind],
             description=descriptions[kind],
@@ -398,7 +398,7 @@ class GateWatch(FrameApp):
         now = self._clock()
         return {
             "adapter": self._adapter,
-            "alerts_fired": self._alerts_fired,
+            "alerts_fired": self._app_alerts_fired,
             "cameras": {
                 cam: {
                     "verdict": st.verdict,

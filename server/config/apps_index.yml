@@ -261,6 +261,42 @@
             - opennvr_internal
     command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d camera-tamper
 
+- id: garbage-dumping
+  name: Garbage Dumping
+  summary: Alerts when garbage is dumped in a watched zone — every look asks the site's open-vocabulary detector for what the operator calls garbage, and more of it than the zone held before raises the alert; it clears when the zone is empty again.
+  category: perimeter
+  version: "1.0.0"
+  image: ghcr.io/open-nvr/garbage-dumping:latest
+  build_context: examples/garbage-dumping
+  requires_tasks: [open_vocab_detection]
+  requires_adapters: [open_vocab]
+  emits: [garbage_dumped, garbage_cleared]
+  docs_url: https://github.com/open-nvr/open-nvr/blob/main/examples/garbage-dumping/README.md
+  author: OpenNVR
+  contact: https://github.com/open-nvr/open-nvr/issues
+  source: https://github.com/open-nvr/open-nvr/tree/main/examples/garbage-dumping
+  network_egress: []
+  install:
+    compose: |
+      # INFORMATIONAL — this service already ships in
+      # docker-compose.apps.yml (with its config-init companion and
+      # named config volume); you do NOT paste this anywhere. Run the
+      # command below and compose brings it up from the shipped overlay.
+      services:
+        garbage-dumping:
+          profiles: [apps]
+          image: ${GARBAGE_DUMPING_IMAGE:-opennvr/garbage-dumping:local-build}
+          restart: unless-stopped
+          environment:
+            - OPENNVR_INTERNAL_API_KEY=${INTERNAL_API_KEY}
+            - NATS_URL=nats://nats:4222
+            - OPENNVR_URL=http://opennvr-core:8000
+          expose:
+            - "9215"
+          networks:
+            - opennvr_internal
+    command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d garbage-dumping
+
 - id: gate-watch
   name: Gate Watch
   summary: Alerts when a gate has been left open — every look asks the site's vision model one question about the gate the operator drew, and a gate open past the threshold raises the alert; it clears when the gate closes.

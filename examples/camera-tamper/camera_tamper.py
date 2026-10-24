@@ -273,7 +273,7 @@ class CameraTamper(FrameApp):
         self._state: dict[str, CameraState] = {}
         self._clock = time.monotonic
         self._nvr = None
-        self._alerts_fired = 0
+        self._app_alerts_fired = 0
 
     # -- judging one frame --
 
@@ -376,7 +376,7 @@ class CameraTamper(FrameApp):
             "edge_correlation": None if s.edge_corr is None else round(s.edge_corr, 3),
             "frame_change": None if s.change is None else round(s.change, 3),
         }
-        self._alerts_fired += 1
+        self._app_alerts_fired += 1
         return Alert(
             title=titles[condition],
             description=descriptions[condition],
@@ -463,7 +463,7 @@ class CameraTamper(FrameApp):
                 "frame_change": None if s is None or s.change is None else round(s.change, 3),
                 "same_in_a_row": st.same_in_a_row,
             }
-        return {"cameras": cams, "alerts_fired": self._alerts_fired}
+        return {"cameras": cams, "alerts_fired": self._app_alerts_fired}
 
 
 # ── wiring ────────────────────────────────────────────────────────────

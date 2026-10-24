@@ -200,6 +200,7 @@ _EXPECTED_IDS = {
     "guard-scan-compliance",
     "camera-tamper",
     "gate-watch",
+    "garbage-dumping",
 }
 
 
