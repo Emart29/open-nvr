@@ -13,6 +13,15 @@ alert. More than that, seen in `confirm_looks` looks in a row, raises
 `garbage_cleared` and clears it. A second dump on top of the first alerts
 again.
 
+## What you see
+
+The app's page in the catalog shows items in the zones now, zones with
+an open alert, dumps and cleared today, a per-zone table, a
+recent-events log and a before-and-after gallery: the app keeps the
+previous look, so each dump shows the zone before and after, and the
+alert carries both pictures. `active_hours` sets when alerts fire; the
+zone is still watched and counted outside it.
+
 ## What it emits
 
 | Alert | When | Severity |
