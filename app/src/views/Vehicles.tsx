@@ -3779,12 +3779,10 @@ function VehicleReportTab({ cameraName }: { cameraName: (id: number) => string }
     for (const [k, v] of Object.entries(c.by_type)) totals.by_type[k] = (totals.by_type[k] ?? 0) + v
     for (const [k, v] of Object.entries(c.by_colour)) totals.by_colour[k] = (totals.by_colour[k] ?? 0) + v
   }
-  const fmtBucket = (iso: string) => {
-    const d = new Date(iso)
-    return bucket === 'day'
-      ? d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
-      : d.toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-  }
+  const fmt = useDateFormat()
+  const fmtBucket = (iso: string) => bucket === 'day'
+    ? fmt.date(iso, { day: '2-digit', month: 'short' })
+    : fmt.dateTime(iso, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
   type Row = VehicleCounts['buckets'][number]
   const columns: Column<Row>[] = [
     { key: 'bucket', header: bucket === 'day' ? t('vehicles.reportDay') : t('vehicles.reportHour'), width: 'w-[150px]',
