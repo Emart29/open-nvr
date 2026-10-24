@@ -9,7 +9,9 @@ import io
 import pytest
 from PIL import Image
 
-from garbage_dumping import AppConfig, GarbageDumping, count_garbage, crop_to_zone
+import datetime as _dt
+
+from garbage_dumping import ActiveHours, AppConfig, GarbageDumping, count_garbage, crop_to_zone
 from opennvr_app_sdk.testing import RecorderChannel, app_config
 
 W, H = 640, 480
@@ -144,3 +146,38 @@ def test_config_rejects_nonsense():
         AppConfig(confirm_looks=0)
     with pytest.raises(ValueError):
         AppConfig(min_score=1.5)
+
+
+def test_outside_active_hours_the_dump_is_counted_but_quiet():
+    app, rec, clock, seen = make_app([[], [det("sack")], [det("sack")], [det("sack")]],
+                                     active_hours={"start": "08:00", "end": "18:00"})
+    app._wall = lambda: _dt.datetime(2026, 10, 24, 22, 0).astimezone()
+    ticks(app, clock, 3)
+    assert rec.alerts == []
+    assert app.state_snapshot()["items_now"] == 1 and app.state_snapshot()["in_hours"] is False
+    app._wall = lambda: _dt.datetime(2026, 10, 24, 9, 0).astimezone()
+    ticks(app, clock, 1)
+    assert [a.alert_type for a in rec.alerts] == ["garbage_dumped"]
+
+
+def test_dashboard_state_has_the_views_the_manifest_declares_and_before_after_pictures():
+    app, rec, clock, seen = make_app([[], [det("sack")], [det("sack")], []])
+    ticks(app, clock, 4)
+    assert [a.alert_type for a in rec.alerts] == ["garbage_dumped", "garbage_cleared"]
+    st = app.state_snapshot()
+    for view in GarbageDumping.manifest.state_schema:
+        assert view.path.split(".")[0] in st, view.path
+    assert st["today"] == {"dumps": 1, "cleared": 1, "since": st["today"]["since"]}
+    assert st["per_camera"][0]["dumps_today"] == 1 and st["per_camera"][0]["last_look"]
+    labels = [g["label"] for g in st["gallery"]]
+    assert labels[:2] == ["Garbage dumped at cam1 — before", "Garbage dumped at cam1 — after"]
+    assert all(g["image"].startswith("data:image/jpeg;base64,") for g in st["gallery"])
+    assert st["recent"][0]["message"] == "Garbage cleared at cam1"
+
+
+def test_active_hours_parse():
+    hours = ActiveHours.parse({"start": "22:00", "end": "06:00"})
+    assert hours.contains(_dt.datetime(2026, 1, 1, 23, 30)) and not hours.contains(_dt.datetime(2026, 1, 1, 12, 0))
+    assert ActiveHours.parse(None) is None
+    with pytest.raises(ValueError):
+        ActiveHours.parse({"start": "x", "end": "06:00"})
