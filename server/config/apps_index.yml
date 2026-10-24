@@ -226,6 +226,41 @@
             - opennvr_internal
     command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d intrusion-detection
 
+- id: camera-tamper
+  name: Camera Tamper
+  summary: Alerts when a camera is covered, defocused, moved or its stream freezes — judged against a reference view learned from the camera itself, with no model to run; clears when the view comes back.
+  category: perimeter
+  version: "1.0.0"
+  image: ghcr.io/open-nvr/camera-tamper:latest
+  build_context: examples/camera-tamper
+  requires_tasks: []
+  emits: [tamper_covered, tamper_defocused, tamper_moved, tamper_frozen, tamper_cleared]
+  docs_url: https://github.com/open-nvr/open-nvr/blob/main/examples/camera-tamper/README.md
+  author: OpenNVR
+  contact: https://github.com/open-nvr/open-nvr/issues
+  source: https://github.com/open-nvr/open-nvr/tree/main/examples/camera-tamper
+  network_egress: []
+  install:
+    compose: |
+      # INFORMATIONAL — this service already ships in
+      # docker-compose.apps.yml (with its config-init companion and
+      # named config volume); you do NOT paste this anywhere. Run the
+      # command below and compose brings it up from the shipped overlay.
+      services:
+        camera-tamper:
+          profiles: [apps]
+          image: ${CAMERA_TAMPER_IMAGE:-opennvr/camera-tamper:local-build}
+          restart: unless-stopped
+          environment:
+            - OPENNVR_INTERNAL_API_KEY=${INTERNAL_API_KEY}
+            - NATS_URL=nats://nats:4222
+            - OPENNVR_URL=http://opennvr-core:8000
+          expose:
+            - "9212"
+          networks:
+            - opennvr_internal
+    command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d camera-tamper
+
 - id: guard-scan-compliance
   name: Guard Scan Compliance
   summary: Checks that the guard wands every person entering — left arm, right arm, front, back — and flags what the scanner finds.

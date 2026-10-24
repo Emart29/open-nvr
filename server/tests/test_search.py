@@ -51,11 +51,33 @@ UTC = timezone.utc
 #: The parser's clock. FROZEN so "yesterday" and "last Tuesday" resolve to
 #: dates the assertions can name.
 NOW = datetime(2026, 9, 18, 15, 0, tzinfo=UTC)
-#: The store's clock. REAL, because the API route parses against the wall
-#: clock and cannot be told otherwise — a row written relative to a frozen
-#: date stops being "today" the day after the test was written, which is
-#: exactly what happened. Rows go here; only the parser sees NOW.
+#: The store's clock. REAL, because other routes read the wall clock too —
+#: a row written relative to a frozen date stops being "today" the day after
+#: the test was written, which is exactly what happened. Rows go here; the
+#: parser tests see NOW, and the API's parser is pinned to WALL (below).
+#: Kept clear of local midnight: a visit "5 minutes ago" at 00:02 is
+#: yesterday's, and "today" would miss it. The furthest a "today" test
+#: reaches back is 30 minutes.
 WALL = datetime.now(UTC).replace(microsecond=0)
+if WALL.astimezone().time() < time(0, 40):
+    WALL -= timedelta(hours=1)
+
+
+class _WallClock(datetime):
+    """``datetime`` with ``now()`` fixed at WALL."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return WALL.astimezone(tz) if tz else WALL.astimezone().replace(tzinfo=None)
+
+
+@pytest.fixture(autouse=True)
+def _parser_at_wall(monkeypatch):
+    """The API parses against ``datetime.now()``: pin it to WALL, so the
+    rows and the question share one clock and a run that crosses midnight
+    does not move "today" under the rows."""
+    import services.search_query as sq
+    monkeypatch.setattr(sq, "datetime", _WallClock)
 
 
 # ── Parser ───────────────────────────────────────────────────────────
@@ -591,7 +613,9 @@ def test_the_plan_is_registered_and_healthy_only():
     plan = {s.task: s for s in build_plan(caps, health)}
     assert plan["license_plate_recognition"].healthy is False
     assert plan["vqa"].healthy is True
-    assert plan["vqa"].descriptor_kinds == ["colour", "vehicle_type", "clothing_top", "carrying"]
+    assert plan["vqa"].descriptor_kinds == [
+        "colour", "vehicle_type", "clothing_top", "carrying",
+        "gender", "clothing_bottom", "headwear"]
 
     # Worth running on a person: the VQA attributes, never plate OCR.
     tasks = {s.task for s in plan_for_label(list(plan.values()), "person")}
@@ -1681,12 +1705,12 @@ def test_the_window_finds_rows_whatever_the_local_timezone(client, db, monkeypat
     from zoneinfo import ZoneInfo
 
     # The route calls parse_query with no clock, so the parser reads the
-    # machine's. Hand it a Kolkata clock instead, through the route's own
-    # reference, so this holds on a UTC machine (CI) as well as on a laptop.
+    # machine's. Hand it WALL on a Kolkata clock instead, through the route's
+    # own reference, so this holds on a UTC machine (CI) as well as on a laptop.
     kolkata = ZoneInfo("Asia/Kolkata")
     real_parse = route.parse_query
     monkeypatch.setattr(route, "parse_query",
-                        lambda q, **kw: real_parse(q, now=datetime.now(kolkata), **kw))
+                        lambda q, **kw: real_parse(q, now=WALL.astimezone(kolkata), **kw))
 
     _camera(db, 1, "cam1")
     for _ in range(3):

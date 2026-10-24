@@ -66,7 +66,7 @@ async function tryRefreshToken(): Promise<string | null> {
   const baseURL = ((import.meta as any)?.env?.VITE_API_BASE_URL && String((import.meta as any).env.VITE_API_BASE_URL).trim()) ||
     ((import.meta as any)?.env?.PROD
       ? (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
-      : 'http://localhost:8000')
+      : '')
 
   const url = buildUrl(baseURL, '/api/v1/auth/refresh')
   const resp = await fetch(url, {
@@ -98,7 +98,7 @@ const defaultBaseURL =
   ((import.meta as any)?.env?.VITE_API_BASE_URL && String((import.meta as any).env.VITE_API_BASE_URL).trim()) ||
   ((import.meta as any)?.env?.PROD
     ? (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
-    : 'http://localhost:8000')  // Fallback for dev mode when Vite proxy is active
+    : '')
 
 function buildUrl(base: string, path: string, params?: Record<string, any>) {
   // Ensure path starts with /

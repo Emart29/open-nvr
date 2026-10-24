@@ -68,6 +68,13 @@ export const vehiclesService = {
   getVehicleReport: (year: number, month: number) =>
     api.get('/api/v1/events/vehicle-report', { params: { year, month } }),
 
+  // Vehicles seen per camera per hour (or day) over the last `hours`,
+  // by type and colour — the count / type / colour report.
+  getVehicleCounts: (hours: number, bucket: 'hour' | 'day', cameraIds?: number[]) =>
+    api.get('/api/v1/events/vehicle-counts', {
+      params: { hours, bucket, camera_id: (cameraIds ?? []).join(',') },
+    }),
+
   // Evidence photos are auth-gated (JWT header), so a bare <img src>
   // can't load them — fetch as a blob and objectURL it (AuthedImage).
   //

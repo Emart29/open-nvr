@@ -426,6 +426,12 @@ class Settings(BaseSettings):
     # per-camera assignment cannot say "for vehicles, not for everyone
     # who walks past"; this can. Still gated by that assignment on top.
     events_descriptor_people: bool = False
+    # With people admitted, also ask who they are in three more words:
+    # gender, the colour of what they wear below the waist, headwear.
+    # Five questions a person visit instead of two, so a second opt-in:
+    # a site that wants "woman in a red top with a helmet" searchable
+    # pays for it knowingly. Off, people keep the two-question ceiling.
+    events_descriptor_people_extended: bool = False
     # Ask an adapter advertising `embed` for a vector of the visit's best
     # frame and store it in event_embeddings, so search can rank by
     # meaning as well as by words (services/search_service.py fuses the

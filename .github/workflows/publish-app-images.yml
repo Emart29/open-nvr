@@ -79,6 +79,7 @@ jobs:
           - { app: gate-controller,            title: Gate Controller }
           - { app: guard-scan-compliance,      title: Guard Scan Compliance }
           - { app: home-assistant-relay,       title: Home Assistant Relay }
+          - { app: camera-tamper,              title: Camera Tamper }
           - { app: intrusion-detection,        title: Intrusion Detection }
           - { app: license-plate-recognition,  title: License Plate Recognition }
           - { app: line-crossing,              title: Line Crossing }

@@ -418,3 +418,21 @@ beyond the generic checks above. A plate read needs *all* of:
    if you can't read it in a paused frame, neither can the OCR.
 
 Every one of those fails silently: the Vehicles page simply stays empty.
+
+## Scoring a use case with the rig
+
+`tools/usecase_eval.py` plays labelled clips through the rig one at a time
+as the camera `eval-cam`, reads the alerts inbox, and compares with a
+`<clip>.expected.yml` beside each clip: which app to pick for the camera,
+what config to apply, which alert types (and title substrings) must fire,
+which must not. It prints recall, false positives and alert delay per use
+case and writes the rows as JSON for an evidence pack.
+
+```bash
+python tools/usecase_eval.py --token "$TOKEN" --refresh-token "$REFRESH" data/fake-cameras/intrusion
+python tools/usecase_eval.py --all --token "$TOKEN" --refresh-token "$REFRESH" data/fake-cameras
+```
+
+Both tokens come from `POST /api/v1/auth/login-json`. The expected-file
+format is in the script's docstring. Folders without expected files are
+skipped, so unlabelled clips can sit next to labelled ones.

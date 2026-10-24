@@ -37,7 +37,8 @@ from services import search_metrics as metrics
 #: Reading order for the projected words, so "red van" reads like a
 #: description and two visits with the same claims produce the same
 #: string. Anything not listed follows, alphabetically by kind.
-_WORD_ORDER = ("colour", "clothing_top", "vehicle_type", "carrying", "plate")
+_WORD_ORDER = ("gender", "colour", "clothing_top", "clothing_bottom", "headwear",
+               "vehicle_type", "carrying", "plate")
 
 #: Kinds whose value is an IDENTITY and is deliberately NOT projected
 #: into free text. ``face_id`` is queried exactly, through the attr
