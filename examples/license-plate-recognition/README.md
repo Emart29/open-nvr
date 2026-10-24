@@ -60,7 +60,10 @@ inference cost, and two plate-consuming apps cost the same as one.
   a plate re-read within `dedup_window_seconds` fires once; a
   one-character misread is a different plate (no fuzzy matching).
 * **Regional tuning** lives in the adapter (`OPENNVR_LPR_MODEL`), not
-  here — this app never sees a pixel.
+  here — this app never sees a pixel. For Indian sites set
+  `OPENNVR_LPR_MODEL=indian-plates-v1` in `.env`: a model fine-tuned on
+  Indian plates, baked into the adapter image, that reads 85% of held-out
+  real crops exactly where the global model reads 39%.
 
 ## Quick start
 

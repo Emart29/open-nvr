@@ -86,6 +86,13 @@ def investigate_messages(spec: DecisionSpec, *, goal: str, instructions: str = "
 
 
 def decide_message(spec: DecisionSpec) -> dict[str, str]:
+    if spec.rules:      # the model reports facts; the step's rules decide
+        lines = ["Now report what you found."]
+        for name, values in spec.fields.items():
+            lines.append(f"{name}: one of {list(values)}.")
+        lines.append("reason: one short sentence, citing what the tools showed. "
+                     "confidence: your confidence from 0 to 1. Answer with JSON only.")
+        return {"role": "user", "content": " ".join(lines)}
     lines = [f"Now decide. decision: one of {[*spec.options, UNSURE]}."]
     for name, values in spec.fields.items():
         lines.append(f"{name}: one of {list(values)}.")
