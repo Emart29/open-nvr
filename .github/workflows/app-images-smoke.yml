@@ -199,6 +199,7 @@ jobs:
           - { app: gate-controller,            module: gate_controller }
           - { app: guard-scan-compliance,      module: guard_scan_compliance }
           - { app: home-assistant-relay,       module: home_assistant_relay }
+          - { app: camera-tamper,              module: camera_tamper }
           - { app: intrusion-detection,        module: intrusion_detection }
           - { app: license-plate-recognition,  module: license_plate_recognition }
           - { app: line-crossing,              module: line_crossing }

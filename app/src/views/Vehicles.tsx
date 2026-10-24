@@ -61,6 +61,7 @@ import { useAckAlarms, useAlarmsList } from '../components/alarms/useAlarmsList'
 import { DataTable, useAvailableHeight, type Column } from '../components/ui/DataTable'
 import { Pagination } from '../components/ui/Pagination'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { StatTile } from '../components/ui/stats'
 import { Switch } from '../components/ui/Switch'
 import { InfoTip } from '../components/ui/InfoTip'
 import { formatSeenAt, seenAtTitle } from '../lib/time'
@@ -679,7 +680,7 @@ export function Vehicles() {
   const [range, setRange] = useState<(typeof RANGE_PRESETS)[number]>(RANGE_PRESETS[0])
   const reads = usePagination(25, 'plate-reads')
   const [preview, setPreview] = useState<PlateEvent | null>(null)
-  const [tab, setTab] = useState<'reads' | 'registry' | 'monitoring' | 'alarms' | 'gate'>('reads')
+  const [tab, setTab] = useState<'reads' | 'report' | 'registry' | 'monitoring' | 'alarms' | 'gate'>('reads')
   // The register, monitors, barrier and alarm mode are the LPR app's
   // SITE-WIDE config — superuser-only on the server. Everyone else
   // gets the reads and alarms for their own cameras.
@@ -1348,6 +1349,7 @@ export function Vehicles() {
         <Tabs
           tabs={([
             { key: 'reads', label: t('vehicles.plateReads') },
+            { key: 'report', label: t('vehicles.reportTab') },
             { key: 'registry', label: `${t('vehicles.register')} (${registry.length})` },
             { key: 'monitoring', label: `${t('vehicles.monitoring')} (${monitors.length})` },
             {
@@ -1389,6 +1391,8 @@ export function Vehicles() {
 
       {tab === 'alarms' ? (
         <VehicleAlarmsTab cameraName={cameraName} />
+      ) : tab === 'report' ? (
+        <VehicleReportTab cameraName={cameraName} />
       ) : tab === 'monitoring' ? (
         <MonitoringTab
           monitors={monitors}
@@ -3725,5 +3729,120 @@ function VehicleAlarmsTab({ cameraName }: { cameraName: (id: number) => string }
           }
       />
     </>
+  )
+}
+
+// ── Report: vehicles per camera per hour, by type and colour ─────────
+//
+// The count / type / colour view: every vehicle Tier-0 tracked, with the
+// type and colour the enrichment claimed (the detector's label and
+// "unknown" when it did not). Hourly over a day, daily over longer. The
+// CSV is the same rows, for an evidence pack or a spreadsheet.
+
+type VehicleCountCell = { total: number; by_type: Record<string, number>; by_colour: Record<string, number> }
+type VehicleCounts = {
+  hours: number
+  bucket: 'hour' | 'day'
+  total: number
+  per_camera: Array<VehicleCountCell & { camera_id: number }>
+  buckets: Array<VehicleCountCell & { camera_id: number; bucket: string }>
+}
+
+function breakdown(m: Record<string, number>): string {
+  return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ') || '—'
+}
+
+function topOf(m: Record<string, number>): string {
+  const [k, v] = Object.entries(m).sort((a, b) => b[1] - a[1])[0] ?? ['—', 0]
+  return v ? `${k} (${v})` : '—'
+}
+
+function VehicleReportTab({ cameraName }: { cameraName: (id: number) => string }) {
+  const { t } = useTranslation()
+  const [range, setRange] = useState<(typeof RANGE_PRESETS)[number]>(RANGE_PRESETS[0])
+  const bucket: 'hour' | 'day' = range.hours > 48 ? 'day' : 'hour'
+  const query = useQuery({
+    queryKey: ['vehicle-counts', range.key],
+    queryFn: async () => {
+      const { data } = await apiService.getVehicleCounts(range.hours, bucket)
+      return data as VehicleCounts
+    },
+    retry: 0,
+    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
+  })
+  const data = query.data
+  const totals: VehicleCountCell = { total: 0, by_type: {}, by_colour: {} }
+  for (const c of data?.per_camera ?? []) {
+    totals.total += c.total
+    for (const [k, v] of Object.entries(c.by_type)) totals.by_type[k] = (totals.by_type[k] ?? 0) + v
+    for (const [k, v] of Object.entries(c.by_colour)) totals.by_colour[k] = (totals.by_colour[k] ?? 0) + v
+  }
+  const fmt = useDateFormat()
+  const fmtBucket = (iso: string) => bucket === 'day'
+    ? fmt.date(iso, { day: '2-digit', month: 'short' })
+    : fmt.dateTime(iso, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  type Row = VehicleCounts['buckets'][number]
+  const columns: Column<Row>[] = [
+    { key: 'bucket', header: bucket === 'day' ? t('vehicles.reportDay') : t('vehicles.reportHour'), width: 'w-[150px]',
+      cellClassName: 'whitespace-nowrap', cell: (r) => fmtBucket(r.bucket) },
+    { key: 'camera', header: t('vehicles.reportCamera'), width: 'w-[180px]', cellClassName: 'truncate',
+      cell: (r) => cameraName(r.camera_id) },
+    { key: 'total', header: t('vehicles.reportVehicles'), width: 'w-[100px]',
+      cellClassName: 'font-semibold tabular-nums', cell: (r) => r.total },
+    { key: 'types', header: t('vehicles.reportByType'), cellClassName: 'truncate',
+      cell: (r) => <span title={breakdown(r.by_type)}>{breakdown(r.by_type)}</span> },
+    { key: 'colours', header: t('vehicles.reportByColour'), cellClassName: 'truncate',
+      cell: (r) => <span title={breakdown(r.by_colour)}>{breakdown(r.by_colour)}</span> },
+  ]
+  const exportCsv = () => {
+    const rows = data?.buckets ?? []
+    const head = [bucket, 'camera', 'vehicles', 'by_type', 'by_colour']
+    const body = rows.map((r) => [r.bucket, cameraName(r.camera_id), String(r.total),
+      breakdown(r.by_type), breakdown(r.by_colour)])
+    const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+    downloadCsv([head, ...body].map((r) => r.map(esc).join(',')).join('\n'),
+      `vehicle-counts-${range.key}.csv`)
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl
+          label={t('vehicles.timeRange')}
+          options={RANGE_PRESETS.map((r) => ({ value: r.key, label: r.label }))}
+          value={range.key}
+          onChange={(key) => setRange(RANGE_PRESETS.find((r) => r.key === key) ?? RANGE_PRESETS[0])}
+        />
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={!data?.buckets.length}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)] disabled:opacity-50"
+        >
+          <Download size={14} /> {t('vehicles.export')}
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatTile label={t('vehicles.reportVehicles')} value={data ? totals.total : '…'} sub={range.label} />
+        <StatTile label={t('vehicles.reportCameras')} value={data ? data.per_camera.length : '…'} />
+        <StatTile label={t('vehicles.reportTopType')} value={data ? topOf(totals.by_type) : '…'} />
+        <StatTile label={t('vehicles.reportTopColour')} value={data ? topOf(totals.by_colour) : '…'} />
+      </div>
+      <p className="text-xs text-[var(--text-dim)]">{t('vehicles.reportHint')}</p>
+      <DataTable<Row>
+        caption={t('vehicles.reportTab')}
+        columns={columns}
+        rows={data?.buckets ?? []}
+        rowKey={(r) => `${r.camera_id}-${r.bucket}`}
+        isPending={query.isPending}
+        isFetching={query.isFetching}
+        isError={query.isError}
+        error={query.error}
+        errorTitle={t('vehicles.reportError')}
+        onRetry={() => query.refetch()}
+        empty={t('vehicles.reportEmpty')}
+        fillHeight
+      />
+    </div>
   )
 }

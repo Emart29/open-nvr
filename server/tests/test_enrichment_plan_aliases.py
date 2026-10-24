@@ -138,7 +138,9 @@ def test_the_real_capabilities_shape_yields_a_plan():
     assert "vqa" in plan, sorted(plan)
     assert plan["vqa"].adapters == ["ollamavlm"]
     assert plan["vqa"].healthy is True
-    assert plan["vqa"].descriptor_kinds == ["colour", "vehicle_type", "clothing_top", "carrying"]
+    assert plan["vqa"].descriptor_kinds == [
+        "colour", "vehicle_type", "clothing_top", "carrying",
+        "gender", "clothing_bottom", "headwear"]
     assert plan["image_captioning"].adapters == ["ollamavlm"]
     assert plan["embed"].adapters == ["clip"]
     # health said "error", so the skill is listed but not runnable

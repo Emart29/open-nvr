@@ -563,6 +563,99 @@ def gate_occupancy(
     return {"inside": len(inside), "plates": inside[:200], "entries": entries}
 
 
+def vehicle_counts(
+    db: Session,
+    *,
+    hours: int = 24,
+    bucket: str = "hour",
+    scope: set[int] | None = None,
+    camera_ids: set[int] | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """Vehicles seen per camera per hour (or day) over the last
+    ``hours``, broken down by type and colour: the "count vehicles in the
+    camera's view, with type and colour" report.
+
+    A vehicle is a Tier-0 track whose label is a vehicle class
+    (``VEHICLE_LABELS``). Its type is the enrichment claim
+    ``vehicle_type`` when one was made, else the detector's label; its
+    colour is the ``colour`` claim, else ``"unknown"``. Owner-scoped like
+    ``plate_stats``; bucketed in Python for dialect portability.
+    """
+    from datetime import UTC, timedelta
+
+    from models import VisitDescriptor
+    from services.descriptor_enrichment import VEHICLE_LABELS
+
+    now = now or datetime.now(UTC)
+    hours = max(1, min(int(hours), 24 * 31))
+    bucket = "day" if bucket == "day" else "hour"
+    cutoff = now - timedelta(hours=hours)
+    base = (
+        db.query(TimelineEvent)
+        .filter(TimelineEvent.event_type == "track")
+        .filter(TimelineEvent.label.in_(sorted(VEHICLE_LABELS)))
+        .filter(SEEN_AT >= cutoff)  # noqa: SIM300
+        .filter(SEEN_AT <= now)  # noqa: SIM300
+    )
+    base = scope_query(base, TimelineEvent.camera_id, scope)
+    if camera_ids:
+        base = base.filter(TimelineEvent.camera_id.in_(sorted(camera_ids)))
+
+    visits = base.with_entities(
+        TimelineEvent.id, TimelineEvent.camera_id, TimelineEvent.label, SEEN_AT,
+    ).all()
+    if not visits:
+        return {"hours": hours, "bucket": bucket, "total": 0, "per_camera": [], "buckets": []}
+
+    claims: dict[int, dict[str, str]] = {}
+    ids = [v[0] for v in visits]
+    for i in range(0, len(ids), 500):
+        for event_id, kind, value in (
+            db.query(VisitDescriptor.event_id, VisitDescriptor.kind, VisitDescriptor.value)
+            .filter(VisitDescriptor.event_id.in_(ids[i:i + 500]))
+            .filter(VisitDescriptor.kind.in_(("vehicle_type", "colour")))
+            .all()
+        ):
+            claims.setdefault(event_id, {}).setdefault(kind, value)
+
+    def _bucket_start(seen_at: datetime) -> str:
+        if seen_at.tzinfo is None:                 # sqlite hands back naive UTC
+            seen_at = seen_at.replace(tzinfo=UTC)
+        t = seen_at.replace(minute=0, second=0, microsecond=0)
+        if bucket == "day":
+            t = t.replace(hour=0)
+        return t.isoformat()
+
+    per_bucket: dict[tuple[int, str], dict] = {}
+    per_camera: dict[int, dict] = {}
+
+    def _cell(store: dict, key) -> dict:
+        return store.setdefault(key, {"total": 0, "by_type": {}, "by_colour": {}})
+
+    for event_id, cid, label, seen_at in visits:
+        c = claims.get(event_id, {})
+        vtype = (c.get("vehicle_type") or label or "vehicle").lower()
+        colour = (c.get("colour") or "unknown").lower()
+        for cell in (_cell(per_bucket, (cid, _bucket_start(seen_at))), _cell(per_camera, cid)):
+            cell["total"] += 1
+            cell["by_type"][vtype] = cell["by_type"].get(vtype, 0) + 1
+            cell["by_colour"][colour] = cell["by_colour"].get(colour, 0) + 1
+
+    return {
+        "hours": hours,
+        "bucket": bucket,
+        "total": len(visits),
+        "per_camera": [
+            {"camera_id": cid, **cell} for cid, cell in sorted(per_camera.items())
+        ],
+        "buckets": [
+            {"camera_id": cid, "bucket": start, **cell}
+            for (cid, start), cell in sorted(per_bucket.items(), key=lambda kv: (kv[0][1], kv[0][0]))
+        ],
+    }
+
+
 def vehicle_report(
     db: Session,
     *,

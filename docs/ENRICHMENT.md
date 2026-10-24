@@ -150,3 +150,16 @@ quietly dark under a new model. Two things stop that:
 The October 2026 move from CLIP ViT-B/32 (512-d) to SigLIP 2 B/16
 (768-d) is what this was written for; it costs one walk of history at
 the backfill's own pace, with nothing to run by hand.
+
+## People attributes, and what they cost
+
+With `EVENTS_DESCRIPTOR_PEOPLE=true` a person visit is asked two questions:
+the colour of the top (`clothing_top`) and what is carried (`carrying`).
+`EVENTS_DESCRIPTOR_PEOPLE_EXTENDED=true` adds three more, `gender` (man,
+woman, child), `clothing_bottom` (the colour below the waist) and
+`headwear` (helmet, cap, hat, hood, turban, scarf, nothing), so a search
+for "woman in a red top with a helmet" has claims to match. That is five
+inferences a person visit instead of two; on a CPU-only box with the 0.5B
+vision model each is several seconds, so turn it on for the cameras that
+need it and let the per-camera assignment keep the rest cheap.
+
