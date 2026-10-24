@@ -436,3 +436,15 @@ python tools/usecase_eval.py --all --token "$TOKEN" --refresh-token "$REFRESH" d
 Both tokens come from `POST /api/v1/auth/login-json`. The expected-file
 format is in the script's docstring. Folders without expected files are
 skipped, so unlabelled clips can sit next to labelled ones.
+
+`--report DIR` writes the evidence pack from the same run: `README.md`
+with the accuracy table (clips, passes, recall, precision, false
+positives, median and maximum alert delay per use case) and one page per
+use case listing every clip played, what its expected file asked for,
+what fired and when, what was missed, and the alerts' own snapshots,
+downloaded from the inbox and embedded beside the page.
+
+```bash
+python tools/usecase_eval.py --all --token "$TOKEN" --refresh-token "$REFRESH" \
+  --report evidence/$(date +%F) data/fake-cameras
+```

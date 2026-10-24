@@ -35,7 +35,10 @@ Usage::
     python tools/usecase_eval.py --token "$TOKEN" --all data/fake-cameras
 
 The token is a bearer from POST /api/v1/auth/login-json. ``--json`` writes the
-rows the evidence pack is built from.
+raw per-clip rows; ``--report DIR`` writes the evidence pack: an index with
+the accuracy table and one Markdown page per use case with every clip, what
+was expected, what fired and when, the alert delays, and the alerts' own
+snapshots, downloaded beside the page.
 """
 from __future__ import annotations
 
@@ -95,15 +98,39 @@ class Api:
     def put(self, p: str, body=None, **params):
         return self._call("PUT", p, body, params)
 
+    def get_bytes(self, p: str) -> bytes | None:
+        r = self.c.get(p)
+        if r.status_code == 401 and self._refresh():
+            r = self.c.get(p)
+        return r.content if r.status_code == 200 and r.content else None
+
+    def version(self) -> str:
+        try:
+            return str((self.get("/health") or {}).get("version") or "?")
+        except httpx.HTTPError:
+            return "?"
+
     def ensure_eval_camera(self) -> int:
         listing = self.get("/api/v1/cameras/")
         cams = listing if isinstance(listing, list) else (listing.get("cameras") or listing.get("items") or [])
+        url = f"rtsp://{FAKECAM_IP}:8554/{EVAL_CAMERA}"
         for cam in cams:
-            if isinstance(cam, dict) and cam.get("name") == EVAL_CAMERA:
+            if isinstance(cam, dict) and (cam.get("name") == EVAL_CAMERA or cam.get("rtsp_url") == url):
+                if cam.get("name") != EVAL_CAMERA or cam.get("rtsp_url") != url:
+                    self.put(f"/api/v1/cameras/{cam['id']}", {"name": EVAL_CAMERA, "rtsp_url": url})
                 return int(cam["id"])
-        cam = self.post("/api/v1/cameras/", {
-            "name": EVAL_CAMERA, "ip_address": FAKECAM_IP, "port": 8554,
-            "rtsp_url": f"rtsp://{FAKECAM_IP}:8554/{EVAL_CAMERA}"})
+        try:
+            cam = self.post("/api/v1/cameras/", {"name": EVAL_CAMERA, "ip_address": FAKECAM_IP, "port": 8554,
+                                                 "rtsp_url": url})
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 409:
+                raise
+            # The rig's host:port is already a camera under another name
+            # (a previous eval renamed it): take it back.
+            rig = [c for c in cams if isinstance(c, dict) and str(c.get("ip_address")) == FAKECAM_IP]
+            if not rig:
+                raise
+            cam = self.put(f"/api/v1/cameras/{rig[0]['id']}", {"name": EVAL_CAMERA, "rtsp_url": url})
         return int(cam["id"])
 
     def installed_apps(self) -> list[str]:
@@ -212,11 +239,19 @@ def score_clip(spec: dict, alerts: list[dict], start: datetime) -> dict:
                 title = str(a.get("title", "")).upper()
                 if subs and not any(sub and sub in title for sub in subs):
                     false_pos.append(a)
+    fp_ids = {id(a) for a in false_pos}
     return {"hits": len(hits), "misses": len(misses), "false_positives": len(false_pos),
             "expected": len(spec.get("expect", [])), "delays_s": delays,
             "fired": [(a.get("alert_type"), a.get("title")) for a in alerts][:20],
             "false_positive_titles": [a.get("title") for a in false_pos][:10],
-            "missed": [(m.get("alert_type"), m.get("title_contains")) for m in misses]}
+            "missed": [(m.get("alert_type"), m.get("title_contains")) for m in misses],
+            # Everything the evidence page needs about each alert, in order.
+            "alerts": [{"id": a.get("id"), "alert_id": a.get("alert_id"), "alert_type": a.get("alert_type"),
+                        "title": a.get("title"), "severity": a.get("severity"),
+                        "fired_at": (fired_at(a).isoformat() if fired_at(a) else None),
+                        "offset_s": (round(fired_at(a).timestamp() - start.timestamp(), 1) if fired_at(a) else None),
+                        "images": list(a.get("images") or []), "false_positive": id(a) in fp_ids}
+                       for a in alerts][:40]}
 
 
 def run_folder(api: Api, folder: Path, rig_dir: Path, camera_id: int) -> list[dict]:
@@ -251,15 +286,17 @@ def run_folder(api: Api, folder: Path, rig_dir: Path, camera_id: int) -> list[di
         unstage(rig_dir)
         time.sleep(8)
         res = score_clip(spec, alerts, start)
-        res.update({"use_case": spec.get("use_case", folder.name), "clip": clip.name})
         verdict = "PASS" if res["misses"] == 0 and res["false_positives"] == 0 else "FAIL"
+        res.update({"use_case": spec.get("use_case", folder.name), "clip": clip.name, "verdict": verdict,
+                    "length_s": round(length, 1), "started_at": start.isoformat(), "spec": spec})
         print(f"    {verdict}  hits {res['hits']}/{res['expected']}  false+ {res['false_positives']}"
               f"  delays {res['delays_s']}  fired {res['fired'][:4]}", flush=True)
         rows.append(res)
     return rows
 
 
-def summarise(rows: list[dict]) -> None:
+def tally(rows: list[dict]) -> dict[str, dict]:
+    """Per use case: clips, passes, expected, hits, false positives, delays."""
     by: dict[str, dict] = {}
     for r in rows:
         s = by.setdefault(r["use_case"], {"clips": 0, "pass": 0, "exp": 0, "hit": 0, "fp": 0, "delays": []})
@@ -269,11 +306,98 @@ def summarise(rows: list[dict]) -> None:
         s["fp"] += r["false_positives"]
         s["pass"] += int(r["misses"] == 0 and r["false_positives"] == 0)
         s["delays"] += r["delays_s"]
+    return by
+
+
+def _median(values: list[float]):
+    return sorted(values)[len(values) // 2] if values else None
+
+
+def summarise(rows: list[dict]) -> None:
     print("\nuse case            clips  pass  recall      false+  median delay")
-    for uc, s in by.items():
+    for uc, s in tally(rows).items():
         rec = f"{s['hit']}/{s['exp']}" if s["exp"] else "n/a"
-        med = sorted(s["delays"])[len(s["delays"]) // 2] if s["delays"] else "n/a"
-        print(f"{uc:19s} {s['clips']:5d}  {s['pass']:4d}  {rec:10s}  {s['fp']:6d}  {med}")
+        med = _median(s["delays"])
+        print(f"{uc:19s} {s['clips']:5d}  {s['pass']:4d}  {rec:10s}  {s['fp']:6d}  {med if med is not None else 'n/a'}")
+
+
+# ── the evidence pack ──────────────────────────────────────────────────
+
+def _slug(text: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(text)).strip("-") or "x"
+
+
+def _pct(num: int, den: int) -> str:
+    return f"{100.0 * num / den:.0f} %" if den else "n/a"
+
+
+def write_report(rows: list[dict], out_dir: Path, *, fetch_image=None, meta: dict | None = None) -> list[Path]:
+    """The evidence pack: ``README.md`` with the accuracy table and one page
+    per use case. ``fetch_image(row_id, name) -> bytes | None`` downloads an
+    alert's snapshot; the pages embed what it returns. Returns the pages."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    meta = meta or {}
+    by = tally(rows)
+    when = meta.get("generated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    index = ["# Use-case evidence pack\n",
+             f"Generated {when} against {meta.get('base', '?')} (OpenNVR {meta.get('version', '?')}). "
+             f"Each row is a use case; each page lists every clip played, what the clip's `expected.yml` "
+             f"asked for, what fired, when, and the alert's own snapshot.\n",
+             "| Use case | Clips | Pass | Recall | Precision | False + | Median delay | Max delay | Page |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    pages: list[Path] = []
+    for uc, s in by.items():
+        page = out_dir / f"{_slug(uc)}.md"
+        med, mx = _median(s["delays"]), (max(s["delays"]) if s["delays"] else None)
+        index.append(f"| {uc} | {s['clips']} | {s['pass']}/{s['clips']} | {s['hit']}/{s['exp']} ({_pct(s['hit'], s['exp'])}) "
+                     f"| {_pct(s['hit'], s['hit'] + s['fp'])} | {s['fp']} "
+                     f"| {f'{med:.1f} s' if med is not None else 'n/a'} | {f'{mx:.1f} s' if mx is not None else 'n/a'} "
+                     f"| [{page.name}]({page.name}) |")
+        lines = [f"# {uc}\n",
+                 f"{s['pass']} of {s['clips']} clip(s) passed; recall {s['hit']}/{s['exp']} ({_pct(s['hit'], s['exp'])}), "
+                 f"precision {_pct(s['hit'], s['hit'] + s['fp'])}, {s['fp']} false positive(s)"
+                 + (f", alert delay median {med:.1f} s, max {mx:.1f} s" if med is not None else "") + ".\n",
+                 "| Clip | Length | Expected | Hits | Misses | False + | Delays | Verdict |", "|---|---|---|---|---|---|---|---|"]
+        for r in [r for r in rows if r["use_case"] == uc]:
+            lines.append(f"| {r['clip']} | {r.get('length_s', '?')} s | {r['expected']} | {r['hits']} | {r['misses']} "
+                         f"| {r['false_positives']} | {', '.join(f'{d:.1f} s' for d in r['delays_s']) or '—'} "
+                         f"| **{r.get('verdict', 'PASS' if r['misses'] == 0 and r['false_positives'] == 0 else 'FAIL')}** |")
+        for r in [r for r in rows if r["use_case"] == uc]:
+            lines += [f"\n## {r['clip']}\n", f"Played {r.get('started_at', '?')}, {r.get('length_s', '?')} s.\n",
+                      "**Expected**\n"]
+            spec = r.get("spec") or {}
+            for e in spec.get("expect", []):
+                where = (f"at {e['at_seconds']} s (+{e.get('within_seconds', 30)} s)" if e.get("at_seconds") else "anywhere")
+                lines.append(f"- `{e.get('alert_type') or '*'}`"
+                             + (f" titled *{e['title_contains']}*" if e.get("title_contains") else "") + f", {where}")
+            if spec.get("no_alerts"):
+                lines.append(f"- must not fire: {', '.join(f'`{t}`' for t in spec['no_alerts'])}")
+            if r.get("missed"):
+                lines.append("\n**Missed**\n")
+                lines += [f"- `{t or '*'}`" + (f" titled *{sub}*" if sub else "") for t, sub in r["missed"]]
+            lines.append("\n**Fired**\n")
+            alerts = r.get("alerts") or []
+            if not alerts:
+                lines.append("- nothing")
+            for i, a in enumerate(alerts):
+                mark = " — **false positive**" if a.get("false_positive") else ""
+                lines.append(f"- {a.get('offset_s', '?')} s: `{a.get('alert_type') or '—'}` {a.get('title')}"
+                             f" ({a.get('severity')}){mark}")
+                for name in a.get("images") or []:
+                    if fetch_image is None or a.get("id") is None:
+                        continue
+                    data = fetch_image(a["id"], name)
+                    if not data:
+                        continue
+                    img_dir = out_dir / _slug(uc)
+                    img_dir.mkdir(exist_ok=True)
+                    img = img_dir / f"{_slug(r['clip'])}-{i + 1}-{_slug(name)}.jpg"
+                    img.write_bytes(data)
+                    lines.append(f"\n  ![{name}]({img.relative_to(out_dir).as_posix()})\n")
+        page.write_text("\n".join(lines) + "\n")
+        pages.append(page)
+    (out_dir / "README.md").write_text("\n".join(index) + "\n")
+    return pages
 
 
 def main() -> int:
@@ -286,6 +410,9 @@ def main() -> int:
                     help="refresh token from the same login; lets a long run outlive the access token")
     ap.add_argument("--rig-dir", type=Path, default=None, help="data/fake-cameras (default: the folder's parent)")
     ap.add_argument("--json", type=Path, default=None, help="write per-clip rows here")
+    ap.add_argument("--report", type=Path, default=None,
+                    help="write the evidence pack here: README.md with the accuracy table, one page per use case, "
+                         "the alerts' snapshots beside them")
     args = ap.parse_args()
     if not args.token:
         ap.error("--token or OPENNVR_TOKEN is required")
@@ -305,6 +432,12 @@ def main() -> int:
     if args.json:
         args.json.write_text(json.dumps(rows, indent=1, default=str))
         print(f"\nrows written to {args.json}")
+    if args.report:
+        pages = write_report(
+            rows, args.report,
+            fetch_image=lambda row_id, name: api.get_bytes(f"/api/v1/alerts-inbox/{row_id}/images/{name}"),
+            meta={"base": args.base, "version": api.version()})
+        print(f"evidence pack written to {args.report} ({len(pages)} page(s) + README.md)")
     return 0 if all(r["misses"] == 0 and r["false_positives"] == 0 for r in rows) else 1
 
 
