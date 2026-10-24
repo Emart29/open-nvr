@@ -79,3 +79,9 @@
   needs_capability: open_vocab_detection
   suggested_apps: [garbage-dumping]
   suggested_adapters: [open-vocab-detection]
+
+- use_case: "Is everyone wearing their safety kit?"
+  intent: "Alert when a person on camera is missing a required helmet, vest, gloves or boots."
+  needs_capability: open_vocab_detection
+  suggested_apps: [ppe-check]
+  suggested_adapters: [open-vocab-detection]

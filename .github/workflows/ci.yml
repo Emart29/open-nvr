@@ -188,6 +188,7 @@ jobs:
           - camera-agent
           - footage-search
           - garbage-dumping
+          - ppe-check
           - gate-watch
           - gate-controller
           - home-assistant-relay
