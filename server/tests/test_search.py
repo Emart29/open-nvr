@@ -613,7 +613,9 @@ def test_the_plan_is_registered_and_healthy_only():
     plan = {s.task: s for s in build_plan(caps, health)}
     assert plan["license_plate_recognition"].healthy is False
     assert plan["vqa"].healthy is True
-    assert plan["vqa"].descriptor_kinds == ["colour", "vehicle_type", "clothing_top", "carrying"]
+    assert plan["vqa"].descriptor_kinds == [
+        "colour", "vehicle_type", "clothing_top", "carrying",
+        "gender", "clothing_bottom", "headwear"]
 
     # Worth running on a person: the VQA attributes, never plate OCR.
     tasks = {s.task for s in plan_for_label(list(plan.values()), "person")}

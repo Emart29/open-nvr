@@ -76,16 +76,20 @@ def _kinds_core_can_write() -> set[str]:
     """The kinds the three in-tree writers can actually emit.
 
     ``descriptor_store.sync_plate_claim`` writes exactly one kind.
-    ``descriptor_enrichment`` writes whatever ``LABEL_KINDS`` maps a
-    label to. ``internal_camera_agent`` writes what the agent posts, so
+    ``descriptor_enrichment`` writes whatever ``kinds_for`` returns for a
+    label (``LABEL_KINDS``, plus the extended person kinds when that
+    flag is on). ``internal_camera_agent`` writes what the agent posts, so
     it constrains nothing and is excluded on purpose — counting it would
     make this test vacuous, since it can write any kind at all.
     """
-    from services.descriptor_enrichment import LABEL_KINDS
+    from services.descriptor_enrichment import LABEL_KINDS, kinds_for
 
     kinds = {"plate"}
-    for mapped in LABEL_KINDS.values():
-        kinds.update(mapped)
+    for label in LABEL_KINDS:
+        # kinds_for is what the enricher asks: LABEL_KINDS plus, for a
+        # person with EVENTS_DESCRIPTOR_PEOPLE_EXTENDED on, the extended
+        # kinds. A flagged-off kind still has a producer.
+        kinds.update(kinds_for(label, extended=True))
     return kinds
 
 
