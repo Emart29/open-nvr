@@ -199,6 +199,7 @@ _EXPECTED_IDS = {
     "home-assistant-relay",
     "guard-scan-compliance",
     "camera-tamper",
+    "gate-watch",
 }
 
 

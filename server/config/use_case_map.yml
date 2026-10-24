@@ -67,3 +67,9 @@
   needs_capability: null
   suggested_apps: [camera-tamper]
   suggested_adapters: []
+
+- use_case: "Was the gate left open?"
+  intent: "Alert when a gate, door or barrier stays open longer than allowed."
+  needs_capability: vqa
+  suggested_apps: [gate-watch]
+  suggested_adapters: [moondream]
