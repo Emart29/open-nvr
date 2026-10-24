@@ -7,7 +7,10 @@ from __future__ import annotations
 import pytest
 
 from opennvr_app_sdk.testing import RecorderChannel, app_config
-from ppe_check import DEFAULT_PHRASES, AppConfig, PpeCheck, judge, judgeable
+import base64
+import datetime as _dt
+
+from ppe_check import DEFAULT_PHRASES, ActiveHours, AppConfig, PpeCheck, judge, judgeable
 
 CROP = b"\xff\xd8crop"
 
@@ -190,3 +193,40 @@ def test_config_validation():
     cfg = AppConfig(required_items=["Helmet", "cape"], item_phrases={"cape": ["cape", "cloak"]})
     assert cfg.required_items == ["helmet", "cape"]
     assert cfg.item_phrases["cape"] == ["cape", "cloak"] and cfg.item_phrases["vest"]
+
+
+def test_off_shift_violations_are_counted_but_quiet():
+    app, rec, clock, seen = make_app([NO_HELMET] * 3, recheck_seconds=0,
+                                     active_hours={"start": "06:00", "end": "22:00"})
+    app._wall = lambda: _dt.datetime(2026, 10, 24, 23, 0).astimezone()
+    for _ in range(2):
+        app.handle_event(event(person("p1")))
+        app.run_pending()
+    assert rec.alerts == []
+    st = app.state_snapshot()
+    assert st["today"]["violations"] == 1 and st["cameras"]["cam1"]["suppressed"] == 1 and st["in_hours"] is False
+
+
+def test_dashboard_state_has_the_views_the_manifest_declares():
+    app, rec, clock, seen = make_app([FULL_KIT, NO_HELMET, NO_HELMET], recheck_seconds=0)
+    app.handle_event(event(person("p1")))
+    app.run_pending()
+    for _ in range(2):
+        app.handle_event(event(person("p2", x=0.6)))
+        app.run_pending()
+    st = app.state_snapshot()
+    for view in PpeCheck.manifest.state_schema:
+        assert view.path.split(".")[0] in st, view.path
+    assert st["today"]["checked"] == 3 and st["today"]["compliance_pct"] == 33.3 and st["today"]["violations"] == 1
+    assert st["per_camera"][0]["compliance_pct"] == 33.3 and st["per_camera"][0]["last_missing"] == "helmet"
+    assert st["by_item"] == [{"item": "helmet", "today": 1}]
+    assert st["recent"][0]["message"] == "Person without helmet at cam1"
+    assert st["gallery"][0]["image"] == "data:image/jpeg;base64," + base64.b64encode(CROP).decode()
+
+
+def test_active_hours_parse():
+    hours = ActiveHours.parse({"start": "22:00", "end": "06:00"})
+    assert hours.contains(_dt.datetime(2026, 1, 1, 23, 30)) and not hours.contains(_dt.datetime(2026, 1, 1, 12, 0))
+    assert ActiveHours.parse(None) is None
+    with pytest.raises(ValueError):
+        ActiveHours.parse({"start": "x", "end": "06:00"})

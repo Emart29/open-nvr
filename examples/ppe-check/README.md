@@ -17,6 +17,14 @@ the frame is not a missing helmet — and nor are people shorter than
 `min_person_height` of the frame, where the kit is a few pixels. Put the
 camera where people pass at a good size: a gate, a door, a turnstile.
 
+## What you see
+
+The app's page in the catalog shows today's compliance (a gauge of
+checks that found the full kit), people checked, violations, a per-camera
+table, which items go missing most, a recent-events log and a gallery of
+the crop behind each alert. `active_hours` sets the shift during which
+alerts fire; off shift, people are still checked and counted, quietly.
+
 ## What it emits
 
 | Alert | When | Severity |

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import datetime as _dt
 import logging
 import os
@@ -38,6 +39,7 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -50,6 +52,7 @@ from opennvr_app_sdk import (
     KaiCClient,
     KaiCError,
     Param,
+    StateView,
     build_dispatcher,
     load_app_config,
 )
@@ -102,6 +105,9 @@ MANIFEST = AppManifest(
               description="How long one detection may take. Keep it above a CPU look."),
         Param("detector_adapter", str, default="",
               description="KAI-C adapter that runs the detection. Empty = the first one advertising open_vocab_detection."),
+        Param("active_hours", "time_range",
+              description="When alerts fire (a shift). Outside it people are still checked and counted, "
+                          "quietly. Empty = around the clock."),
         Param("alert_severity", str, default="high", choices=list(SEVERITIES),
               description="Severity of the missing-kit alert."),
         Param("attach_snapshot", bool, default=True,
@@ -109,6 +115,21 @@ MANIFEST = AppManifest(
     ],
     emits=[
         AlertType("ppe_missing", "high", "A person is missing required safety kit."),
+    ],
+    state_schema=[
+        StateView("compliance_today", "Compliance today", kind="gauge", path="today.compliance_pct",
+                  min=0, max=100, unit="%", warn=95, danger=80,
+                  description="Checks today that found the full kit."),
+        StateView("checked_today", "People checked today", kind="metric", path="today.checked"),
+        StateView("violations_today", "Violations today", kind="metric", path="today.violations"),
+        StateView("pending", "Waiting for a check", kind="metric", path="pending"),
+        StateView("per_camera", "Per camera", kind="table", path="per_camera",
+                  columns=["camera", "checked_today", "violations_today", "compliance_pct", "last_missing",
+                           "last_check"]),
+        StateView("by_item", "Missing, by item", kind="table", path="by_item", columns=["item", "today"]),
+        StateView("recent", "Recent", kind="log", path="recent", limit=12),
+        StateView("gallery", "Violations", kind="gallery", path="gallery", limit=8,
+                  description="The person's crop at each alert."),
     ],
 )
 
@@ -137,6 +158,7 @@ class AppConfig(BaseAppConfig):
     detector_adapter: str = ""
     alert_severity: str = "high"
     attach_snapshot: bool = True
+    active_hours: dict | None = None
     best_frame_url: str = ""
     kaic_url: str | None = None
     kaic_api_key: str | None = None
@@ -164,6 +186,37 @@ class AppConfig(BaseAppConfig):
             raise ValueError(f"alert_severity must be one of {SEVERITIES}")
         self.best_frame_url = (self.best_frame_url or os.environ.get("DETECT_PIPELINE_METRICS_URL")
                                or DEFAULT_BEST_FRAME_URL).rstrip("/")
+        self.active_hours = ActiveHours.parse(self.active_hours)
+
+
+class ActiveHours:
+    """A daily window in local time; cross-midnight supported."""
+
+    def __init__(self, start: _dt.time, end: _dt.time) -> None:
+        self.start, self.end = start, end
+
+    def contains(self, when: _dt.datetime) -> bool:
+        t = when.time()
+        if self.start <= self.end:
+            return self.start <= t < self.end
+        return t >= self.start or t < self.end
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ActiveHours) and (self.start, self.end) == (other.start, other.end)
+
+    @classmethod
+    def parse(cls, raw: Any) -> "ActiveHours | None":
+        if isinstance(raw, ActiveHours):
+            return raw
+        if not isinstance(raw, dict):
+            return None
+        s, e = str(raw.get("start") or "").strip(), str(raw.get("end") or "").strip()
+        if not s or not e:
+            return None
+        try:
+            return cls(_dt.time.fromisoformat(s), _dt.time.fromisoformat(e))
+        except ValueError as exc:
+            raise ValueError(f"active_hours must be HH:MM start/end: {exc}") from None
 
 
 # ── the arithmetic ────────────────────────────────────────────────────
@@ -238,6 +291,7 @@ class CameraState:
     suppressed: int = 0
     last_alert_at: float = 0.0
     last_missing: list[str] = field(default_factory=list)
+    last_check: str | None = None
 
 
 Detect = Callable[[str, bytes], list[dict[str, Any]] | None]
@@ -268,6 +322,12 @@ class PpeCheck(Detector):
         self._checks = 0
         self._failed_checks = 0
         self._skipped = 0
+        self._wall = lambda: _dt.datetime.now().astimezone()
+        self._today_key = self._wall().date().isoformat()
+        self._today: dict[str, dict[str, int]] = {}      # per camera: checked, compliant, violations
+        self._by_item: dict[str, int] = {}               # today, per missing item
+        self._recent: deque = deque(maxlen=30)
+        self._gallery: deque = deque(maxlen=8)
 
     # -- the rule, event side: who is due a check --
 
@@ -347,11 +407,14 @@ class PpeCheck(Detector):
         st.checks += 1
         cam = self._cameras.setdefault(st.camera_id, CameraState())
         cam.checked += 1
+        cam.last_check = self._wall().isoformat(timespec="seconds")
+        self._count(st.camera_id, "checked")
         st.missing, st.scores = judge(dets, list(self.cfg.required_items), self.cfg.item_phrases,
                                       float(self.cfg.min_item_score))
         if not st.missing:
             st.missing_run = 0
             cam.compliant += 1
+            self._count(st.camera_id, "compliant")
             return None
         st.missing_run += 1
         cam.last_missing = list(st.missing)
@@ -359,11 +422,42 @@ class PpeCheck(Detector):
             return None
         cam.violations += 1
         st.alerted = True
+        self._count(st.camera_id, "violations")
+        for item in st.missing:
+            self._by_item[item] = self._by_item.get(item, 0) + 1
+        title = f"Person without {', '.join(st.missing)} at {st.camera_id}"
+        self._note(st.camera_id, title, "alert", crop)
+        if not self._in_hours():
+            cam.suppressed += 1                         # off shift: counted, not raised
+            return None
         if now - cam.last_alert_at < float(self.cfg.alert_cooldown_seconds):
             cam.suppressed += 1
             return None
         cam.last_alert_at = now
         return self._alert(st, crop)
+
+    # -- bookkeeping for the dashboard --
+
+    def _in_hours(self) -> bool:
+        hours = ActiveHours.parse(self.cfg.active_hours)   # a dict when the catalog set it
+        return hours is None or hours.contains(self._wall())
+
+    def _roll_day(self) -> None:
+        key = self._wall().date().isoformat()
+        if key != self._today_key:
+            self._today_key, self._today, self._by_item = key, {}, {}
+
+    def _count(self, camera_id: str, what: str) -> None:
+        self._roll_day()
+        day = self._today.setdefault(camera_id, {"checked": 0, "compliant": 0, "violations": 0})
+        day[what] = day.get(what, 0) + 1
+
+    def _note(self, camera_id: str, message: str, level: str, crop: bytes | None = None) -> None:
+        when = self._wall().isoformat(timespec="seconds")
+        self._recent.appendleft({"message": message, "time": when, "level": level, "camera": camera_id})
+        if crop:
+            self._gallery.appendleft({"image": "data:image/jpeg;base64," + base64.b64encode(crop).decode(),
+                                      "label": message, "time": when})
 
     # -- the inputs --
 
@@ -500,7 +594,7 @@ class PpeCheck(Detector):
         "check_interval_seconds": float, "alert_cooldown_seconds": float,
         "look_timeout_seconds": float, "detector_adapter": str, "alert_severity": str,
         "attach_snapshot": bool,
-    }
+    }   # active_hours is a dict and is handled on its own below
 
     def on_config_update(self, config: dict[str, Any]) -> None:
         changed: list[str] = []
@@ -523,6 +617,15 @@ class PpeCheck(Detector):
         if "required_items" in changed:
             for st in self._tracks.values():        # everyone is judged afresh against the new list
                 st.checks, st.missing_run, st.alerted = 0, 0, False
+        if "active_hours" in config:
+            try:
+                hours = ActiveHours.parse(config["active_hours"])
+            except ValueError as exc:
+                logger.warning("config edit active_hours=%r ignored: %s", config["active_hours"], exc)
+            else:
+                if hours != self.cfg.active_hours:
+                    self.cfg.active_hours = hours
+                    changed.append("active_hours")
         if changed:
             logger.info("config applied live: %s", ", ".join(changed))
 
@@ -531,6 +634,18 @@ class PpeCheck(Detector):
     def state_snapshot(self) -> dict[str, Any]:
         with self._lock:
             pending = len(self._pending)
+        self._roll_day()
+
+        def pct(day: dict[str, int]) -> float | None:
+            return None if not day.get("checked") else round(100.0 * day.get("compliant", 0) / day["checked"], 1)
+
+        per_camera = []
+        for cam, c in self._cameras.items():
+            day = self._today.get(cam, {})
+            per_camera.append({"camera": cam, "checked_today": day.get("checked", 0),
+                               "violations_today": day.get("violations", 0), "compliance_pct": pct(day),
+                               "last_missing": ", ".join(c.last_missing), "last_check": c.last_check})
+        total = {k: sum(d.get(k, 0) for d in self._today.values()) for k in ("checked", "compliant", "violations")}
         return {
             "adapter": self._adapter,
             "alerts_fired": self._app_alerts_fired,
@@ -538,12 +653,18 @@ class PpeCheck(Detector):
             "failed_checks": self._failed_checks,
             "skipped": self._skipped,
             "pending": pending,
+            "in_hours": self._in_hours(),
             "required_items": list(self.cfg.required_items),
+            "today": {**total, "compliance_pct": pct(total), "since": self._today_key},
             "cameras": {
                 cam: {"checked": c.checked, "compliant": c.compliant, "violations": c.violations,
                       "suppressed": c.suppressed, "last_missing": list(c.last_missing)}
                 for cam, c in self._cameras.items()
             },
+            "per_camera": per_camera,
+            "by_item": [{"item": item, "today": n} for item, n in sorted(self._by_item.items(), key=lambda kv: -kv[1])],
+            "recent": list(self._recent),
+            "gallery": list(self._gallery),
         }
 
 
