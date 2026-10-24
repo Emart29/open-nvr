@@ -51,7 +51,8 @@ STATE_MISSING = "not-on-this-box"
 #: kind → the canonical task that produces it (mirrors enrichment_plan).
 KIND_SKILL: dict[str, str] = {
     "colour": "vqa", "vehicle_type": "vqa", "clothing_top": "vqa",
-    "carrying": "vqa", PERSON_KIND: "face_recognition",
+    "carrying": "vqa", "gender": "vqa", "clothing_bottom": "vqa",
+    "headwear": "vqa", PERSON_KIND: "face_recognition",
     "plate": "license_plate_recognition",
 }
 
@@ -66,6 +67,8 @@ def _vocab(kind: str) -> set[str]:
 COLOUR_WORDS = _vocab("colour") | _vocab("clothing_top")
 VEHICLE_TYPE_WORDS = _vocab("vehicle_type")
 CARRYING_WORDS = _vocab("carrying")
+GENDER_WORDS = _vocab("gender")
+HEADWEAR_WORDS = _vocab("headwear")
 #: Words that say the colour is about what a PERSON wears, whatever the
 #: class words said: "red shirt" is clothing even when no class was named.
 CLOTHING_CUES = frozenset({
@@ -166,6 +169,10 @@ def resolve_needs(
             _add(w, "vehicle_type", caption_fallback)
         elif w in CARRYING_WORDS:
             _add(w, "carrying", caption_fallback)
+        elif w in GENDER_WORDS:
+            _add(w, "gender", caption_fallback)
+        elif w in HEADWEAR_WORDS:
+            _add(w, "headwear", caption_fallback)
     for kind, value in attrs:
         if kind == PERSON_KIND:
             _add(value, PERSON_KIND, None)

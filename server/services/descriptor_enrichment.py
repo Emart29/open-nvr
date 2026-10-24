@@ -99,6 +99,23 @@ DESCRIBABLE_LABELS = VEHICLE_LABELS | PERSON_LABELS
 #: who walks past". This flag can.
 PEOPLE_SETTING = "events_descriptor_people"
 
+#: The second person opt-in. With it, a person visit is asked three more
+#: questions (``EXTENDED_PERSON_KINDS``): five inferences a visit instead
+#: of two. ``LABEL_KINDS`` keeps the two-question ceiling; ``kinds_for``
+#: adds these only when the flag says so.
+PEOPLE_EXTENDED_SETTING = "events_descriptor_people_extended"
+EXTENDED_PERSON_KINDS: tuple[str, ...] = ("gender", "clothing_bottom", "headwear")
+
+
+def kinds_for(label: str | None, *, extended: bool = False) -> tuple[str, ...]:
+    """What to ask about this class: ``LABEL_KINDS`` and, for a person
+    when the extended flag is on, ``EXTENDED_PERSON_KINDS`` after them."""
+    lab = (label or "").lower()
+    base = LABEL_KINDS.get(lab, ())
+    if extended and lab in PERSON_LABELS:
+        return tuple(base) + EXTENDED_PERSON_KINDS
+    return tuple(base)
+
 #: Which kinds are asked on which class, and the ceiling on cost. VQA
 #: answers ONE question at a time, so this map IS the per-visit
 #: inference bill: two, whatever walks or drives past.
@@ -198,6 +215,51 @@ KIND_QUESTIONS: dict[str, dict[str, Any]] = {
             "pram": "trolley", "buggy": "trolley", "none": "nothing",
             "empty handed": "nothing", "empty-handed": "nothing",
             "nothing at all": "nothing",
+        },
+    },
+    # ── extended person kinds (EVENTS_DESCRIPTOR_PEOPLE_EXTENDED) ──
+    "gender": {
+        "question": (
+            "Is the person a man, a woman or a child? Answer with one word."
+        ),
+        "vocabulary": ["man", "woman", "child"],
+        "synonyms": {
+            "male": "man", "female": "woman", "boy": "child", "girl": "child",
+            "lady": "woman", "gentleman": "man", "guy": "man", "kid": "child",
+            "men": "man", "women": "woman", "children": "child",
+        },
+    },
+    "clothing_bottom": {
+        # The colour of the lower garment, defined as narrowly as
+        # clothing_top and for the same reason.
+        "question": (
+            "What colour are the trousers, skirt or shorts the person is "
+            "wearing? Answer with one word."
+        ),
+        "vocabulary": [
+            "white", "black", "silver", "grey", "gray", "red", "blue",
+            "green", "yellow", "orange", "brown", "beige", "gold",
+            "maroon", "purple", "pink", "denim",
+        ],
+        "synonyms": {"gray": "grey", "dark grey": "grey", "light grey": "grey",
+                     "jeans": "denim", "navy": "blue", "khaki": "beige"},
+    },
+    "headwear": {
+        # "nothing" is stored, as with carrying: a bare head disagrees
+        # with a helmet, and a PPE check needs the bare head counted.
+        "question": (
+            "What is the person wearing on their head? Answer with one "
+            "word, such as helmet, cap, hat, hood, turban, scarf, or nothing."
+        ),
+        "vocabulary": [
+            "nothing", "helmet", "cap", "hat", "hood", "turban", "scarf",
+            "headscarf", "bandana", "veil", "beanie",
+        ],
+        "synonyms": {
+            "hard hat": "helmet", "hardhat": "helmet", "safety helmet": "helmet",
+            "baseball cap": "cap", "hoodie": "hood", "hijab": "headscarf",
+            "dupatta": "scarf", "none": "nothing", "bare": "nothing",
+            "no hat": "nothing", "nothing at all": "nothing",
         },
     },
 }
@@ -395,7 +457,8 @@ async def enrich_event_descriptors(event_id: int, *,
     # what is worth asking about THIS class — the plan offers all four
     # kinds on any label, and asking a lorry what colour its top is
     # spends an inference to store nonsense.
-    for_label = LABEL_KINDS.get(label, ())
+    for_label = kinds_for(label, extended=bool(
+        getattr(settings, PEOPLE_EXTENDED_SETTING, False)))
     kinds = [k for k in (vqa.get("descriptor_kinds") or [])
              if k in KIND_QUESTIONS and k in for_label and k not in answered]
     if not kinds:
