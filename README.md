@@ -164,6 +164,7 @@ The three-tier model, the wire contracts and the offline-first design are in [`d
 | [`camera-tamper`](examples/camera-tamper) | A camera covered, defocused, moved or frozen, with no model to run |
 | [`gate-watch`](examples/gate-watch) | A gate left open, judged by one question to the vision model |
 | [`garbage-dumping`](examples/garbage-dumping) | Garbage dumped in a watched zone, found by open-vocabulary detection |
+| [`ppe-check`](examples/ppe-check) | A person missing required safety kit, judged from Tier-0's best crop by open-vocabulary detection |
 | [`loitering-detection`](examples/loitering-detection) | Dwell-time alerts on a live inference stream |
 | [`occupancy-counting`](examples/occupancy-counting) | Zone occupancy with over/under alerts |
 | [`line-crossing`](examples/line-crossing) | Directional tripwire and entry/exit counting |
@@ -177,7 +178,7 @@ The three-tier model, the wire contracts and the offline-first design are in [`d
 | [`alert-notifier`](examples/alert-notifier) | What actually deserves to reach the guard's phone |
 | [`camera-agent`](examples/camera-agent) | Ask your cameras questions, by voice or text, all local |
 
-Sixteen of the nineteen shipped examples are listed above; [`inference-listener`](examples/inference-listener) and [`alerts-subscriber`](examples/alerts-subscriber) are minimal subscriber templates, and [`home-assistant-relay`](examples/home-assistant-relay) is kept only as a NATS-to-MQTT bridge example now that Home Assistant support is [built in](docs/HOME_ASSISTANT_USER_GUIDE.md). Every app is a copy-as-template starting point. Replace the predicate and you have a purpose-built NVR for your domain. Gallery and roadmap: [`examples/README.md`](examples/README.md), [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Seventeen of the twenty shipped examples are listed above; [`inference-listener`](examples/inference-listener) and [`alerts-subscriber`](examples/alerts-subscriber) are minimal subscriber templates, and [`home-assistant-relay`](examples/home-assistant-relay) is kept only as a NATS-to-MQTT bridge example now that Home Assistant support is [built in](docs/HOME_ASSISTANT_USER_GUIDE.md). Every app is a copy-as-template starting point. Replace the predicate and you have a purpose-built NVR for your domain. Gallery and roadmap: [`examples/README.md`](examples/README.md), [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Works with Home Assistant
 

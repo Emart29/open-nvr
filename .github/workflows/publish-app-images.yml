@@ -78,6 +78,7 @@ jobs:
           - { app: footage-search,             title: Footage Search }
           - { app: gate-controller,            title: Gate Controller }
           - { app: garbage-dumping,            title: Garbage Dumping }
+          - { app: ppe-check,                  title: PPE Check }
           - { app: gate-watch,                 title: Gate Watch }
           - { app: guard-scan-compliance,      title: Guard Scan Compliance }
           - { app: home-assistant-relay,       title: Home Assistant Relay }
