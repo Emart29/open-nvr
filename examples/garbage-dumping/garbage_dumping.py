@@ -26,11 +26,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import datetime as _dt
 import io
 import logging
 import signal
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -47,6 +50,7 @@ from opennvr_app_sdk import (
     KaiCClient,
     KaiCError,
     Param,
+    StateView,
     build_dispatcher,
     build_frame_source,
     load_app_config,
@@ -91,6 +95,9 @@ MANIFEST = AppManifest(
               description="How long one detection may take. Keep it above a CPU look."),
         Param("detector_adapter", str, default="",
               description="KAI-C adapter that runs the detection. Empty = the first one advertising open_vocab_detection."),
+        Param("active_hours", "time_range",
+              description="When alerts fire. Outside it the zone is still watched and counted, quietly. "
+                          "Empty = around the clock."),
         Param("alert_severity", str, default="medium", choices=list(SEVERITIES),
               description="Severity of the dumping alert."),
         Param("attach_snapshot", bool, default=True,
@@ -99,6 +106,19 @@ MANIFEST = AppManifest(
     emits=[
         AlertType("garbage_dumped", "medium", "More garbage in the zone than before."),
         AlertType("garbage_cleared", "low", "The zone is empty again after a dumping alert."),
+    ],
+    state_schema=[
+        StateView("items_now", "In the zones now", kind="metric", path="items_now"),
+        StateView("alerted_now", "Zones alerted", kind="metric", path="alerted_now",
+                  description="Zones with a dumping alert not yet cleared."),
+        StateView("dumps_today", "Dumps today", kind="metric", path="today.dumps"),
+        StateView("cleared_today", "Cleared today", kind="metric", path="today.cleared"),
+        StateView("per_camera", "Per zone", kind="table", path="per_camera",
+                  columns=["camera", "count", "baseline", "labels", "alerted", "dumps_today", "looks",
+                           "last_look", "zone_drawn"]),
+        StateView("recent", "Recent", kind="log", path="recent", limit=12),
+        StateView("gallery", "Before and after", kind="gallery", path="gallery", limit=8,
+                  description="The zone at the previous look and at the dumping alert."),
     ],
 )
 
@@ -117,6 +137,7 @@ class AppConfig(BaseAppConfig):
     detector_adapter: str = ""
     alert_severity: str = "medium"
     attach_snapshot: bool = True
+    active_hours: dict | None = None
     kaic_url: str | None = None
     kaic_api_key: str | None = None
     #: Standalone only: ``[{camera_id, frame_url, zone?}]``.
@@ -136,9 +157,54 @@ class AppConfig(BaseAppConfig):
             raise ValueError("cooldown_seconds must be >= 0 and look_timeout_seconds > 0")
         if self.alert_severity not in SEVERITIES:
             raise ValueError(f"alert_severity must be one of {SEVERITIES}")
+        self.active_hours = ActiveHours.parse(self.active_hours)
+
+
+class ActiveHours:
+    """A daily window in local time; cross-midnight supported."""
+
+    def __init__(self, start: _dt.time, end: _dt.time) -> None:
+        self.start, self.end = start, end
+
+    def contains(self, when: _dt.datetime) -> bool:
+        t = when.time()
+        if self.start <= self.end:
+            return self.start <= t < self.end
+        return t >= self.start or t < self.end
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ActiveHours) and (self.start, self.end) == (other.start, other.end)
+
+    @classmethod
+    def parse(cls, raw: Any) -> "ActiveHours | None":
+        if isinstance(raw, ActiveHours):
+            return raw
+        if not isinstance(raw, dict):
+            return None
+        s, e = str(raw.get("start") or "").strip(), str(raw.get("end") or "").strip()
+        if not s or not e:
+            return None
+        try:
+            return cls(_dt.time.fromisoformat(s), _dt.time.fromisoformat(e))
+        except ValueError as exc:
+            raise ValueError(f"active_hours must be HH:MM start/end: {exc}") from None
 
 
 # ── the arithmetic ────────────────────────────────────────────────────
+
+
+def thumbnail(frame_bytes: bytes, width: int = 320) -> str | None:
+    """The frame as a small JPEG data URI for the catalog's gallery."""
+    try:
+        with Image.open(io.BytesIO(frame_bytes)) as im:
+            w, h = im.size
+            if w > width:
+                im = im.resize((width, max(1, int(h * width / w))))
+            out = io.BytesIO()
+            im.convert("RGB").save(out, "JPEG", quality=70)
+    except Exception:
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
 
 
 def crop_to_zone(frame_bytes: bytes, zone: list[list[float]] | None) -> bytes:
@@ -191,6 +257,8 @@ class ZoneState:
     alerted_count: int = 0
     looks: int = 0
     zone: list[list[float]] | None = None
+    last_frame: bytes | None = None    # the previous look, for the before picture
+    last_look: str | None = None
 
 
 Detector = Callable[[str, bytes], list[dict[str, Any]] | None]
@@ -210,6 +278,11 @@ class GarbageDumping(FrameApp):
         self._adapter: str | None = (self.cfg.detector_adapter or "").strip() or None
         self._detector: Detector | None = None
         self._app_alerts_fired = 0
+        self._wall = lambda: _dt.datetime.now().astimezone()
+        self._today_key = self._wall().date().isoformat()
+        self._today: dict[str, dict[str, int]] = {}
+        self._recent: deque = deque(maxlen=30)
+        self._gallery: deque = deque(maxlen=8)
         for cam in getattr(self.cfg, "cameras", None) or []:
             cid = str(cam.get("camera_id") or "") if isinstance(cam, dict) else ""
             if cid and isinstance(cam.get("zone"), list):
@@ -266,9 +339,12 @@ class GarbageDumping(FrameApp):
             return []                                   # could not look: no change of state
         st.looks += 1
         st.count, st.labels = count_garbage(dets, float(self.cfg.min_score))
+        before, st.last_frame = st.last_frame, frame_bytes
+        st.last_look = self._wall().isoformat(timespec="seconds")
         fired: list[Alert] = []
         if st.baseline is None:
             st.baseline = st.count                      # what was there to begin with
+            self._note(camera_id, f"{camera_id}: baseline {st.count}", "info")
             return fired
 
         if st.count == 0 and st.alerted:
@@ -282,20 +358,49 @@ class GarbageDumping(FrameApp):
             return fired
 
         st.above_run += 1
-        if st.above_run < int(self.cfg.confirm_looks):
+        if st.above_run < int(self.cfg.confirm_looks) or not self._in_hours():
             return fired
         if st.alerted and now - st.alerted_at < self.cfg.cooldown_seconds and st.count <= st.alerted_count:
             return fired
-        fired.append(self._alert(camera_id, "dumped", st, severity=self.cfg.alert_severity, frame=frame_bytes))
+        fired.append(self._alert(camera_id, "dumped", st, severity=self.cfg.alert_severity,
+                                 frame=frame_bytes, before=before))
         st.alerted, st.alerted_at, st.alerted_count = True, now, st.count
         st.baseline = st.count                          # a further increase is a further dump
         st.above_run = 0
         return fired
 
+    # -- bookkeeping for the dashboard --
+
+    def _in_hours(self) -> bool:
+        hours = ActiveHours.parse(self.cfg.active_hours)   # a dict when the catalog set it
+        return hours is None or hours.contains(self._wall())
+
+    def _roll_day(self) -> None:
+        key = self._wall().date().isoformat()
+        if key != self._today_key:
+            self._today_key, self._today = key, {}
+
+    def _count(self, camera_id: str, what: str) -> None:
+        self._roll_day()
+        day = self._today.setdefault(camera_id, {"dumps": 0, "cleared": 0})
+        day[what] = day.get(what, 0) + 1
+
+    def _note(self, camera_id: str, message: str, level: str, frame: bytes | None = None,
+              before: bytes | None = None) -> None:
+        when = self._wall().isoformat(timespec="seconds")
+        self._recent.appendleft({"message": message, "time": when, "level": level, "camera": camera_id})
+        if frame is not None:
+            after = thumbnail(frame)
+            if after:
+                self._gallery.appendleft({"image": after, "label": f"{message} — after", "time": when})
+            prior = thumbnail(before) if before else None
+            if prior:
+                self._gallery.appendleft({"image": prior, "label": f"{message} — before", "time": when})
+
     # -- alerts --
 
     def _alert(self, camera_id: str, kind: str, st: ZoneState, *, severity: str,
-               frame: bytes | None = None) -> Alert:
+               frame: bytes | None = None, before: bytes | None = None) -> Alert:
         new = max(0, st.count - (st.baseline or 0))
         titles = {
             "dumped": f"Garbage dumped at {camera_id}",
@@ -307,6 +412,11 @@ class GarbageDumping(FrameApp):
             "cleared": "The no-dumping zone is empty again.",
         }
         self._app_alerts_fired += 1
+        self._count(camera_id, "dumps" if kind == "dumped" else "cleared")
+        self._note(camera_id, titles[kind], "alert" if kind == "dumped" else "info", frame, before)
+        images = self._evidence(frame) if frame else {}
+        if frame and before:
+            images.update({k: v for k, v in self._evidence(before, "before").items()})
         return Alert(
             title=titles[kind],
             description=descriptions[kind],
@@ -316,7 +426,7 @@ class GarbageDumping(FrameApp):
             source=AlertSource(kind="app", name=APP_ID),
             evidence={"count": st.count, "new": new, "labels": st.labels[:10], "looks": st.looks},
             tags=["garbage", kind],
-            images=self._evidence(frame) if frame else {},
+            images=images,
         )
 
     def _platform(self):
@@ -329,7 +439,7 @@ class GarbageDumping(FrameApp):
                 logger.warning("platform client unavailable: %s", exc)
         return self._nvr
 
-    def _evidence(self, frame: bytes) -> dict[str, str]:
+    def _evidence(self, frame: bytes, name: str = "snapshot") -> dict[str, str]:
         if not self.cfg.attach_snapshot:
             return {}
         nvr = self._platform()
@@ -340,7 +450,7 @@ class GarbageDumping(FrameApp):
         except Exception as exc:
             logger.warning("saving the frame as evidence failed: %s", exc)
             return {}
-        return {"snapshot": path} if path else {}
+        return {name: path} if path else {}
 
     # -- live config from the catalog --
 
@@ -348,7 +458,7 @@ class GarbageDumping(FrameApp):
         "poll_interval_seconds": float, "queries": list, "min_score": float, "confirm_looks": int,
         "cooldown_seconds": float, "look_timeout_seconds": float, "detector_adapter": str,
         "alert_severity": str, "attach_snapshot": bool,
-    }
+    }   # active_hours is a dict and is handled on its own below
 
     def on_config_update(self, config: dict[str, Any]) -> None:
         changed: list[str] = []
@@ -370,6 +480,15 @@ class GarbageDumping(FrameApp):
         if "detector_adapter" in changed or "look_timeout_seconds" in changed:
             self._adapter = self.cfg.detector_adapter.strip() or None
             self._kaic = None
+        if "active_hours" in config:
+            try:
+                hours = ActiveHours.parse(config["active_hours"])
+            except ValueError as exc:
+                logger.warning("config edit active_hours=%r ignored: %s", config["active_hours"], exc)
+            else:
+                if hours != self.cfg.active_hours:
+                    self.cfg.active_hours = hours
+                    changed.append("active_hours")
         zones = config.get("zone")
         if isinstance(zones, dict):
             for raw_key, drawn in zones.items():
@@ -387,14 +506,31 @@ class GarbageDumping(FrameApp):
     # -- contract surface --
 
     def state_snapshot(self) -> dict[str, Any]:
+        self._roll_day()
+        cameras = {
+            cam: {"count": st.count, "baseline": st.baseline, "labels": st.labels[:10],
+                  "alerted": st.alerted, "looks": st.looks, "zone_drawn": st.zone is not None,
+                  "last_look": st.last_look}
+            for cam, st in self._state.items()
+        }
+        per_camera = [{"camera": cam, "count": row["count"], "baseline": row["baseline"],
+                       "labels": ", ".join(row["labels"][:4]), "alerted": row["alerted"],
+                       "dumps_today": self._today.get(cam, {}).get("dumps", 0), "looks": row["looks"],
+                       "last_look": row["last_look"], "zone_drawn": row["zone_drawn"]}
+                      for cam, row in cameras.items()]
         return {
             "adapter": self._adapter,
             "alerts_fired": self._app_alerts_fired,
-            "cameras": {
-                cam: {"count": st.count, "baseline": st.baseline, "labels": st.labels[:10],
-                      "alerted": st.alerted, "looks": st.looks, "zone_drawn": st.zone is not None}
-                for cam, st in self._state.items()
-            },
+            "items_now": sum(r["count"] for r in cameras.values()),
+            "alerted_now": sum(1 for r in cameras.values() if r["alerted"]),
+            "in_hours": self._in_hours(),
+            "today": {"dumps": sum(d.get("dumps", 0) for d in self._today.values()),
+                      "cleared": sum(d.get("cleared", 0) for d in self._today.values()),
+                      "since": self._today_key},
+            "cameras": cameras,
+            "per_camera": per_camera,
+            "recent": list(self._recent),
+            "gallery": list(self._gallery),
         }
 
 

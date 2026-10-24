@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import datetime as _dt
 import io
 import logging
 import signal
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -46,6 +49,7 @@ from opennvr_app_sdk import (
     KaiCClient,
     KaiCError,
     Param,
+    StateView,
     build_dispatcher,
     build_frame_source,
     load_app_config,
@@ -94,6 +98,12 @@ MANIFEST = AppManifest(
         Param("question", str,
               default="Is the gate in this picture open or closed? Answer with one word: open or closed.",
               description="The question asked about the crop. Keep the one-word instruction."),
+        Param("active_hours", "time_range",
+              description="When alerts fire. Outside it the gate is still watched and counted, quietly. "
+                          "Empty = around the clock."),
+        Param("escalate_after_seconds", float, default=600.0,
+              description="Still open this long after the left-open alert: raise a second, higher one. "
+                          "0 = no escalation."),
         Param("alert_severity", str, default="medium", choices=list(SEVERITIES),
               description="Severity of the left-open alert."),
         Param("attach_snapshot", bool, default=True,
@@ -101,8 +111,22 @@ MANIFEST = AppManifest(
     ],
     emits=[
         AlertType("gate_left_open", "medium", "The gate has been open longer than allowed."),
+        AlertType("gate_still_open", "high", "The gate is still open well after the left-open alert."),
         AlertType("gate_closed", "low", "The gate closed again after a left-open alert."),
         AlertType("gate_unknown", "low", "The gate could not be judged for several looks in a row."),
+    ],
+    state_schema=[
+        StateView("open_now", "Open now", kind="metric", path="open_now",
+                  description="Gates open at this moment."),
+        StateView("longest_open_s", "Longest open", kind="metric", path="longest_open_s", unit="s"),
+        StateView("alerts_today", "Alerts today", kind="metric", path="today.alerts"),
+        StateView("opens_today", "Open events today", kind="metric", path="today.opens"),
+        StateView("per_camera", "Per gate", kind="table", path="per_camera",
+                  columns=["camera", "verdict", "open_for_s", "alerted", "opens_today", "alerts_today",
+                           "looks", "last_answer", "gate_drawn"]),
+        StateView("recent", "Recent", kind="log", path="recent", limit=12),
+        StateView("gallery", "Left open", kind="gallery", path="gallery", limit=8,
+                  description="The frame at each left-open alert."),
     ],
 )
 
@@ -121,6 +145,8 @@ class AppConfig(BaseAppConfig):
     question: str = "Is the gate in this picture open or closed? Answer with one word: open or closed."
     alert_severity: str = "medium"
     attach_snapshot: bool = True
+    active_hours: dict | None = None
+    escalate_after_seconds: float = 600.0
     kaic_url: str | None = None
     kaic_api_key: str | None = None
     #: Standalone only: ``[{camera_id, frame_url, gate?}]``.
@@ -139,6 +165,53 @@ class AppConfig(BaseAppConfig):
             raise ValueError(f"alert_severity must be one of {SEVERITIES}")
         if not str(self.question).strip():
             raise ValueError("question must not be empty")
+        if self.escalate_after_seconds < 0:
+            raise ValueError("escalate_after_seconds must be >= 0")
+        self.active_hours = ActiveHours.parse(self.active_hours)
+
+
+class ActiveHours:
+    """A daily window in local time; cross-midnight supported."""
+
+    def __init__(self, start: _dt.time, end: _dt.time) -> None:
+        self.start, self.end = start, end
+
+    def contains(self, when: _dt.datetime) -> bool:
+        t = when.time()
+        if self.start <= self.end:
+            return self.start <= t < self.end
+        return t >= self.start or t < self.end
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ActiveHours) and (self.start, self.end) == (other.start, other.end)
+
+    @classmethod
+    def parse(cls, raw: Any) -> "ActiveHours | None":
+        if isinstance(raw, ActiveHours):
+            return raw
+        if not isinstance(raw, dict):
+            return None
+        s, e = str(raw.get("start") or "").strip(), str(raw.get("end") or "").strip()
+        if not s or not e:
+            return None
+        try:
+            return cls(_dt.time.fromisoformat(s), _dt.time.fromisoformat(e))
+        except ValueError as exc:
+            raise ValueError(f"active_hours must be HH:MM start/end: {exc}") from None
+
+
+def thumbnail(frame_bytes: bytes, width: int = 320) -> str | None:
+    """The frame as a small JPEG data URI for the catalog's gallery."""
+    try:
+        with Image.open(io.BytesIO(frame_bytes)) as im:
+            w, h = im.size
+            if w > width:
+                im = im.resize((width, max(1, int(h * width / w))))
+            out = io.BytesIO()
+            im.convert("RGB").save(out, "JPEG", quality=70)
+    except Exception:
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
 
 
 # ── the judgement ─────────────────────────────────────────────────────
@@ -190,6 +263,7 @@ class GateState:
     unsure_run: int = 0
     alerted: bool = False              # a left-open alert is outstanding
     alerted_at: float = 0.0
+    escalated: bool = False
     unknown_alerted: bool = False
     looks: int = 0
     last_answer: str | None = None
@@ -213,6 +287,11 @@ class GateWatch(FrameApp):
         self._adapter: str | None = (self.cfg.vqa_adapter or "").strip() or None
         self._asker: Asker | None = None
         self._app_alerts_fired = 0
+        self._wall = lambda: _dt.datetime.now().astimezone()
+        self._today_key = self._wall().date().isoformat()
+        self._today: dict[str, dict[str, int]] = {}
+        self._recent: deque = deque(maxlen=30)
+        self._gallery: deque = deque(maxlen=8)
         for cam in getattr(self.cfg, "cameras", None) or []:
             cid = str(cam.get("camera_id") or "") if isinstance(cam, dict) else ""
             if cid and isinstance(cam.get("gate"), list):
@@ -286,21 +365,53 @@ class GateWatch(FrameApp):
             st.open_since = None
             if st.alerted:
                 fired.append(self._alert(camera_id, "closed", st, severity="low"))
-                st.alerted = False
+                st.alerted, st.escalated = False, False
             return fired
 
         # open
         if st.open_since is None:
             st.open_since = now
+            self._count(camera_id, "opens")
+            self._note(camera_id, f"{camera_id}: gate opened", "info")
         held = now - st.open_since
-        if held < self.cfg.open_seconds:
+        if held < self.cfg.open_seconds or not self._in_hours():
             return fired
-        if st.alerted and now - st.alerted_at < self.cfg.cooldown_seconds:
-            return fired
+        if st.alerted:
+            if (self.cfg.escalate_after_seconds > 0 and not st.escalated
+                    and now - st.alerted_at >= self.cfg.escalate_after_seconds):
+                fired.append(self._alert(camera_id, "still_open", st, severity="high",
+                                         frame=frame_bytes, held=held))
+                st.escalated = True
+            if now - st.alerted_at < self.cfg.cooldown_seconds:
+                return fired
         fired.append(self._alert(camera_id, "left_open", st, severity=self.cfg.alert_severity,
                                  frame=frame_bytes, held=held))
         st.alerted, st.alerted_at = True, now
         return fired
+
+    # -- bookkeeping for the dashboard --
+
+    def _in_hours(self) -> bool:
+        hours = ActiveHours.parse(self.cfg.active_hours)   # a dict when the catalog set it
+        return hours is None or hours.contains(self._wall())
+
+    def _roll_day(self) -> None:
+        key = self._wall().date().isoformat()
+        if key != self._today_key:
+            self._today_key, self._today = key, {}
+
+    def _count(self, camera_id: str, what: str) -> None:
+        self._roll_day()
+        day = self._today.setdefault(camera_id, {"opens": 0, "alerts": 0})
+        day[what] = day.get(what, 0) + 1
+
+    def _note(self, camera_id: str, message: str, level: str, frame: bytes | None = None) -> None:
+        when = self._wall().isoformat(timespec="seconds")
+        self._recent.appendleft({"message": message, "time": when, "level": level, "camera": camera_id})
+        if frame is not None:
+            image = thumbnail(frame)
+            if image:
+                self._gallery.appendleft({"image": image, "label": message, "time": when})
 
     # -- alerts --
 
@@ -308,15 +419,21 @@ class GateWatch(FrameApp):
                frame: bytes | None = None, held: float = 0.0) -> Alert:
         titles = {
             "left_open": f"Gate left open at {camera_id}",
+            "still_open": f"Gate still open at {camera_id}",
             "closed": f"Gate closed at {camera_id}",
             "unknown": f"Gate at {camera_id} cannot be judged",
         }
         descriptions = {
             "left_open": f"The gate has been open for {int(held)} s, longer than the {int(self.cfg.open_seconds)} s allowed.",
+            "still_open": f"The gate is still open after {int(held)} s; nobody has closed it since the alert.",
             "closed": "The gate closed again.",
             "unknown": "The vision model could not tell whether the gate is open; check the camera's view of it.",
         }
         self._app_alerts_fired += 1
+        if kind in ("left_open", "still_open"):
+            self._count(camera_id, "alerts")
+        self._note(camera_id, titles[kind], {"closed": "info", "unknown": "warning"}.get(kind, "alert"),
+                   frame if kind in ("left_open", "still_open") else None)
         return Alert(
             title=titles[kind],
             description=descriptions[kind],
@@ -357,7 +474,7 @@ class GateWatch(FrameApp):
     LIVE_KNOBS = {
         "poll_interval_seconds": float, "open_seconds": float, "cooldown_seconds": float,
         "unsure_tolerance": int, "look_timeout_seconds": float, "vqa_adapter": str, "question": str,
-        "alert_severity": str, "attach_snapshot": bool,
+        "alert_severity": str, "attach_snapshot": bool, "escalate_after_seconds": float,
     }
 
     def on_config_update(self, config: dict[str, Any]) -> None:
@@ -379,6 +496,15 @@ class GateWatch(FrameApp):
         if "vqa_adapter" in changed or "look_timeout_seconds" in changed:
             self._adapter = self.cfg.vqa_adapter.strip() or None
             self._kaic = None
+        if "active_hours" in config:
+            try:
+                hours = ActiveHours.parse(config["active_hours"])
+            except ValueError as exc:
+                logger.warning("config edit active_hours=%r ignored: %s", config["active_hours"], exc)
+            else:
+                if hours != self.cfg.active_hours:
+                    self.cfg.active_hours = hours
+                    changed.append("active_hours")
         gates = config.get("gate")
         if isinstance(gates, dict):
             for raw_key, drawn in gates.items():
@@ -396,20 +522,40 @@ class GateWatch(FrameApp):
 
     def state_snapshot(self) -> dict[str, Any]:
         now = self._clock()
+        self._roll_day()
+        cameras = {
+            cam: {
+                "verdict": st.verdict,
+                "open_for_s": None if st.open_since is None else int(now - st.open_since),
+                "alerted": st.alerted,
+                "escalated": st.escalated,
+                "looks": st.looks,
+                "last_answer": st.last_answer,
+                "gate_drawn": st.gate is not None,
+            }
+            for cam, st in self._state.items()
+        }
+        per_camera = []
+        for cam, row in cameras.items():
+            day = self._today.get(cam, {})
+            per_camera.append({"camera": cam, **{k: row[k] for k in ("verdict", "open_for_s", "alerted")},
+                               "opens_today": day.get("opens", 0), "alerts_today": day.get("alerts", 0),
+                               "looks": row["looks"], "last_answer": row["last_answer"],
+                               "gate_drawn": row["gate_drawn"]})
+        open_for = [r["open_for_s"] for r in cameras.values() if r["open_for_s"] is not None]
         return {
             "adapter": self._adapter,
             "alerts_fired": self._app_alerts_fired,
-            "cameras": {
-                cam: {
-                    "verdict": st.verdict,
-                    "open_for_s": None if st.open_since is None else int(now - st.open_since),
-                    "alerted": st.alerted,
-                    "looks": st.looks,
-                    "last_answer": st.last_answer,
-                    "gate_drawn": st.gate is not None,
-                }
-                for cam, st in self._state.items()
-            },
+            "open_now": len(open_for),
+            "longest_open_s": max(open_for, default=0),
+            "in_hours": self._in_hours(),
+            "today": {"opens": sum(d.get("opens", 0) for d in self._today.values()),
+                      "alerts": sum(d.get("alerts", 0) for d in self._today.values()),
+                      "since": self._today_key},
+            "cameras": cameras,
+            "per_camera": per_camera,
+            "recent": list(self._recent),
+            "gallery": list(self._gallery),
         }
 
 

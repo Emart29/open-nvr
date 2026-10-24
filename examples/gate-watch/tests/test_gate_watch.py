@@ -10,7 +10,9 @@ import io
 import pytest
 from PIL import Image
 
-from gate_watch import AppConfig, GateWatch, crop_to_gate, normalise_answer
+import datetime as _dt
+
+from gate_watch import ActiveHours, AppConfig, GateWatch, crop_to_gate, normalise_answer
 from opennvr_app_sdk.testing import RecorderChannel, app_config
 
 W, H = 640, 480
@@ -138,3 +140,53 @@ def test_config_rejects_nonsense():
         AppConfig(unsure_tolerance=0)
     with pytest.raises(ValueError):
         AppConfig(question="  ")
+
+
+def test_still_open_escalates_once_and_closing_resets_it():
+    app, rec, clock, asked = make_app(["open"] * 40 + ["closed"], open_seconds=60, cooldown_seconds=3600,
+                                      escalate_after_seconds=120)
+    ticks(app, clock, 3)                                    # open 60 s: left-open alert
+    assert [a.alert_type for a in rec.alerts] == ["gate_left_open"]
+    ticks(app, clock, 4)                                    # 120 s after the alert: escalation
+    assert [a.alert_type for a in rec.alerts] == ["gate_left_open", "gate_still_open"]
+    assert rec.alerts[1].severity == "high"
+    ticks(app, clock, 10)                                   # still open: nothing more
+    assert len(rec.alerts) == 2
+    ticks(app, clock, 25)                                   # closes
+    assert rec.alerts[-1].alert_type == "gate_closed"
+    assert app.state_snapshot()["cameras"]["cam1"]["escalated"] is False
+
+
+def test_outside_active_hours_the_gate_is_counted_but_quiet():
+    app, rec, clock, asked = make_app(["open"] * 10, open_seconds=30,
+                                      active_hours={"start": "08:00", "end": "18:00"})
+    app._wall = lambda: _dt.datetime(2026, 10, 24, 22, 0).astimezone()
+    ticks(app, clock, 5)
+    assert rec.alerts == []
+    st = app.state_snapshot()
+    assert st["open_now"] == 1 and st["today"]["opens"] == 1 and st["in_hours"] is False
+    app._wall = lambda: _dt.datetime(2026, 10, 24, 9, 0).astimezone()
+    ticks(app, clock, 1)
+    assert [a.alert_type for a in rec.alerts] == ["gate_left_open"]
+
+
+def test_dashboard_state_has_the_views_the_manifest_declares():
+    app, rec, clock, asked = make_app(["open"] * 6, open_seconds=30)
+    ticks(app, clock, 3)
+    st = app.state_snapshot()
+    for view in GateWatch.manifest.state_schema:
+        head = view.path.split(".")[0]
+        assert head in st, view.path
+    assert st["per_camera"][0]["camera"] == "cam1" and st["per_camera"][0]["alerts_today"] == 1
+    assert st["recent"][0]["message"] == "Gate left open at cam1" and st["recent"][0]["level"] == "alert"
+    assert st["gallery"][0]["image"].startswith("data:image/jpeg;base64,")
+
+
+def test_active_hours_parse_and_cross_midnight():
+    hours = ActiveHours.parse({"start": "22:00", "end": "06:00"})
+    assert hours.contains(_dt.datetime(2026, 1, 1, 23, 30))
+    assert hours.contains(_dt.datetime(2026, 1, 1, 5, 59))
+    assert not hours.contains(_dt.datetime(2026, 1, 1, 12, 0))
+    assert ActiveHours.parse(None) is None and ActiveHours.parse({"start": "", "end": ""}) is None
+    with pytest.raises(ValueError):
+        ActiveHours.parse({"start": "25:00", "end": "06:00"})

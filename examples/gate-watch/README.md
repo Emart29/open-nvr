@@ -12,6 +12,15 @@ tracking, one question whose answer the app holds to a timer. The same
 pattern works for a door, a barrier, a shutter or a hatch by changing the
 question.
 
+## What you see
+
+The app's page in the catalog shows gates open now, the longest open,
+open events and alerts today, a per-gate table, a recent-events log and
+a gallery of the frame at each left-open alert. `active_hours` sets when
+alerts fire (the gate is still watched and counted outside it);
+`escalate_after_seconds` raises `gate_still_open` (high) once if nobody
+has closed the gate that long after the alert.
+
 ## What it emits
 
 | Alert | When | Severity |
