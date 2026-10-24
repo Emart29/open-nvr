@@ -32,12 +32,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import datetime as _dt
 import hashlib
 import io
 import logging
 import signal
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -53,6 +56,7 @@ from opennvr_app_sdk import (
     FrameApp,
     FrameSource,
     Param,
+    StateView,
     build_dispatcher,
     build_frame_source,
     load_app_config,
@@ -118,6 +122,23 @@ MANIFEST = AppManifest(
         AlertType("tamper_moved", "high", "The camera no longer looks at its reference view."),
         AlertType("tamper_frozen", "high", "The stream stopped changing."),
         AlertType("tamper_cleared", "low", "The camera looks normal again."),
+    ],
+    state_schema=[
+        StateView("watched", "Cameras watched", kind="metric", path="watched"),
+        StateView("tampered_now", "Tampered now", kind="metric", path="tampered_now",
+                  description="Cameras with a tamper condition not yet cleared."),
+        StateView("alerts_today", "Tamper alerts today", kind="metric", path="today.alerts"),
+        StateView("focus", "Focus vs reference", kind="gauge", path="focus_pct", min=0, max=100, unit="%",
+                  warn=60, danger=35,
+                  description="Sharpness now as a share of the reference view's. Below blur_ratio is defocused."),
+        StateView("per_camera", "Per camera", kind="table", path="per_camera",
+                  columns=["camera", "condition", "for_s", "focus_pct", "match_pct", "alerts_today", "checks",
+                           "has_reference"]),
+        StateView("by_condition", "Today, by condition", kind="table", path="by_condition",
+                  columns=["condition", "today"]),
+        StateView("recent", "Recent", kind="log", path="recent", limit=12),
+        StateView("gallery", "At the alert", kind="gallery", path="gallery", limit=8,
+                  description="The reference view and the frame at each tamper alert."),
     ],
 )
 
@@ -261,6 +282,7 @@ class CameraState:
     alerted_at: float = 0.0
     last_scores: Scores | None = None
     checks: int = 0
+    reference_jpeg: bytes | None = None   # the frame the reference was learnt from, for the gallery
 
 
 # ── the app ───────────────────────────────────────────────────────────
@@ -274,6 +296,28 @@ class CameraTamper(FrameApp):
         self._clock = time.monotonic
         self._nvr = None
         self._app_alerts_fired = 0
+        self._wall = lambda: _dt.datetime.now().astimezone()
+        self._today_key = self._wall().date().isoformat()
+        self._today: dict[str, int] = {}                 # alerts today, per camera
+        self._by_condition: dict[str, int] = {}          # alerts today, per condition
+        self._recent: deque = deque(maxlen=30)
+        self._gallery: deque = deque(maxlen=8)
+
+    # -- bookkeeping for the dashboard --
+
+    def _roll_day(self) -> None:
+        key = self._wall().date().isoformat()
+        if key != self._today_key:
+            self._today_key, self._today, self._by_condition = key, {}, {}
+
+    def _note(self, camera_id: str, message: str, level: str, frame: bytes | None = None,
+              reference: bytes | None = None) -> None:
+        when = self._wall().isoformat(timespec="seconds")
+        self._recent.appendleft({"message": message, "time": when, "level": level, "camera": camera_id})
+        for label, image in ((f"{message} — now", frame), (f"{camera_id} — reference view", reference)):
+            thumb = thumbnail(image) if image else None
+            if thumb:
+                self._gallery.appendleft({"image": thumb, "label": label, "time": when})
 
     # -- judging one frame --
 
@@ -317,6 +361,7 @@ class CameraTamper(FrameApp):
             if st.reference is None:
                 st.reference = g.copy()
                 st.reference_sharpness = s.sharpness
+                st.reference_jpeg = frame_bytes
             else:
                 st.reference = (1 - REFERENCE_ALPHA) * st.reference + REFERENCE_ALPHA * g
                 st.reference_sharpness = ((1 - REFERENCE_ALPHA) * st.reference_sharpness
@@ -334,6 +379,7 @@ class CameraTamper(FrameApp):
         if condition == "moved" and held >= self.cfg.rebaseline_seconds:
             # Re-aimed on purpose: adopt the new view and start again.
             st.reference, st.reference_sharpness = g.copy(), s.sharpness
+            st.reference_jpeg = frame_bytes
             st.condition, st.since = None, now
             if st.alerted is not None:
                 fired.append(self._alert(camera_id, "cleared", s, severity="low"))
@@ -377,6 +423,13 @@ class CameraTamper(FrameApp):
             "frame_change": None if s.change is None else round(s.change, 3),
         }
         self._app_alerts_fired += 1
+        if condition != "cleared":
+            self._roll_day()
+            self._today[camera_id] = self._today.get(camera_id, 0) + 1
+            self._by_condition[condition] = self._by_condition.get(condition, 0) + 1
+        st = self._state.get(camera_id)
+        self._note(camera_id, titles[condition], "info" if condition == "cleared" else "alert",
+                   frame, st.reference_jpeg if (st and frame) else None)
         return Alert(
             title=titles[condition],
             description=descriptions[condition],
@@ -447,9 +500,22 @@ class CameraTamper(FrameApp):
     # -- contract surface --
 
     def state_snapshot(self) -> dict[str, Any]:
+        self._roll_day()
+        now = self._clock()
         cams = {}
+        per_camera = []
+        focus: dict[str, float] = {}
         for cam, st in self._state.items():
             s = st.last_scores
+            focus_pct = (None if s is None or st.reference_sharpness <= 0
+                         else round(min(100.0, 100.0 * s.sharpness / st.reference_sharpness), 1))
+            match_pct = None if s is None or s.corr is None else round(100.0 * max(0.0, s.corr), 1)
+            if focus_pct is not None:
+                focus[cam] = focus_pct
+            per_camera.append({"camera": cam, "condition": st.condition or "normal",
+                               "for_s": int(now - st.since) if st.since else 0, "focus_pct": focus_pct,
+                               "match_pct": match_pct, "alerts_today": self._today.get(cam, 0),
+                               "checks": st.checks, "has_reference": st.reference is not None})
             cams[cam] = {
                 "condition": st.condition,
                 "alerted": st.alerted,
@@ -463,7 +529,33 @@ class CameraTamper(FrameApp):
                 "frame_change": None if s is None or s.change is None else round(s.change, 3),
                 "same_in_a_row": st.same_in_a_row,
             }
-        return {"cameras": cams, "alerts_fired": self._app_alerts_fired}
+        return {
+            "cameras": cams,
+            "alerts_fired": self._app_alerts_fired,
+            "watched": len(cams),
+            "tampered_now": sum(1 for st in self._state.values() if st.condition),
+            "focus_pct": focus,
+            "today": {"alerts": sum(self._today.values()), "since": self._today_key},
+            "per_camera": per_camera,
+            "by_condition": [{"condition": c, "today": n}
+                             for c, n in sorted(self._by_condition.items(), key=lambda kv: -kv[1])],
+            "recent": list(self._recent),
+            "gallery": list(self._gallery),
+        }
+
+
+def thumbnail(frame_bytes: bytes, width: int = 320) -> str | None:
+    """The frame as a small JPEG data URI for the catalog's gallery."""
+    try:
+        with Image.open(io.BytesIO(frame_bytes)) as im:
+            w, h = im.size
+            if w > width:
+                im = im.resize((width, max(1, int(h * width / w))))
+            out = io.BytesIO()
+            im.convert("RGB").save(out, "JPEG", quality=70)
+    except Exception:
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
 
 
 # ── wiring ────────────────────────────────────────────────────────────

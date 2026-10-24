@@ -205,3 +205,27 @@ def test_catalog_config_applies_live_and_rejects_bad_values():
     assert app.cfg.freeze_polls == 6 and app.cfg.blur_ratio == 0.2
     app.on_config_update({"confirm_seconds": 2})                       # idempotent
     assert app.cfg.confirm_seconds == 2.0
+
+
+def test_dashboard_state_has_the_views_the_manifest_declares():
+    app, rec, src, clock = make_app(confirm_seconds=10)
+    learn_reference(app, src, clock)
+    run_ticks(app, src, clock, [_jpeg(Image.new("RGB", scene().size, (0, 0, 0)))] * 4)
+    assert [a.alert_type for a in rec.alerts] == ["tamper_covered"]
+    st = app.state_snapshot()
+    for view in CameraTamper.manifest.state_schema:
+        assert view.path.split(".")[0] in st, view.path
+    assert st["watched"] == 1 and st["tampered_now"] == 1 and st["today"]["alerts"] == 1
+    row = st["per_camera"][0]
+    assert row["camera"] == "cam1" and row["condition"] == "covered" and row["alerts_today"] == 1
+    assert row["has_reference"] is True and row["focus_pct"] is not None
+    assert st["by_condition"] == [{"condition": "covered", "today": 1}]
+    assert st["recent"][0]["message"] == "Camera cam1 covered" and st["recent"][0]["level"] == "alert"
+    labels = [g["label"] for g in st["gallery"]]
+    assert labels == ["cam1 — reference view", "Camera cam1 covered — now"]
+    assert all(g["image"].startswith("data:image/jpeg;base64,") for g in st["gallery"])
+    run_ticks(app, src, clock, [_jpeg(with_noise(scene(), 9))] * 2)
+    assert rec.alerts[-1].alert_type == "tamper_cleared"
+    st = app.state_snapshot()
+    assert st["tampered_now"] == 0 and st["per_camera"][0]["condition"] == "normal"
+    assert st["recent"][0]["level"] == "info"
