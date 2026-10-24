@@ -74,6 +74,7 @@ def test_unlisted_plate_fires_info_read():
     fired = alerter.handle_event(_envelope())
     assert len(fired) == 1 and fired[0].severity == "info"
     assert "ABC1234" in fired[0].title
+    assert fired[0].alert_type == "plate_read"
     assert dispatcher.fire.call_count == 1
     assert fired[0].evidence["vehicle_label"] == "car"
     assert fired[0].correlation_id == "corr-1"
@@ -301,6 +302,7 @@ def test_registry_plate_fires_low_with_owner_in_title():
     fired = alerter.handle_event(_envelope(plate="MH12DE1433"))
     assert fired[0].severity == "low"
     assert "Registered vehicle MH12DE1433" in fired[0].title
+    assert fired[0].alert_type == "plate_expected"
     assert "A. Sharma" in fired[0].title and "B-402" in fired[0].title
     assert fired[0].evidence["in_registry"] is True
     assert fired[0].evidence["registry"]["owner"] == "A. Sharma"
@@ -313,6 +315,7 @@ def test_unknown_alarm_fires_high_for_unregistered_plate():
     stranger = alerter.handle_event(_envelope(plate="XX99ZZ0001"))
     assert stranger[0].severity == "high"
     assert "Unknown vehicle XX99ZZ0001" in stranger[0].title
+    assert stranger[0].alert_type == "plate_unknown"
     assert stranger[0].evidence["unknown_alarm"] is True
     # The registered vehicle stays quiet (low, not an alarm).
     known = alerter.handle_event(_envelope(plate="MH12DE1433"))
@@ -463,6 +466,7 @@ def test_monitor_fires_with_configured_severity_and_note():
     fired = alerter.handle_event(_envelope(plate="MH12DE1433"))
     assert fired[0].severity == "critical"
     assert "Monitored plate MH12DE1433 seen — court order 42/2026" in fired[0].title
+    assert fired[0].alert_type == "plate_watchlist"
     assert fired[0].evidence["monitor"] == {
         "severity": "critical", "note": "court order 42/2026"}
 
