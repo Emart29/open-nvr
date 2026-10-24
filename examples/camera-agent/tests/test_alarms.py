@@ -109,9 +109,14 @@ def test_alarm_silent_outside_time_window():
     rt = _runtime(detections=[{"label": "person"}])
 
     async def go():
-        # active only 00:00–00:01 — effectively never "now"
+        # A one-minute window two hours from now, so "now" is outside it
+        # whatever the clock says. (A fixed 00:00–00:01 window failed CI
+        # once a day: the run that started at one minute past midnight.)
+        import datetime as _dt
+        now = _dt.datetime.now().time()
+        start = (now.hour * 60 + now.minute + 120) % 1440
         alarm = rt.alarms.create(name="Night", target="person", camera_ids=["cam1"],
-                                 after_min=0, before_min=1)
+                                 after_min=start, before_min=(start + 1) % 1440)
         await asyncio.sleep(0.2)
         triggered = rt.alarms.list()[0]["triggered"]
         rt.alarms.stop(alarm.id)
