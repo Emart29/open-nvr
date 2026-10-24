@@ -245,13 +245,15 @@ def score_clip(spec: dict, alerts: list[dict], start: datetime) -> dict:
             "fired": [(a.get("alert_type"), a.get("title")) for a in alerts][:20],
             "false_positive_titles": [a.get("title") for a in false_pos][:10],
             "missed": [(m.get("alert_type"), m.get("title_contains")) for m in misses],
-            # Everything the evidence page needs about each alert, in order.
-            "alerts": [{"id": a.get("id"), "alert_id": a.get("alert_id"), "alert_type": a.get("alert_type"),
-                        "title": a.get("title"), "severity": a.get("severity"),
-                        "fired_at": (fired_at(a).isoformat() if fired_at(a) else None),
-                        "offset_s": (round(fired_at(a).timestamp() - start.timestamp(), 1) if fired_at(a) else None),
-                        "images": list(a.get("images") or []), "false_positive": id(a) in fp_ids}
-                       for a in alerts][:40]}
+            # Everything the evidence page needs about each alert, in clip order
+            # (the inbox returns newest first).
+            "alerts": sorted([{"id": a.get("id"), "alert_id": a.get("alert_id"), "alert_type": a.get("alert_type"),
+                               "title": a.get("title"), "severity": a.get("severity"),
+                               "fired_at": (fired_at(a).isoformat() if fired_at(a) else None),
+                               "offset_s": (round(fired_at(a).timestamp() - start.timestamp(), 1)
+                                            if fired_at(a) else None),
+                               "images": list(a.get("images") or []), "false_positive": id(a) in fp_ids}
+                              for a in alerts][:40], key=lambda r: (r["offset_s"] is None, r["offset_s"] or 0))}
 
 
 def run_folder(api: Api, folder: Path, rig_dir: Path, camera_id: int) -> list[dict]:
