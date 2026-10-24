@@ -187,6 +187,7 @@ jobs:
           - alerts-subscriber
           - camera-agent
           - footage-search
+          - gate-watch
           - gate-controller
           - home-assistant-relay
           - inference-listener

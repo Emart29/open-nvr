@@ -261,6 +261,42 @@
             - opennvr_internal
     command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d camera-tamper
 
+- id: gate-watch
+  name: Gate Watch
+  summary: Alerts when a gate has been left open — every look asks the site's vision model one question about the gate the operator drew, and a gate open past the threshold raises the alert; it clears when the gate closes.
+  category: perimeter
+  version: "1.0.0"
+  image: ghcr.io/open-nvr/gate-watch:latest
+  build_context: examples/gate-watch
+  requires_tasks: [vqa]
+  requires_adapters: [moondream]
+  emits: [gate_left_open, gate_closed, gate_unknown]
+  docs_url: https://github.com/open-nvr/open-nvr/blob/main/examples/gate-watch/README.md
+  author: OpenNVR
+  contact: https://github.com/open-nvr/open-nvr/issues
+  source: https://github.com/open-nvr/open-nvr/tree/main/examples/gate-watch
+  network_egress: []
+  install:
+    compose: |
+      # INFORMATIONAL — this service already ships in
+      # docker-compose.apps.yml (with its config-init companion and
+      # named config volume); you do NOT paste this anywhere. Run the
+      # command below and compose brings it up from the shipped overlay.
+      services:
+        gate-watch:
+          profiles: [apps]
+          image: ${GATE_WATCH_IMAGE:-opennvr/gate-watch:local-build}
+          restart: unless-stopped
+          environment:
+            - OPENNVR_INTERNAL_API_KEY=${INTERNAL_API_KEY}
+            - NATS_URL=nats://nats:4222
+            - OPENNVR_URL=http://opennvr-core:8000
+          expose:
+            - "9214"
+          networks:
+            - opennvr_internal
+    command: docker compose -f docker-compose.yml -f docker-compose.apps.yml --profile apps up -d gate-watch
+
 - id: guard-scan-compliance
   name: Guard Scan Compliance
   summary: Checks that the guard wands every person entering — left arm, right arm, front, back — and flags what the scanner finds.
