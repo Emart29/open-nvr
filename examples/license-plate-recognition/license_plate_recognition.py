@@ -949,6 +949,7 @@ class PlateAlerter(Detector):
             camera_id = str(rec.get("camera_id") or "")
             alert = Alert(
                 severity="medium",
+                alert_type="vehicle_overstay",
                 title=f"Overstay: visitor {plate} inside {hours:.1f}h",
                 description=(
                     f"Visitor vehicle {plate} entered at "
@@ -1185,6 +1186,7 @@ class PlateAlerter(Detector):
         allowlist, _denylist = self._watchlists   # one read = one generation
         if monitor is not None:
             severity = str(monitor.get("severity") or "high")
+            alert_type = "plate_watchlist"
             note = str(monitor.get("note") or "")
             title = (f"Monitored plate {plate} seen — {note}" if note
                      else f"Monitored plate {plate} seen")
@@ -1193,6 +1195,7 @@ class PlateAlerter(Detector):
         elif fuzzy_match is not None and fuzzy_match.get("kind") in ("registry", "allowlist"):
             canonical = str(fuzzy_match["plate"])
             severity = "low"
+            alert_type = "plate_expected"
             if fuzzy_match["kind"] == "registry":
                 entry = self._registry.get(canonical) or {}
                 owner = entry.get("owner", "")
@@ -1204,6 +1207,7 @@ class PlateAlerter(Detector):
                          f"read {plate}")
         elif unknown_alarm:
             severity, title = "high", f"Unknown vehicle {plate}"
+            alert_type = "plate_unknown"
         elif registry_entry is not None:
             owner = registry_entry.get("owner", "")
             unit = registry_entry.get("unit", "")
@@ -1214,15 +1218,19 @@ class PlateAlerter(Detector):
                 else ""
             )
             severity, title = "low", f"Registered vehicle {plate} seen{tag}"
+            alert_type = "plate_expected"
         elif plate in allowlist:
             severity, title = "low", f"Expected plate {plate} seen"
+            alert_type = "plate_expected"
         else:
             severity, title = "info", f"Plate {plate} read"
+            alert_type = "plate_read"
         conf_note = (
             f", confidence={confidence:.2f}" if confidence is not None else ""
         )
         return Alert(
             severity=severity,
+            alert_type=alert_type,
             title=title,
             description=(
                 f"License plate '{plate}' read on camera "

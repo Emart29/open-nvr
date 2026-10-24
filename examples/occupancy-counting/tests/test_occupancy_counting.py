@@ -71,6 +71,7 @@ def test_fires_over_when_count_exceeds_max():
     fired = c.handle_event(_event(3))           # over the limit
     assert len(fired) == 1
     assert fired[0].evidence["level"] == "over"
+    assert fired[0].alert_type == "occupancy_over"
     assert fired[0].evidence["count"] == 3
 
 
@@ -93,6 +94,7 @@ def test_cleared_alert_only_when_enabled():
     cleared = c2.handle_event(_event(1))         # back to normal
     assert len(cleared) == 1
     assert cleared[0].severity == "low"
+    assert cleared[0].alert_type == "occupancy_cleared"
 
 
 def test_under_occupancy():
@@ -101,6 +103,7 @@ def test_under_occupancy():
     fired = c.handle_event(_event(0))            # below minimum
     assert len(fired) == 1
     assert fired[0].evidence["level"] == "under"
+    assert fired[0].alert_type == "occupancy_under"
 
 
 def test_debounce_requires_persistence():

@@ -1321,6 +1321,7 @@ class OccupancyCounter(Detector):
             ),
             camera_id=camera.camera_id,
             severity="medium",
+            alert_type="occupancy_dwell",
             correlation_id=str(event.get("correlation_id") or ""),
             evidence={
                 "track_id": track_id,
@@ -1436,6 +1437,7 @@ class OccupancyCounter(Detector):
             description=description,
             camera_id=camera.camera_id,
             severity=severity,
+            alert_type={"over": "occupancy_over", "under": "occupancy_under"}.get(level, "occupancy_cleared"),
             correlation_id=correlation_id,
             evidence={
                 "count": count,
