@@ -13,6 +13,15 @@ the transition. The camera's own ONVIF tamper alarm, where the camera has
 one, still arrives through core's native-alarm route; this app covers the
 cameras that have none and the faults the camera cannot judge about itself.
 
+## What you see
+
+The app's page in the catalog shows cameras watched, cameras tampered
+now, tamper alerts today, a focus gauge per camera (sharpness now as a
+share of the reference view's), a per-camera table (condition, how long,
+focus, match with the reference, alerts today), today's alerts by
+condition, a recent-events log and a gallery pairing each alert's frame
+with the camera's reference view.
+
 ## What it emits
 
 | Alert | When | Severity |
