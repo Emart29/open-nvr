@@ -45,16 +45,24 @@ def entries() -> list[AdapterIndexEntry]:
     return load_adapters_index()
 
 
-def known_task_names() -> set[str]:
+def canonical_task_names() -> dict[str, str]:
+    """Every task name and alias in tasks.yml, mapped to its canonical
+    name. KAI-C routes an alias to the same adapters as the task it
+    aliases, so the catalog checks have to see them as one name too."""
     rows = yaml.safe_load(TASKS_PATH.read_text()) or []
     rows = rows if isinstance(rows, list) else rows.get("tasks", [])
-    names: set[str] = set()
+    canon: dict[str, str] = {}
     for row in rows:
-        if isinstance(row, dict):
-            if row.get("task"):
-                names.add(str(row["task"]))
-            names.update(str(a) for a in (row.get("aliases") or []))
-    return names
+        if isinstance(row, dict) and row.get("task"):
+            name = str(row["task"])
+            canon[name] = name
+            for alias in row.get("aliases") or []:
+                canon[str(alias)] = name
+    return canon
+
+
+def known_task_names() -> set[str]:
+    return set(canonical_task_names())
 
 
 # ── The catalog itself ──────────────────────────────────────────────
@@ -101,9 +109,10 @@ def test_every_task_an_app_requires_has_an_adapter(entries):
     """The catalog's reason to exist: an app that requires a task with
     no listed adapter greys out on a fresh install, and the operator is
     told to find a model with no idea where to look."""
-    advertised = {task for entry in entries for task in entry.tasks_advertised}
+    canon = canonical_task_names()
+    advertised = {canon.get(task, task) for entry in entries for task in entry.tasks_advertised}
     apps = yaml.safe_load(APPS_INDEX_PATH.read_text()) or []
-    required = {str(task) for app in apps if isinstance(app, dict)
+    required = {canon.get(str(task), str(task)) for app in apps if isinstance(app, dict)
                 for task in (app.get("requires_tasks") or [])}
     missing = sorted(required - advertised)
     assert not missing, (
