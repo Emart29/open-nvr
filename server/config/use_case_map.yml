@@ -61,3 +61,9 @@
   also_needs: [speech_to_text, text_to_speech, object_detection]
   suggested_apps: [camera-agent]
   suggested_adapters: [blip, whisper, piper, yolov8]
+
+- use_case: "Is the camera still watching?"
+  intent: "Alert when a camera is covered, defocused, knocked out of position or its stream freezes."
+  needs_capability: null
+  suggested_apps: [camera-tamper]
+  suggested_adapters: []
