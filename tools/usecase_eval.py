@@ -280,6 +280,13 @@ def run_folder(api: Api, folder: Path, rig_dir: Path, camera_id: int) -> list[di
         length = clip_seconds(clip)
         settle = float(spec.get("settle_seconds", 20))
         stage(clip, rig_dir)
+        # The rig republishes the same path for every clip; core's proxy
+        # path and capture can be left holding the previous source. Ask core
+        # to provision the camera afresh so the new publish is picked up.
+        try:
+            api.post(f"/api/v1/cameras/{camera_id}/provision-mediamtx")
+        except httpx.HTTPError as exc:
+            print(f"    (re-provision failed: {exc}; continuing)", flush=True)
         start = datetime.now(timezone.utc)              # the window opens with the stream: a first-loop alert must count
         pickup = 25                                     # rig scan, stream start, MediaMTX source retry, detector pickup
         print(f"  {clip.name}: playing {length:.0f}s (+{pickup}s pickup, +{settle:.0f}s settle)", flush=True)
