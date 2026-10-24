@@ -56,6 +56,35 @@ class NatsSubscriberMixin:
         (decode + isolate + dispatch)."""
         raise NotImplementedError  # pragma: no cover — archetype hook
 
+    def _nats_callbacks(self) -> dict[str, Any]:
+        """nats-py's callbacks, quietened. Its default error callback logs
+        every connect failure as an ERROR with a traceback, and the first
+        connect of a freshly registered app usually fails once: core mints
+        the app's bus user a moment after answering the registration, and
+        the apps-bus hostname may not resolve yet on a cold stack. nats-py
+        retries on its own, so each distinct cause is one WARNING, and the
+        recovery is one INFO."""
+        seen: set[str] = set()
+
+        async def error_cb(exc: Exception) -> None:
+            cause = f"{type(exc).__name__}: {exc}"
+            if cause in seen:
+                return
+            seen.add(cause)
+            logger.warning("NATS: %s — retrying (an app's bus user is minted just "
+                           "after it registers; a cold stack may still be resolving names)", exc)
+
+        async def reconnected_cb() -> None:
+            if seen:
+                logger.info("NATS: connected after retry")
+            seen.clear()
+
+        async def disconnected_cb() -> None:
+            logger.warning("NATS: disconnected — reconnecting")
+
+        return {"error_cb": error_cb, "reconnected_cb": reconnected_cb,
+                "disconnected_cb": disconnected_cb}
+
     async def _run_nats_loop(self, *, once: bool) -> None:
         import nats
 
@@ -65,6 +94,7 @@ class NatsSubscriberMixin:
             "connect_timeout": 5.0,
             "reconnect_time_wait": 1.0,
             "max_reconnect_attempts": -1,
+            **self._nats_callbacks(),
         }
         # The apps bus as this app (user = app id, password = app key)
         # when core told us where it is; the configured URL + site token

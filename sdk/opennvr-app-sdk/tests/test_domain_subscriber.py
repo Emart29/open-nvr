@@ -105,6 +105,52 @@ def test_nats_loop_subscribes_to_every_subject(monkeypatch):
     assert app.seen == [("plate.recognized.v1", "cam3")]
 
 
+def test_nats_loop_hands_nats_quiet_callbacks(monkeypatch, caplog):
+    """A failing first connect is one WARNING per cause, not an ERROR with a
+    traceback per attempt; recovery is one INFO (#685)."""
+    import logging
+
+    captured: dict = {}
+
+    class _Sub:
+        async def unsubscribe(self):
+            pass
+
+    class _NC:
+        async def subscribe(self, subject, cb=None):
+            await cb(SimpleNamespace(data=json.dumps(_envelope()).encode(), subject=subject))
+            return _Sub()
+
+        async def drain(self):
+            pass
+
+    async def _connect(**kw):
+        captured.update(kw)
+        return _NC()
+
+    import sys
+    monkeypatch.setitem(sys.modules, "nats", SimpleNamespace(connect=_connect))
+    app = _Gate(_cfg())
+    asyncio.run(app._run_nats_loop(once=True))
+    assert captured["max_reconnect_attempts"] == -1
+    for name in ("error_cb", "reconnected_cb", "disconnected_cb"):
+        assert callable(captured[name]), name
+
+    async def _drive():
+        with caplog.at_level(logging.INFO, logger="opennvr_app_sdk.nats_loop"):
+            await captured["error_cb"](Exception("nats: 'Authorization Violation'"))
+            await captured["error_cb"](Exception("nats: 'Authorization Violation'"))
+            await captured["error_cb"](OSError("gaierror: nats-apps"))
+            await captured["reconnected_cb"]()
+            await captured["reconnected_cb"]()
+
+    asyncio.run(_drive())
+    records = [r for r in caplog.records if r.name == "opennvr_app_sdk.nats_loop" and r.message.startswith("NATS:")]
+    assert [r.levelname for r in records] == ["WARNING", "WARNING", "INFO"]
+    assert "Authorization Violation" in records[0].message and "gaierror" in records[1].message
+    assert all(r.exc_info is None for r in records)
+
+
 # ── InferStream ────────────────────────────────────────────────────────
 
 
