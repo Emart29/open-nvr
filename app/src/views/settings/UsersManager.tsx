@@ -59,7 +59,7 @@ export function UsersManager() {
   const [error, setError] = useState<string | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [total, setTotal] = useState(0)
-  const [activeOnly, setActiveOnly] = useState(true)
+  const [userView, setUserView] = useState<'active' | 'deactivated'>('active')
   const [limit, setLimit] = useState(20)
   const [page, setPage] = useState(1)
   const skip = useMemo(() => (page - 1) * limit, [page, limit])
@@ -67,8 +67,8 @@ export function UsersManager() {
   const [editing, setEditing] = useState<User | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
-  // Delete and activate both require the admin's TOTP code, confirmed in one dialog.
-  const [confirmAction, setConfirmAction] = useState<{ kind: 'delete' | 'activate'; user: User } | null>(null)
+  // Permanent deletion and reactivation require the admin's TOTP code.
+  const [confirmAction, setConfirmAction] = useState<{ kind: 'delete' | 'permanent-delete' | 'activate'; user: User } | null>(null)
   const [mfaCode, setMfaCode] = useState('')
 
   const [form, setForm] = useState<UserForm>({ username: '', email: '', password: '', role_id: 1, first_name: '', last_name: '', is_superuser: false })
@@ -78,6 +78,7 @@ export function UsersManager() {
   const [roles, setRoles] = useState<Role[]>([])
 
   const canAdmin = !!me?.is_superuser
+  const isActiveView = userView === 'active'
 
   useEffect(() => {
     if (!canAdmin) return
@@ -85,10 +86,8 @@ export function UsersManager() {
       try {
         setLoading(true)
         setError(null)
-  const { data } = await apiService.getUsers({ skip, limit, active_only: activeOnly })
+  const { data } = await apiService.getUsers({ skip, limit, active_only: false, is_active: isActiveView })
   setUsers(data.users)
-  // Backend returns total count of all users (not filtered) — this can mismatch when active_only=true.
-  // Keep it for non-filtered views, but ignore for active-only pagination.
   setTotal(data.total ?? 0)
   // Load roles for dropdown
   const rolesRes = await apiService.getRoles()
@@ -99,7 +98,7 @@ export function UsersManager() {
         setLoading(false)
       }
     })()
-  }, [canAdmin, skip, limit, activeOnly])
+  }, [canAdmin, skip, limit, isActiveView])
 
   const resetForm = () => { setForm({ username: '', email: '', password: '', role_id: 1, first_name: '', last_name: '', is_superuser: false }); setFormMfaCode('') }
 
@@ -122,7 +121,7 @@ export function UsersManager() {
       setShowCreateDialog(false)
       resetForm()
       // refresh
-  const { data } = await apiService.getUsers({ skip, limit, active_only: activeOnly })
+  const { data } = await apiService.getUsers({ skip, limit, active_only: false, is_active: isActiveView })
   setUsers(data.users)
   setTotal(data.total ?? 0)
     } catch (e: any) {
@@ -154,7 +153,7 @@ export function UsersManager() {
       setShowEditDialog(false)
       setEditing(null)
       resetForm()
-  const { data } = await apiService.getUsers({ skip, limit, active_only: activeOnly })
+  const { data } = await apiService.getUsers({ skip, limit, active_only: false, is_active: isActiveView })
   setUsers(data.users)
   setTotal(data.total ?? 0)
     } catch (e: any) {
@@ -171,17 +170,24 @@ export function UsersManager() {
       setLoading(true)
       setError(null)
       if (confirmAction.kind === 'delete') {
-        await apiService.deleteUser(confirmAction.user.id, mfaCode.trim())
+        await apiService.deleteUser(confirmAction.user.id)
+      } else if (confirmAction.kind === 'permanent-delete') {
+        await apiService.permanentlyDeleteUser(confirmAction.user.id, mfaCode.trim())
       } else {
         await apiService.activateUser(confirmAction.user.id, mfaCode.trim())
       }
       setConfirmAction(null)
       setMfaCode('')
-      const { data } = await apiService.getUsers({ skip, limit, active_only: activeOnly })
+      const { data } = await apiService.getUsers({ skip, limit, active_only: false, is_active: isActiveView })
       setUsers(data.users)
       setTotal(data.total ?? 0)
     } catch (e: any) {
-      setError(extractApiError(e, confirmAction.kind === 'delete' ? 'Failed to delete user' : 'Failed to activate user'))
+      const fallback = confirmAction.kind === 'delete'
+        ? 'Failed to delete user'
+        : confirmAction.kind === 'permanent-delete'
+          ? 'Failed to permanently delete user'
+          : 'Failed to activate user'
+      setError(extractApiError(e, fallback))
     } finally {
       setLoading(false)
     }
@@ -209,21 +215,33 @@ export function UsersManager() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
-  const hasNext = users.length === limit
+  const hasNext = page < totalPages
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold">{t('admin.users')}</h2>
         <div className="ml-auto flex items-center gap-2 text-sm">
-          <label className="inline-flex items-center gap-1">
-            <input type="checkbox" className="accent-[var(--accent)]" checked={activeOnly} onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }} /> {t('admin.activeOnly')}
-          </label>
           <select className="bg-[var(--panel-2)] border border-[var(--border)] px-2 py-1" value={limit} onChange={(e) => { setPage(1); setLimit(Number(e.target.value)) }}>
             {[10, 20, 50].map(n => <option key={n} value={n}>{n}/page</option>)}
           </select>
           <button className="px-2 py-1 bg-[var(--accent)] text-white" onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm(); setError(null) }}>{t('admin.addUser')}</button>
         </div>
+      </div>
+
+      <div className="flex gap-1 border-b border-[var(--border)]" role="tablist" aria-label="User status">
+        {(['active', 'deactivated'] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={userView === view}
+            className={`px-4 py-2 text-sm border-b-2 ${userView === view ? 'border-[var(--accent)] text-[var(--accent)] font-semibold' : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text)]'}`}
+            onClick={() => { setPage(1); setUserView(view); setError(null) }}
+          >
+            {view === 'active' ? 'Active users' : 'Deactivated users'}
+          </button>
+        ))}
       </div>
 
       {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
@@ -351,11 +369,11 @@ export function UsersManager() {
         </Modal>
       )}
 
-      {/* Delete / Activate confirmation dialog (both MFA-gated) */}
+      {/* Permanent deletion and reactivation are MFA-gated; soft deletion is reversible. */}
       {confirmAction && (
         <Modal
           open
-          title={<span className={`font-semibold flex items-center gap-2 ${confirmAction.kind === 'delete' ? 'text-[var(--danger)]' : 'text-[var(--ok)]'}`}>{confirmAction.kind === 'delete' ? <Trash2 size={18} /> : <UserCheck size={18} />} {confirmAction.kind === 'delete' ? 'Delete User' : 'Activate User'}</span>}
+          title={<span className={`font-semibold flex items-center gap-2 ${confirmAction.kind === 'activate' ? 'text-[var(--ok)]' : 'text-[var(--danger)]'}`}>{confirmAction.kind === 'activate' ? <UserCheck size={18} /> : <Trash2 size={18} />} {confirmAction.kind === 'activate' ? 'Reactivate user?' : confirmAction.kind === 'delete' ? 'Delete user?' : 'Delete permanently?'}</span>}
           onClose={() => { setConfirmAction(null); setMfaCode(''); setError(null) }}
           widthClassName="w-[calc(100vw-2rem)] max-w-md"
           bodyClassName="p-0 flex flex-col"
@@ -368,32 +386,40 @@ export function UsersManager() {
             )}
             <div className="p-3 bg-[var(--bg-2)] border border-[var(--border)] text-sm">
               {confirmAction.kind === 'delete' ? (
-                <>You are about to delete <span className="font-semibold">{confirmAction.user.username}</span> ({confirmAction.user.email}). They will no longer be able to log in.</>
+                <>Delete <span className="font-semibold">{confirmAction.user.username}</span> ({confirmAction.user.email})? This will deactivate their account, so they can no longer sign in. You can reactivate them later or permanently delete them from Deactivated users.</>
+              ) : confirmAction.kind === 'permanent-delete' ? (
+                <>Permanently delete <span className="font-semibold">{confirmAction.user.username}</span> ({confirmAction.user.email})? This cannot be undone. Required records must be resolved first, and historical audit records will be retained.</>
               ) : (
                 <>You are about to reactivate <span className="font-semibold">{confirmAction.user.username}</span> ({confirmAction.user.email}). They will be able to log in again.</>
               )}
             </div>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-[var(--text-dim)]">Your MFA code *</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm tracking-widest"
-                placeholder="123456"
-                value={mfaCode}
-                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
-                autoFocus
-                required
-              />
-              <span className="text-[10px] text-[var(--text-dim)]">Enter the 6-digit code from your authenticator app to confirm this action.</span>
-            </label>
+            {confirmAction.kind !== 'delete' && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-[var(--text-dim)]">Your MFA code *</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm tracking-widest"
+                  placeholder="123456"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                  autoFocus
+                  required
+                />
+                <span className="text-[10px] text-[var(--text-dim)]">Enter the 6-digit code from your authenticator app to confirm this action.</span>
+              </label>
+            )}
           </div>
           <div className="flex items-center justify-end gap-2 p-4 border-t border-[var(--border)]">
             <button type="button" className="px-4 py-2 text-sm border border-[var(--border)] hover:bg-[var(--panel-2)]" onClick={() => { setConfirmAction(null); setMfaCode(''); setError(null) }}>Cancel</button>
-            <button type="submit" className={`px-4 py-2 text-sm text-white disabled:opacity-50 ${confirmAction.kind === 'delete' ? 'bg-[var(--critical)] hover:bg-[var(--critical)]' : 'bg-[var(--ok)] hover:bg-[color-mix(in_oklab,var(--ok)_14%,transparent)]'}`} disabled={loading || mfaCode.length !== 6}>
-              {confirmAction.kind === 'delete' ? (loading ? 'Deleting...' : 'Delete User') : (loading ? 'Activating...' : 'Activate User')}
+            <button type="submit" className={`px-4 py-2 text-sm text-white disabled:opacity-50 ${confirmAction.kind === 'activate' ? 'bg-[var(--ok)] hover:bg-[color-mix(in_oklab,var(--ok)_14%,transparent)]' : 'bg-[var(--critical)] hover:bg-[var(--critical)]'}`} disabled={loading || (confirmAction.kind !== 'delete' && mfaCode.length !== 6)}>
+              {confirmAction.kind === 'activate'
+                ? (loading ? 'Reactivating...' : 'Reactivate user')
+                : confirmAction.kind === 'delete'
+                  ? (loading ? 'Deleting...' : 'Delete user')
+                  : (loading ? 'Deleting...' : 'Permanently Delete User')}
             </button>
           </div>
         </form>
@@ -426,12 +452,15 @@ export function UsersManager() {
                 <td className="p-2">{u.is_superuser ? t('common.yes') : t('common.no')}</td>
                 <td className="p-2 space-x-2">
                   <button className="px-2 py-1 border border-[var(--border)] bg-[var(--panel-2)]" onClick={() => startEdit(u)}>{t('admin.edit')}</button>
-                  {u.is_active ? (
+                  {isActiveView ? (
                     me?.id !== u.id && (
-                      <button className="px-2 py-1 border border-[var(--border)] bg-[var(--panel-2)]" onClick={() => { setConfirmAction({ kind: 'delete', user: u }); setMfaCode(''); setError(null) }}>{t('admin.delete')}</button>
+                      <button className="px-2 py-1 border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)]" onClick={() => { setConfirmAction({ kind: 'delete', user: u }); setMfaCode(''); setError(null) }}>Delete</button>
                     )
                   ) : (
                     <button className="px-2 py-1 border border-[color-mix(in_oklab,var(--ok)_45%,var(--border))] bg-[color-mix(in_oklab,var(--ok)_14%,transparent)] text-[var(--ok)]" onClick={() => { setConfirmAction({ kind: 'activate', user: u }); setMfaCode(''); setError(null) }}>{t('admin.activateUser')}</button>
+                  )}
+                  {!isActiveView && me?.id !== u.id && (
+                    <button className="px-2 py-1 border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))] text-[var(--danger)]" onClick={() => { setConfirmAction({ kind: 'permanent-delete', user: u }); setMfaCode(''); setError(null) }}>Delete permanently</button>
                   )}
                 </td>
               </tr>
@@ -447,12 +476,8 @@ export function UsersManager() {
 
       <div className="flex items-center gap-2 text-sm">
         <button className="px-2 py-1 border border-[var(--border)] bg-[var(--panel-2)]" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>{t('admin.previous')}</button>
-        {activeOnly ? (
-          <span>{t('admin.page')} {page}</span>
-        ) : (
-          <span>{t('admin.page')} {page} / {totalPages}</span>
-        )}
-        <button className="px-2 py-1 border border-[var(--border)] bg-[var(--panel-2)]" disabled={activeOnly ? !hasNext : page >= totalPages} onClick={() => setPage((p) => p + 1)}>{t('admin.next')}</button>
+        <span>{t('admin.page')} {page} / {totalPages}</span>
+        <button className="px-2 py-1 border border-[var(--border)] bg-[var(--panel-2)]" disabled={!hasNext} onClick={() => setPage((p) => p + 1)}>{t('admin.next')}</button>
       </div>
     </div>
   )

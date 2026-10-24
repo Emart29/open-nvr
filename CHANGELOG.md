@@ -8,6 +8,24 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The workflow file's `ai:` step, checked and run.**
+  `opennvr_app_sdk.workflows`: `check_ai_step()` lists everything wrong
+  with a step (an actuator or unknown skill as a tool, a rule naming an
+  unknown field or outcome, an outcome with no path, a placeholder in the
+  instructions, YAML's unquoted yes/no), and `run_ai_step()` runs a Look or
+  Investigate step to its outcome, its path, the `workflow_run_steps` row
+  and the trace rows; an `ask` tool suspends into the row and
+  `resume_ai_step()` carries on. Defaults for #620's open questions: rules
+  required in Investigate, optional in Look; the hardware class comes from
+  the engine (CPU when unset); the severity cap is the `alert` action's.
+  `Decision.rule` now says which rule fired.
+- **Rule tables in AI steps.** `DecisionSpec(rules=...)`: the model reports
+  typed facts, a reason and a confidence, and the first matching `Rule`
+  decides; no match is `unsure` (`no_rule`). The Investigate eval gains
+  `--rules`, a rule table frozen before 20 new held-out cases were written,
+  and the raw runs. On the held-out cases the rules did not raise the pass
+  rate (granite4:micro 29 → 30/60), and the original cases overstate the
+  models (45/60 there); see MODELS_AND_LATENCY.md.
 - **App SDK 0.9.0.** Publishes the Look step of an AI workflow —
   `opennvr_app_sdk.agent.run_look()` with `DecisionSpec`, `Decision`,
   `Limits` and the trace rows (#651, by @Emart29) — and the registry's
@@ -40,6 +58,15 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it (#674). Now the gate measures the code that ships; the harness keeps
   only the fixture tools and the scoring. `--combined` is gone (its finding,
   that the decision needs its own call, is in MODELS_AND_LATENCY.md).
+
+### Fixed
+
+- **The "today" search tests no longer fail just after midnight.** The API
+  parsed "today" against the wall clock while the rows were stamped a few
+  minutes earlier, so a run near local midnight put them on yesterday
+  (`[] == [1]` in CI). The tests now pin the search parser's clock to the
+  rows' and keep that clock clear of midnight; checked with the local time
+  set to 23:59:50, 00:00:30, 00:01:30, 00:04 and 00:39.
 
 ## [0.1.8] — 2026-10-17
 
