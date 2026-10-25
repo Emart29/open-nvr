@@ -91,6 +91,15 @@ class User(Base):
 
     # Store encrypted MFA secret
     encrypted_mfa_secret = Column(String(500), nullable=True)
+    # Bumped on every password change or reset; tokens carry it as ``ver``
+    # and stop working when it moves, so a reset ends the old sessions.
+    token_version = Column(Integer, default=0, nullable=False, server_default="0")
+    # "local" (NULL) or "oidc": an account that signs in through the
+    # site's identity provider has no usable password here and skips the
+    # TOTP wall (the provider owns MFA).
+    auth_provider = Column(String(16), nullable=True)
+    oidc_issuer = Column(String(255), nullable=True)
+    oidc_subject = Column(String(255), nullable=True, index=True)
 
     @property
     def mfa_secret(self):

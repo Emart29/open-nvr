@@ -153,7 +153,7 @@ def verify_token(token: str) -> TokenData | None:
             )
             return None
 
-        token_data = TokenData(username=username)
+        token_data = TokenData(username=username, ver=payload.get("ver"))
         auth_logger.log_action(
             "auth.token_verify_success",
             message=f"Token verified successfully for user: {username}",
@@ -211,6 +211,15 @@ def get_current_user(
         )
         raise credentials_exception
 
+    if token_data.ver is not None and int(token_data.ver) != int(user.token_version or 0):
+        # The password was changed or reset after this token was issued.
+        auth_logger.log_action(
+            "auth.user_auth_failed",
+            user_id=user.id,
+            message=f"User authentication failed: stale token version - {user.username}",
+            extra_data={"username": user.username, "reason": "token_version"},
+        )
+        raise credentials_exception
     if not user.is_active:
         auth_logger.log_action(
             "auth.user_auth_failed",

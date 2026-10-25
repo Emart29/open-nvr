@@ -170,6 +170,7 @@ class UserService:
                         db, db_user.username, db_user.email, new_password
                     )
                     db_user.hashed_password = get_password_hash(new_password)
+                    db_user.token_version = int(db_user.token_version or 0) + 1   # old sessions end
                 for field, value in update_data.items():
                     setattr(db_user, field, value)
                 db.flush()
