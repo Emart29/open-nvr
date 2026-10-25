@@ -249,3 +249,22 @@ def test_camera_edit_and_delete_need_cameras_manage(method):
     names = _gate_names(cameras_router.router, "/cameras/{camera_id}", method)
     assert "require_permission[cameras.manage]" in names
     assert "get_camera_or_403" in names       # ownership still required too
+
+
+# ── admin password reset ──────────────────────────────────────────────
+def test_admin_password_reset_is_mfa_gated_and_takes_effect(env):
+    url = f"/api/v1/users/{env.plain.id}"
+    new = "N3w!passw0rd-ok"
+    assert env.client.put(url, json={"password": new}, headers=_auth("root")).status_code == 401
+    assert env.client.put(url, json={"password": "short"},
+                          headers={**_auth("root"), "X-MFA-Code": _code(env)}).status_code == 422
+    r = env.client.put(url, json={"password": new},
+                       headers={**_auth("root"), "X-MFA-Code": _code(env)})
+    assert r.status_code == 200, r.text
+    assert "password" not in r.json() and "hashed_password" not in r.json()
+    env.db.expire_all()
+    row = env.db.query(User).filter_by(username="plain").one()
+    assert core_auth.verify_password(new, row.hashed_password)
+    assert not core_auth.verify_password(PASSWORD, row.hashed_password)
+    # A plain user cannot reset anyone's password through this route.
+    assert env.client.put(url, json={"password": new}, headers=_auth("plain")).status_code in (401, 403)

@@ -382,6 +382,8 @@ export const translations: TranslationCatalog = {
   'admin.addRole': 'Add Role',
   'admin.createUser': 'Create User',
   'admin.createRole': 'Create Role',
+  'admin.newPassword': 'New password (optional)',
+  'admin.newPasswordHint': 'Leave empty to keep the current password; setting one resets it',
   'admin.updateUser': 'Update User',
   'admin.updateRole': 'Update Role',
   'admin.editUser': 'Edit User',
