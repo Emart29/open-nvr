@@ -385,6 +385,11 @@ class UserUpdate(BaseModel):
     # last active superuser can never be demoted (nor can you demote
     # yourself) — a site with no superuser has no way back.
     is_superuser: bool | None = None
+    # Set a new password for the user (an admin reset: there is no
+    # self-service recovery without mail). Superuser-only route; requires
+    # the caller's TOTP code (X-MFA-Code) like promote/demote. The site
+    # password policy applies.
+    password: str | None = Field(None, min_length=8, max_length=128)
 
 
 class CameraAssignment(BaseModel):

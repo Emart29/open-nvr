@@ -147,9 +147,12 @@ export function UsersManager() {
       }
       const superuserChanged = !!form.is_superuser !== !!editing.is_superuser
       if (superuserChanged) payload.is_superuser = !!form.is_superuser
+      // An admin password reset rides the same update; MFA-gated like a promotion.
+      const passwordReset = !!(form.password && form.password.length > 0)
+      if (passwordReset) payload.password = form.password
       // Remove undefined fields
       Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k])
-      await apiService.updateUser(editing.id, payload, superuserChanged ? formMfaCode.trim() : undefined)
+      await apiService.updateUser(editing.id, payload, superuserChanged || passwordReset ? formMfaCode.trim() : undefined)
       setShowEditDialog(false)
       setEditing(null)
       resetForm()
@@ -353,9 +356,13 @@ export function UsersManager() {
               <label className="flex items-center gap-2 mt-5 text-sm" title={me?.id === editing.id ? 'You cannot change your own superuser status' : 'A superuser holds every permission and sees every camera, regardless of role'}>
                 <input type="checkbox" className="accent-[var(--accent)]" checked={!!form.is_superuser} onChange={(e) => setForm({ ...form, is_superuser: e.target.checked })} disabled={me?.id === editing.id} /> Superuser
               </label>
-              {!!form.is_superuser !== !!editing.is_superuser && (
+              <label className="flex flex-col gap-1 col-span-2">
+                <span className="text-xs text-[var(--text-dim)]">{t('admin.newPassword')}</span>
+                <input type="password" autoComplete="new-password" className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm" placeholder={t('admin.newPasswordHint')} value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={8} />
+              </label>
+              {(!!form.is_superuser !== !!editing.is_superuser || !!form.password) && (
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-[var(--text-dim)]">Your MFA code * (required to {form.is_superuser ? 'promote' : 'demote'})</span>
+                  <span className="text-xs text-[var(--text-dim)]">Your MFA code * (required to {form.password ? 'reset the password' : form.is_superuser ? 'promote' : 'demote'})</span>
                   <input className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm font-mono" inputMode="numeric" maxLength={6} value={formMfaCode} onChange={(e) => setFormMfaCode(e.target.value.replace(/\D/g, ''))} required />
                 </label>
               )}
@@ -363,7 +370,7 @@ export function UsersManager() {
           </div>
           <div className="flex items-center justify-end gap-2 p-4 border-t border-[var(--border)]">
             <button type="button" className="px-4 py-2 text-sm border border-[var(--border)] hover:bg-[var(--panel-2)]" onClick={() => { setShowEditDialog(false); setEditing(null); resetForm(); setError(null) }}>{t('admin.cancel')}</button>
-            <button type="submit" className="px-4 py-2 text-sm bg-[var(--accent)] text-white disabled:opacity-50" disabled={loading || (!!form.is_superuser !== !!editing.is_superuser && formMfaCode.length !== 6)}>{loading ? t('common.loading') : t('admin.updateUser')}</button>
+            <button type="submit" className="px-4 py-2 text-sm bg-[var(--accent)] text-white disabled:opacity-50" disabled={loading || ((!!form.is_superuser !== !!editing.is_superuser || !!form.password) && formMfaCode.length !== 6)}>{loading ? t('common.loading') : t('admin.updateUser')}</button>
           </div>
         </form>
         </Modal>
