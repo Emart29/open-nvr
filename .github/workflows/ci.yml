@@ -60,7 +60,7 @@ jobs:
       # installer's reconciler and the apps' egress proxy. Same venv —
       # they need nothing but pytest (and PyYAML for the index).
       - name: Sidecars (app-installer, egress-proxy, mdns-announcer)
-        run: server/.venv/bin/python -m pytest -q -p no:cacheprovider scripts/app-installer/tests scripts/egress-proxy/tests scripts/mdns-announcer/test_announcer.py
+        run: server/.venv/bin/python -m pytest -q -p no:cacheprovider scripts/app-installer/tests scripts/egress-proxy/tests scripts/mdns-announcer/test_announcer.py tools/tests
       # The Home Assistant contract (HA-115): a change to
       # server/contract/contract.json needs the matching version bump
       # (MAJOR for anything removed or narrowed, MINOR for additions).
