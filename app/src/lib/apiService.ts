@@ -20,6 +20,7 @@
 // New code should import directly from @/services/*
 
 import { authService } from '../services/authService'
+import { authSettingsService } from '../services/authSettingsService'
 import { cameraService } from '../services/cameraService'
 import { mediaMtxService } from '../services/mediaMtxService'
 import { recordingService } from '../services/recordingService'
@@ -36,6 +37,7 @@ import { vehiclesService } from '../services/vehiclesService'
 
 export const apiService = {
   ...authService,
+  ...authSettingsService,
   ...cameraService,
   ...mediaMtxService,
   ...recordingService,

@@ -31,6 +31,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Login } from './views/Login'
 import { MFASetup } from './views/MFASetup'
 import { MFAVerify } from './views/MFAVerify'
+import { ResetPassword } from './views/ResetPassword'
 import { I18nProvider } from './i18n'
 
 // Views are lazy-loaded so each route becomes its own chunk instead of one
@@ -148,7 +149,7 @@ function ProtectedShell() {
   const { user, loading } = useAuth()
   if (loading) return <div className="p-4 text-sm">Loading…</div>
   if (!user) return <Login />
-  if (!user.mfa_enabled) return <MFASetup />
+  if (!user.mfa_enabled && user.auth_provider !== 'oidc') return <MFASetup />   // the provider owns MFA for SSO accounts
   return <AppShell />
 }
 
@@ -221,6 +222,7 @@ const router = createBrowserRouter([
   { path: '/register', element: lazyRoute(<Register />) },
   { path: '/mfa-setup', element: <MFASetup /> },
   { path: '/mfa-verify', element: <MFAVerify /> },
+  { path: '/reset-password', element: lazyRoute(<ResetPassword />) },
 ])
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

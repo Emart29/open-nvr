@@ -27,6 +27,7 @@ type User = {
   role_id: number
   is_superuser: boolean
   mfa_enabled: boolean
+  auth_provider?: string | null
 }
 
 type AuthState = {
@@ -42,6 +43,8 @@ type AuthState = {
 
 type AuthContextType = AuthState & {
   login: (username: string, password: string, code?: string) => Promise<void>
+  // A session issued elsewhere (single sign-on): store the pair and load the user.
+  loginWithTokens: (data: { access_token: string; refresh_token: string; device_token?: string | null }) => Promise<void>
   logout: () => void
   register: (username: string, email: string, password: string) => Promise<void>
   refreshUser: () => Promise<void>
@@ -112,6 +115,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setState((s) => ({ ...s, token }))
   }, [])
+
+  const loginWithTokens = useCallback(async (data: { access_token: string; refresh_token: string; device_token?: string | null }) => {
+    setState((s) => ({ ...s, loading: true, error: null }))
+    try {
+      setDeviceToken(data.device_token)
+      setToken(data.access_token, data.refresh_token)
+      const me = await apiService.me()
+      setState({ user: me.data, token: data.access_token, loading: false, error: null, setupRequired: false, setupUsername: null })
+    } catch (e: any) {
+      setToken(null, null)
+      setState((s) => ({ ...s, loading: false, error: e?.data?.detail || e?.message || 'Sign-in failed' }))
+      throw e
+    }
+  }, [setToken])
 
   const login = useCallback(async (username: string, password: string, code?: string) => {
     setState((s) => ({ ...s, loading: true, error: null }))
@@ -201,7 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<AuthContextType>(() => ({ ...state, login, logout, register, refreshUser, checkSetupStatus }), [state, login, logout, register, refreshUser, checkSetupStatus])
+  const value = useMemo<AuthContextType>(() => ({ ...state, login, loginWithTokens, logout, register, refreshUser, checkSetupStatus }), [state, login, loginWithTokens, logout, register, refreshUser, checkSetupStatus])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
