@@ -614,10 +614,19 @@ export function SyncPlayback() {
       return
     }
     const start = clamp(previewMs ?? masterMs, dayStart, dayEnd - 1)
-    setExportSel({ startMs: start, endMs: Math.min(start + 300_000, dayEnd) })
+    const end = Math.min(start + 300_000, dayEnd)
+    setExportSel({ startMs: start, endMs: end })
     setExportCamIds(selectedIds)
     setExportDrawn(false)
     setExportMode(true)
+    // At the 24h zoom a 5-minute range is a 3-pixel sliver: open on the
+    // 1h window around it, so the range can be seen and dragged.
+    const span = ZOOMS[2].span
+    if (view.end - view.start > span) {
+      const from = clamp((start + end) / 2 - span / 2, dayStart, Math.max(dayStart, dayEnd - span))
+      setZoomIdx(2)
+      setView({ start: from, end: from + span })
+    }
   }
 
   const setExportLength = (ms: number) =>
@@ -1042,9 +1051,7 @@ export function SyncPlayback() {
                 onSelectionChange={(s) => {
                   setExportSel(s)
                   setExportDrawn(true)
-                }}
-                selectHint={exportMode && !exportDrawn ? t('playback.exportTimelineHint') : undefined}
-              />
+                }}              />
             )}
           </div>
         )}

@@ -52,8 +52,6 @@ interface MultiCamTimelineProps {
   selecting?: boolean
   selection?: { startMs: number; endMs: number } | null
   onSelectionChange?: (sel: { startMs: number; endMs: number }) => void
-  /** Shown over the tracks in range-select mode until the first drag. */
-  selectHint?: string
   className?: string
 }
 
@@ -189,7 +187,6 @@ export function MultiCamTimeline({
   selecting = false,
   selection = null,
   onSelectionChange,
-  selectHint,
   className = '',
 }: MultiCamTimelineProps) {
   const fmt = useDateFormat()
@@ -435,15 +432,6 @@ export function MultiCamTimeline({
               className="absolute top-0 bottom-3.5 pointer-events-none bg-[var(--warn)]/25 border-x-2 border-[var(--warn)]"
               style={{ left: `${selLeft}%`, width: `${selWidth}%` }}
             />
-          )}
-
-          {/* First-time instruction, right where the drag happens */}
-          {selecting && selectHint && !dragging && (
-            <div className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center pointer-events-none z-20">
-              <span className="px-2 py-0.5 text-[10px] font-semibold bg-[var(--warn)] text-black shadow">
-                ↔ {selectHint}
-              </span>
-            </div>
           )}
 
           {/* Hover guide (time chip lives in the readout strip above) */}

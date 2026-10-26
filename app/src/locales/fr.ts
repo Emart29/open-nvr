@@ -110,7 +110,6 @@ export const translations: TranslationCatalog = {
   'playback.exportDragRest': 'pour choisir la plage, ou choisissez une durée.',
   'playback.exportRangeSet': 'Plage choisie. Faites glisser à nouveau pour la changer.',
   'playback.exportLimits': 'Un MP4 par caméra · jusqu’à 4 heures',
-  'playback.exportTimelineHint': 'Faites glisser ici pour choisir la plage',
   'playback.exportDownloadN': 'Télécharger {{n}} extraits',
   'playback.dlTitle': 'Téléchargements',
   'playback.dlRunning': '{{n}} en cours',
