@@ -40,8 +40,19 @@ import {
   Scissors,
   Download,
   Upload,
+  MousePointerClick,
 } from 'lucide-react'
 import { apiService } from '../lib/apiService'
+import {
+  MAX_BUFFERED_CLIP_SECONDS,
+  canPickFiles,
+  fetchClip,
+  nativeDownload,
+  pickDestination,
+  saveBlob,
+  type ClipSink,
+} from '../lib/clipDownload'
+import { ClipDownloadPanel, clipJobRunning, type ClipJob } from '../components/ClipDownloadPanel'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { warmHls } from '../lib/loadHls'
@@ -247,7 +258,11 @@ export function SyncPlayback() {
   const [exportMode, setExportMode] = useState(false)
   const [exportSel, setExportSel] = useState<{ startMs: number; endMs: number } | null>(null)
   const [exportCamIds, setExportCamIds] = useState<number[]>([])
-  const [exporting, setExporting] = useState(false)
+  // Whether the operator has dragged a range yet (the hint changes once they have).
+  const [exportDrawn, setExportDrawn] = useState(false)
+  // Downloads in flight / just finished, shown in the panel; abort handles by job id.
+  const [clipJobs, setClipJobs] = useState<ClipJob[]>([])
+  const clipAborts = useRef(new Map<string, AbortController>())
 
   // ---- Cloud upload (superusers) -------------------------------------------
   // Queue one camera's day for the configured cloud storage. The queue is
@@ -601,6 +616,7 @@ export function SyncPlayback() {
     const start = clamp(previewMs ?? masterMs, dayStart, dayEnd - 1)
     setExportSel({ startMs: start, endMs: Math.min(start + 300_000, dayEnd) })
     setExportCamIds(selectedIds)
+    setExportDrawn(false)
     setExportMode(true)
   }
 
@@ -610,39 +626,104 @@ export function SyncPlayback() {
   const toggleExportCam = (id: number) =>
     setExportCamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
 
+  const patchJob = (id: string, patch: Partial<ClipJob>) =>
+    setClipJobs((jobs) => jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)))
+
+  // One clip: ticket, then the bytes into the picked file (Chromium), into
+  // memory for short clips elsewhere, or to the browser's own download.
+  const runClipJob = async (
+    job: ClipJob,
+    cam: OverviewCamera,
+    startIso: string,
+    open: ((name: string) => Promise<ClipSink>) | 'unsupported',
+  ) => {
+    const ctrl = new AbortController()
+    clipAborts.current.set(job.id, ctrl)
+    try {
+      const res: any = await apiService.createClipExportTicket({
+        camera_id: cam.camera_id,
+        start: startIso,
+        duration: job.durationSec,
+        filename: job.filename,
+      })
+      const url = res.data?.download_url
+      if (!url) throw new Error('No download URL returned')
+      if (open === 'unsupported' && job.durationSec > MAX_BUFFERED_CLIP_SECONDS) {
+        nativeDownload(url)
+        patchJob(job.id, { phase: 'browser' })
+        return
+      }
+      const sink = open === 'unsupported' ? undefined : await open(job.filename)
+      const out = await fetchClip(url, {
+        sink,
+        signal: ctrl.signal,
+        onProgress: (p) => patchJob(job.id, { phase: p.phase, bytes: p.bytes, mediaSeconds: p.mediaSeconds }),
+      })
+      if (out.blob) saveBlob(out.blob, job.filename)
+      patchJob(job.id, { phase: 'done', bytes: out.bytes, mediaSeconds: job.durationSec })
+      showSuccess(t('playback.dlSavedToast', { name: job.filename }))
+    } catch (e: any) {
+      if (ctrl.signal.aborted) patchJob(job.id, { phase: 'cancelled' })
+      else {
+        const msg = e?.data?.detail || e?.message || t('playback.exportFailed')
+        patchJob(job.id, { phase: 'failed', error: msg })
+        showError(`${cam.camera_name}: ${msg}`)
+      }
+    } finally {
+      clipAborts.current.delete(job.id)
+    }
+  }
+
   const runExport = async (cams: OverviewCamera[]) => {
     if (!exportSel || cams.length === 0) return
-    setExporting(true)
     const start = new Date(exportSel.startMs)
     const stamp = start.toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const duration = Math.max(1, Math.round((exportSel.endMs - exportSel.startMs) / 1000))
-    let failed = 0
-    for (const cam of cams) {
-      try {
-        const name = (cam.camera_name || `camera-${cam.camera_id}`).replace(/\s+/g, '-')
-        const res: any = await apiService.createClipExportTicket({
-          camera_id: cam.camera_id,
-          start: start.toISOString(),
-          duration,
-          filename: `${name}_${stamp}.mp4`,
-        })
-        const url = res.data?.download_url
-        if (!url) throw new Error('No download URL returned')
-        const a = document.createElement('a')
-        a.href = url
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        // Browsers drop back-to-back downloads; give each one a moment.
-        if (cams.length > 1) await new Promise((r) => setTimeout(r, 600))
-      } catch (e: any) {
-        failed++
-        showError(`${cam.camera_name}: ${e?.data?.detail || e?.message || t('playback.exportFailed')}`)
-      }
+    const durationSec = Math.max(1, Math.round((exportSel.endMs - exportSel.startMs) / 1000))
+    const range = `${clockTime(exportSel.startMs)} → ${clockTime(exportSel.endMs)}`
+    const filenames = cams.map((c) => `${(c.camera_name || `camera-${c.camera_id}`).replace(/\s+/g, '-')}_${stamp}.mp4`)
+    // Where to save is asked first, while the click still counts as a user
+    // gesture (the pickers refuse otherwise). Closing the dialog cancels.
+    let open: ((name: string) => Promise<ClipSink>) | 'unsupported' = 'unsupported'
+    if (canPickFiles()) {
+      const picked = await pickDestination(filenames)
+      if (picked === null) return
+      open = picked
     }
-    setExporting(false)
-    if (!failed) setExportMode(false)
+    const jobs: ClipJob[] = cams.map((c, i) => ({
+      id: `${Date.now()}-${c.camera_id}`,
+      camera: c.camera_name,
+      range,
+      filename: filenames[i],
+      durationSec,
+      phase: 'starting',
+      bytes: 0,
+      mediaSeconds: 0,
+    }))
+    setClipJobs((prev) => [...jobs, ...prev])
+    setExportMode(false)
+    await Promise.all(jobs.map((j, i) => runClipJob(j, cams[i], start.toISOString(), open)))
   }
+
+  const cancelClipJob = (id: string) => clipAborts.current.get(id)?.abort()
+  const dismissClipJob = (id: string) => setClipJobs((jobs) => jobs.filter((j) => j.id !== id))
+  const clearFinishedClipJobs = () => setClipJobs((jobs) => jobs.filter(clipJobRunning))
+
+  // A download in flight dies with the page: warn before leaving it, and
+  // abort cleanly if the page goes anyway.
+  const clipsRunning = clipJobs.some(clipJobRunning)
+  useEffect(() => {
+    if (!clipsRunning) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [clipsRunning])
+  useEffect(() => {
+    const aborts = clipAborts.current
+    return () => aborts.forEach((c) => c.abort())
+  }, [])
 
   // ---- Layout derivations --------------------------------------------------
   const selectedCams = useMemo(
@@ -899,20 +980,40 @@ export function SyncPlayback() {
                   </button>
                 )
               })}
-            <span className={`truncate min-w-0 ${exportProblem && exportLen >= 1000 ? 'text-[var(--warn)]' : 'text-[var(--text-dim)]'}`}>
-              {exportProblem ?? t('playback.exportRangeHint')}
-            </span>
+            {/* The one instruction this mode needs, made hard to miss: until a
+                range is dragged it says how; then it confirms. A real problem
+                (too long, no camera) takes its place in warning colours. */}
+            {exportProblem && (exportLen >= 1000 || exportDrawn) ? (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--warn)] bg-[var(--warn)]/15 text-[var(--warn)] font-medium">
+                {exportProblem}
+              </span>
+            ) : exportDrawn ? (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--ok)]/50 bg-[var(--ok)]/10 text-[var(--text)]">
+                <Check size={12} className="text-[var(--ok)] shrink-0" />
+                {t('playback.exportRangeSet')}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--warn)]/60 bg-[var(--warn)]/15 text-[var(--text)] animate-[pulse_2s_ease-in-out_3]">
+                <MousePointerClick size={13} className="text-[var(--warn)] shrink-0" />
+                <span>
+                  <strong>{t('playback.exportDragStrong')}</strong> {t('playback.exportDragRest')}
+                </span>
+              </span>
+            )}
+            <span className="text-[10px] text-[var(--text-dim)] hidden xl:inline">{t('playback.exportLimits')}</span>
             <div className="flex-1" />
             <button onClick={() => setExportMode(false)} className="btn px-2 py-0.5 text-[11px]">
               {t('common.cancel')}
             </button>
             <button
               onClick={() => runExport(exportCams)}
-              disabled={!!exportProblem || exporting}
+              disabled={!!exportProblem}
               className="btn-primary btn px-2 py-0.5 text-[11px] flex items-center gap-1 disabled:opacity-50"
             >
-              {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              {exporting ? t('playback.exporting') : t('playback.exportDownload')}
+              <Download size={12} />
+              {exportCams.length > 1
+                ? t('playback.exportDownloadN', { n: exportCams.length })
+                : t('playback.exportDownload')}
             </button>
           </div>
         )}
@@ -938,7 +1039,11 @@ export function SyncPlayback() {
                 onRowClick={setActiveId}
                 selecting={exportMode}
                 selection={exportSel}
-                onSelectionChange={setExportSel}
+                onSelectionChange={(s) => {
+                  setExportSel(s)
+                  setExportDrawn(true)
+                }}
+                selectHint={exportMode && !exportDrawn ? t('playback.exportTimelineHint') : undefined}
               />
             )}
           </div>
@@ -989,6 +1094,13 @@ export function SyncPlayback() {
         </div>
       </aside>
       )}
+
+      <ClipDownloadPanel
+        jobs={clipJobs}
+        onCancel={cancelClipJob}
+        onDismiss={dismissClipJob}
+        onClearFinished={clearFinishedClipJobs}
+      />
     </div>
   )
 }
