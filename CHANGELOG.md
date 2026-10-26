@@ -8,6 +8,18 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Camera tours for display boards.** A tour cycles a screen through
+  sets of cameras: 20 North cameras for a minute, then 20 South, and
+  round again. Build them under Settings → More Settings → Camera Tours
+  (`cameras.manage`); run one from Live View's **Tours** button or open
+  its display link (`/live/tour/<id>`) on the board. A step can use any
+  Live View layout or a plain grid up to 8×8, pages through more cameras
+  than its layout holds, and can take a whole camera Location at once.
+  Every viewer sees only their own cameras. Tiles play the substream and
+  fall back to the main stream per camera. New table `camera_tours` (one
+  additive Alembic revision); `GET /streams/{id}/info` takes an opt-in
+  `include_sub=true` and is unchanged without it. Live View's own grid
+  and the dashboard wall are untouched.
 - **Workflow runs are recorded.** Three tables, one Alembic revision:
   `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
   #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:

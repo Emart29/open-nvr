@@ -11,6 +11,7 @@ import { useCameras, type CameraItem } from '../../../lib/queries'
 import { apiService } from '../../../lib/apiService'
 import { rebaseToCurrentOrigin } from '../../../lib/streamUrl'
 import { useCameraStatus } from '../../../hooks/useCameraStatus'
+import { usePageVisible } from '../../../hooks/usePageVisible'
 import { VideoPlayer } from '../../../components/VideoPlayer'
 import { WidgetFrame, MiniSegment, cameraState, shortAge, STATE_INK, type CamState } from '../WidgetFrame'
 
@@ -39,18 +40,6 @@ function gridFor(n: number): [number, number] {
 }
 
 const STATE_RANK: Record<CamState, number> = { online: 0, degraded: 1, error: 2, offline: 3 }
-
-/** Hidden tabs hold no streams: a dashboard left open in a background tab
- *  should not keep several WebRTC sessions decoding for nobody. */
-function usePageVisible() {
-  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
-  useEffect(() => {
-    const on = () => setVisible(document.visibilityState !== 'hidden')
-    document.addEventListener('visibilitychange', on)
-    return () => document.removeEventListener('visibilitychange', on)
-  }, [])
-  return visible
-}
 
 type StreamInfo = { urls?: { webrtc?: string; webrtc_sub?: string; hls?: string }; token?: string }
 

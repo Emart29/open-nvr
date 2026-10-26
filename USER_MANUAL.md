@@ -78,6 +78,51 @@ WebRTC is the default transport. If the browser can't establish a WebRTC
 connection (corporate networks, restrictive firewalls), the player falls
 back to HLS — same content, ~3 second latency penalty.
 
+### Camera tours (display boards)
+
+A tour cycles a screen through sets of cameras, for example 20 North-zone
+cameras for a minute, then 20 South-zone cameras, then back to the start.
+Build tours under **Settings → More Settings → Camera Tours** (needs the
+`cameras.manage` permission); anyone with `live.view` can run one from the
+**Tours** button in Live View.
+
+- **Steps.** Each step is a layout, a list of cameras and how long to show
+  them (10 seconds to 1 hour). Plain grids such as 5×4 are offered next to
+  the Live View layouts, so a 20-camera wall needs no custom layout.
+- **More cameras than tiles.** A step pages through them, a full duration
+  per page: "North, all 60 cameras, 5×4" shows three pages of 20.
+- **Picking cameras.** Search by name or IP, filter by the camera's
+  **Location** field, and add a whole location at once. Filling in each
+  camera's Location (North, South, Branch 12…) is what makes this quick.
+- **Who sees what.** Every viewer sees only the cameras they are allowed
+  to see; the bar says how many were left out. A tour that includes
+  cameras someone cannot see can be run by them but not edited.
+
+Running a tour on a display board:
+
+1. Copy the tour's **display link** from the Camera Tours page
+   (`https://<host>/live/tour/<id>`).
+2. On the display PC, sign in with an account that only has `live.view`
+   and the cameras that board should show.
+3. Start the browser in kiosk mode so it opens fullscreen on its own, e.g.
+   `chrome --kiosk https://<host>/live/tour/<id>`, and turn off the
+   operating system's screen sleep.
+
+On the wall: **Space** pauses and resumes (a paused wall says so until it
+is resumed — moving the mouse never pauses it), **← / →** step, **F**
+toggles fullscreen, and clicking a tile shows that camera on its own until
+it is clicked again. Edits to a tour reach running walls within five
+minutes; a turned-off tour shows a notice and starts again by itself when
+it is turned back on. A running board keeps itself signed in; one left
+switched off for more than 30 days has to sign in again.
+
+Tiles play each camera's low-resolution substream to keep a large wall
+light on the display PC, and switch to the main stream for any camera
+whose substream does not work. Each tile on screen opens one extra
+connection from OpenNVR to that camera's recorder; with many recorders
+this is negligible, but a single NVR with a low connection limit may
+need fewer tiles per page.
+
 ### Playback
 
 The playback page lists recorded segments for a date range you pick, with filters by camera (single or all), by event type (all recordings, motion-triggered, AI-triggered), and by time range (calendar picker or quick presets — last hour, today, yesterday, last seven days).

@@ -56,6 +56,8 @@ export type CameraItem = {
   last_recording_at?: string | null
   /** Operator's display-aspect override; null means auto-detect (#354). */
   display_aspect_ratio?: AspectOverride | null
+  /** Free-text site or zone ("North", "Branch 12"); tours group cameras by it. */
+  location?: string | null
 }
 
 /** What a video surface needs to render a camera at the right shape. A named

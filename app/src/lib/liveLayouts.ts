@@ -26,6 +26,55 @@ export interface LayoutDefinition {
   tiles: LayoutTile[]
 }
 
+/** GET /api/v1/general/window-settings, the parts a layout lookup needs. */
+export interface WindowLayoutSettings {
+  layouts_enabled?: Record<string, boolean>
+  custom_layouts?: Array<{
+    id: string
+    name: string
+    enabled?: boolean
+    grid_columns: number
+    grid_rows: number
+    tiles?: Array<Partial<LayoutTile>>
+  }>
+}
+
+/**
+ * A tour step may name a plain grid, "grid:<cols>x<rows>" (1..8 each), that
+ * needs no Window Settings entry — the 20-camera "grid:5x4" wall without
+ * first building a 20-tile custom layout by hand. [cols, rows] or null.
+ */
+export function parseGridId(id: string): [number, number] | null {
+  const m = /^grid:([1-8])x([1-8])$/.exec(id)
+  return m ? [Number(m[1]), Number(m[2])] : null
+}
+
+/** The plain grids a tour editor offers beyond the built-in layouts. */
+export const PLAIN_GRIDS: Array<[number, number]> = [[4, 3], [5, 4], [6, 4], [6, 5], [8, 5], [8, 6]]
+
+/**
+ * The layout Live View would draw for `id` right now — an enabled custom
+ * layout first, then an enabled built-in one — or null when it offers no
+ * such layout (deleted or disabled). Custom tiles are not validated by the
+ * server, so any that fall outside their grid are dropped.
+ */
+export function resolveLayout(id: string, settings: WindowLayoutSettings | null | undefined): LayoutDefinition | null {
+  const plain = parseGridId(id)
+  if (plain) return { name: `${plain[0]}×${plain[1]}`, gridCols: plain[0], gridRows: plain[1], tiles: cells(plain[0], plain[1]) }
+  const custom = settings?.custom_layouts?.find((l) => l.id === id && l.enabled !== false)
+  if (custom) {
+    const cols = custom.grid_columns
+    const rows = custom.grid_rows
+    const tiles = (custom.tiles ?? [])
+      .map((t) => ({ row: t.row ?? 0, col: t.col ?? 0, rowSpan: t.rowSpan ?? 1, colSpan: t.colSpan ?? 1 }))
+      .filter((t) => t.row >= 0 && t.col >= 0 && t.rowSpan >= 1 && t.colSpan >= 1 && t.row + t.rowSpan <= rows && t.col + t.colSpan <= cols)
+    return { name: custom.name, gridCols: cols, gridRows: rows, tiles: tiles.length ? tiles : cells(cols, rows) }
+  }
+  const builtIn = PREDEFINED_LAYOUTS[id]
+  if (!builtIn || settings?.layouts_enabled?.[id] === false) return null
+  return builtIn
+}
+
 const cell = (row: number, col: number, span = 1): LayoutTile => ({ row, col, rowSpan: span, colSpan: span })
 
 /** Every 1×1 cell of a cols×rows grid, row by row, skipping those `taken`. */

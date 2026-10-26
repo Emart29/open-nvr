@@ -1666,6 +1666,32 @@ class CameraZone(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class CameraTour(Base):
+    """A Live View tour: camera sets a display board cycles through.
+
+    ``steps`` is ``[{label, layout_id, duration_s, camera_ids}, ...]``.
+    Camera ids are kept as plain JSON, not a join table: a camera can be
+    hard-deleted, and a tour must survive that by simply dropping it on
+    read (routers/tours.py filters every step to the viewer's cameras).
+    Global like the window layouts it references; seeing one needs
+    ``live.view``, changing one needs ``cameras.manage``.
+    """
+
+    __tablename__ = "camera_tours"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    steps = Column(JSON, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+    # Bumped on every save; an edit names the revision it started from so
+    # two admins cannot silently overwrite each other (409 instead).
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class WorkflowRun(Base):
     """One run of a workflow (RFC #620, §8): created when a trigger
     matches, then each step is written before the next starts.

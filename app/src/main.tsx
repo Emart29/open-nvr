@@ -79,6 +79,7 @@ const importSyncPlayback = reloadOnStale(() => import('./views/SyncPlayback'))
 const Dashboard = lazy(() => importDashboard().then((m) => ({ default: m.Dashboard })))
 const LiveView = lazy(() => importLiveView().then((m) => ({ default: m.LiveView })))
 const SyncPlayback = lazy(() => importSyncPlayback().then((m) => ({ default: m.SyncPlayback })))
+const TourView = lazy(reloadOnStale(() => import('./views/TourView').then((m) => ({ default: m.TourView }))))
 const Cameras = lazy(reloadOnStale(() => import('./views/Cameras').then((m) => ({ default: m.Cameras }))))
 const Vehicles = lazy(reloadOnStale(() => import('./views/Vehicles').then((m) => ({ default: m.Vehicles }))))
 const Occupancy = lazy(reloadOnStale(() => import('./views/Occupancy').then((m) => ({ default: m.Occupancy }))))
@@ -168,6 +169,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Dashboard /> },
           { path: 'live', element: <LiveView /> },
+          { path: 'live/tour/:tourId', element: <TourView /> },
           // The old per-camera list; recordings live on the multi-camera page.
           { path: 'playback', element: <Navigate to="/playback/sync" replace /> },
           { path: 'playback/sync', element: <SyncPlayback /> },

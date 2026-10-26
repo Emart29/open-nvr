@@ -225,23 +225,27 @@ def test_provision_substream_skips_when_not_derivable(monkeypatch):
 # ── /streams/{id}/info offers webrtc_sub + a token covering both ───────
 
 
-def _fake_camera():
+def _fake_camera(rtsp_url=None, substream_url=None):
     class _Cam:
         id = 1
         ip_address = "1.2.3.4"
         name = "Dock"
         status = "online"
-    return _Cam()
+    cam = _Cam()
+    cam.rtsp_url = rtsp_url
+    cam.substream_url = substream_url
+    return cam
 
 
-def _call_info(monkeypatch, *, enabled: bool):
+def _call_info(monkeypatch, *, enabled: bool, camera=None, **kw):
     mod = streams_mod
 
     monkeypatch.setattr(mod.settings, "agent_live_use_substream", enabled)
     monkeypatch.setattr(mod.settings, "mediamtx_stream_prefix", "cam-")
     monkeypatch.setattr(mod.settings, "mediamtx_path_mode", "id", raising=False)
+    cam = camera or _fake_camera()
     monkeypatch.setattr(mod, "_check_camera_permission",
-                        lambda db, cid, user: _fake_camera())
+                        lambda db, cid, user: cam)
     captured = {}
 
     def _tok(**kw):
@@ -253,7 +257,7 @@ def _call_info(monkeypatch, *, enabled: bool):
     class _User:
         id = 5
         username = "op"
-    result = asyncio.run(mod.get_stream_info(1, db=None, current_user=_User()))
+    result = asyncio.run(mod.get_stream_info(1, db=None, current_user=_User(), **kw))
     return result, captured
 
 
@@ -271,6 +275,36 @@ def test_info_omits_substream_when_disabled(monkeypatch):
     result, captured = _call_info(monkeypatch, enabled=False)
     assert "webrtc_sub" not in result["urls"]
     assert captured["camera_path"] == "cam-1"               # exact-match, main only
+
+
+def test_include_sub_offers_substream_with_the_setting_off(monkeypatch):
+    """The Live View tour asks for the substream explicitly; the agent
+    setting stays off, and the token covers the main path and its -sub."""
+    import re
+    for cam in (_fake_camera(rtsp_url="rtsp://1.2.3.4/Streaming/Channels/101"),
+                _fake_camera(rtsp_url="rtsp://1.2.3.4/cam/realmonitor?channel=1&subtype=0"),
+                _fake_camera(rtsp_url="rtsp://1.2.3.4/live", substream_url="rtsp://1.2.3.4/live2")):
+        result, captured = _call_info(monkeypatch, enabled=False, camera=cam, include_sub=True)
+        assert result["urls"]["webrtc_sub"].endswith("/cam-1-sub/whep")
+        assert captured["camera_path"] == f"~^{re.escape('cam-1')}(-sub)?$"
+
+
+def test_include_sub_is_not_offered_for_a_camera_without_a_substream(monkeypatch):
+    """No stored or derivable substream means provisioning never made the
+    -sub path; MediaMTX would answer 400 "not configured", which the player
+    takes for an expired token, so the tile would never fall back."""
+    result, captured = _call_info(monkeypatch, enabled=False, include_sub=True,
+                                  camera=_fake_camera(rtsp_url="rtsp://1.2.3.4/live/main"))
+    assert "webrtc_sub" not in result["urls"]
+    assert captured["camera_path"] == "cam-1"
+
+
+def test_info_without_include_sub_is_unchanged(monkeypatch):
+    """Every existing caller omits the parameter and must get today's shape."""
+    result, captured = _call_info(monkeypatch, enabled=False)
+    assert set(result["urls"]) == {"webrtc", "hls", "rtsps", "rtsp",
+                                   "rtsp_disabled_reason", "playback"}
+    assert captured["camera_path"] == "cam-1"
 
 
 def test_substream_token_regex_cannot_escalate_to_sibling_camera():

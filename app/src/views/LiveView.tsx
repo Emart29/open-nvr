@@ -50,6 +50,7 @@ import { useCameras } from '../lib/queries'
 import { MiniSegment, STATE_INK, type CamState } from './dashboard/WidgetFrame'
 import { clsx } from 'clsx'
 import { PREDEFINED_LAYOUTS, type LayoutDefinition } from '../lib/liveLayouts'
+import { ToursMenu } from '../components/live/ToursMenu'
 
 /** The dashboard wall's still-tile background, for tiles with no picture. */
 const NO_PICTURE_BG = 'repeating-linear-gradient(135deg, #07090d 0 10px, #0b0f16 10px 20px)'
@@ -957,6 +958,8 @@ function ToolbarContents({
 
   return (
     <div className="ml-auto flex items-center gap-1 shrink-0">
+      {/* Start a camera tour on this screen (views/TourView). */}
+      <ToursMenu dropUp={dropUp} />
       {/* Quick layouts — collapse into the dropdown below md */}
       {quick.length > 0 && (
         <div className="hidden md:flex">

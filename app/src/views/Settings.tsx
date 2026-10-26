@@ -34,6 +34,7 @@ import { RecordingSettings } from './settings/RecordingSettings'
 import { DeletedCameras } from './settings/DeletedCameras'
 import { MoreUplink } from './settings/more/Uplink'
 import { WindowSettings } from './settings/more/WindowSettings'
+import { CameraTours } from './settings/more/CameraTours'
 import { SystemHealthSettings } from './settings/SystemHealthSettings'
 import { useTranslation } from '../i18n'
 
@@ -88,6 +89,7 @@ const SETTINGS_REGISTRY: TabEntry[] = [
     submenu: [
       { slug: 'webrtc', label: 'WebRTC', panel: () => <WebRTCSettings /> },
       { slug: 'window-settings', label: 'Window Settings', panel: () => <WindowSettings /> },
+      { slug: 'camera-tours', label: 'Camera Tours', panel: () => <CameraTours /> },
       { slug: 'uplink', label: 'Uplink', panel: () => <MoreUplink /> },
       { slug: 'system-health', label: 'System Health', panel: () => <SystemHealthSettings /> },
     ],
@@ -104,7 +106,7 @@ const SETTINGS_LABEL_KEYS: Record<string, string> = {
   'Camera-Config': 'settings.cameraConfig', 'Device Settings': 'settings.deviceSettings', 'Streaming & Recording': 'settings.streamingRecording', Zones: 'settings.zones',
   Recording: 'settings.recording', 'Deleted Cameras': 'settings.deletedCameras', 'Media-Source': 'settings.mediaSource',
   Settings: 'settings.settings', 'Media Server Manager': 'settings.mediaServerManager', Firewall: 'settings.firewall', 'API Tokens': 'settings.apiTokens',
-  'More Settings': 'settings.moreSettings', WebRTC: 'settings.webrtc', 'Window Settings': 'settings.windowSettings',
+  'More Settings': 'settings.moreSettings', WebRTC: 'settings.webrtc', 'Window Settings': 'settings.windowSettings', 'Camera Tours': 'settings.cameraTours',
   Uplink: 'settings.uplink', 'System Health': 'settings.systemHealth', Configuration: 'settings.breadcrumb',
 }
 
