@@ -21,6 +21,7 @@ import { UsersManager } from './settings/UsersManager'
 import { RolesManager } from './settings/RolesManager'
 import { PermissionsManager } from './settings/PermissionsManager'
 import { PasswordPolicy } from './settings/PasswordPolicy'
+import { AuthenticationSettings } from './settings/AuthenticationSettings'
 import { useTranslation } from '../i18n'
 
 export function AccessControl() {
@@ -30,6 +31,7 @@ export function AccessControl() {
     { key: 'roles', label: t('admin.roles') },
     { key: 'permissions', label: t('admin.permissions') },
     { key: 'password-policy', label: t('admin.passwordPolicy') },
+    { key: 'authentication', label: t('admin.authentication') },
   ]
   const location = useLocation()
   const active = (location.pathname.split('/rbac/')[1] || '').replace(/\/$/, '') || 'users'
@@ -62,6 +64,8 @@ export function AccessControl() {
           <PermissionsManager />
         ) : active === 'password-policy' ? (
           <PasswordPolicy />
+        ) : active === 'authentication' ? (
+          <AuthenticationSettings />
         ) : (
           <div className="text-sm text-[var(--text-dim)]">{t('admin.selectSection')}</div>
         )}

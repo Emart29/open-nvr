@@ -270,6 +270,28 @@ def _enroll_device(db, request, response, user_id: int | None) -> str | None:
         return None
 
 
+def _refuse_if_local_login_off(db: Session, user: User | None) -> None:
+    """When the site signs in through its identity provider only, a
+    password login is refused — except for superusers, so a broken
+    provider can never lock the operators out."""
+    if user is None or user.is_superuser:
+        return
+    from services import oidc
+
+    offer = oidc.login_offer(db)
+    if offer["enabled"] and not offer["allow_local_login"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Password sign-in is off for this site; use '{offer['label']}'.",
+        )
+
+
+def _token_claims(user: User) -> dict:
+    """What every token carries: who, and the password generation it was
+    issued under (a reset bumps it and ends the old sessions)."""
+    return {"sub": user.username, "ver": int(user.token_version or 0)}
+
+
 def _mfa_login_required(db: Session, user: User) -> bool:
     """Whether this login must present a TOTP code.
 
@@ -307,6 +329,7 @@ async def login_for_access_token(
 
     # Check if user needs first-time setup
     user_check = db.query(User).filter(User.username == form_data.username).first()
+    _refuse_if_local_login_off(db, user_check)
     if user_check and not user_check.password_set:
         auth_logger.log_action(
             "auth.setup_required",
@@ -439,9 +462,9 @@ async def login_for_access_token(
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data=_token_claims(user), expires_delta=access_token_expires
     )
-    refresh_token = create_refresh_token(data={"sub": user.username})
+    refresh_token = create_refresh_token(data=_token_claims(user))
 
     auth_logger.log_action(
         "auth.login_success",
@@ -496,6 +519,7 @@ async def login_with_json(
     user_check = (
         db.query(User).filter(User.username == user_credentials.username).first()
     )
+    _refuse_if_local_login_off(db, user_check)
     if user_check and not user_check.password_set:
         raise HTTPException(
             status_code=403,
@@ -584,9 +608,9 @@ async def login_with_json(
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data=_token_claims(user), expires_delta=access_token_expires
     )
-    refresh_token = create_refresh_token(data={"sub": user.username})
+    refresh_token = create_refresh_token(data=_token_claims(user))
     try:
         write_audit_log(
             db,
@@ -712,9 +736,11 @@ async def refresh_access_token(
     user = db.query(User).filter(User.username == username, User.is_active == True).first()
     if not user:
         raise credentials_exception
+    if payload.get("ver") is not None and int(payload.get("ver")) != int(user.token_version or 0):
+        raise credentials_exception                   # password changed since: sign in again
 
-    new_access_token = create_access_token(data={"sub": user.username})
-    new_refresh_token = create_refresh_token(data={"sub": user.username})
+    new_access_token = create_access_token(data=_token_claims(user))
+    new_refresh_token = create_refresh_token(data=_token_claims(user))
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,

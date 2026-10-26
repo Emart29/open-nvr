@@ -17,23 +17,59 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertCircle, AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Loader2, Lock, UserRound,
+  AlertCircle, AlertTriangle, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Loader2, Lock, LogIn, Mail, UserRound,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
+import { apiService } from '../lib/apiService'
+import { extractApiError } from '../lib/apiError'
 import { useTranslation } from '../i18n'
 import { AuthAlert, AuthLayout, authButton, authFieldIcon, authInput, authLabel, authLink } from '../components/AuthLayout'
 
 export function Login() {
   const { t } = useTranslation()
-  const { login, loading, error, setupRequired } = useAuth()
+  const { login, loginWithTokens, loading, error, setupRequired } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [retryAfterSeconds, setRetryAfterSeconds] = useState(0)
   const navigate = useNavigate()
+  const location = useLocation()
+  const [params, setParams] = useSearchParams()
+  // Ways in besides a password, as the server offers them.
+  const [options, setOptions] = useState<{ email_reset: boolean; oidc: { enabled: boolean; label: string; allow_local_login: boolean } } | null>(null)
+  const [showLocal, setShowLocal] = useState(false)
+  const [ssoBusy, setSsoBusy] = useState(false)
+  const [ssoError, setSsoError] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiService.recoveryOptions().then((r) => setOptions(r.data)).catch(() => setOptions(null))
+    const state: any = location.state
+    if (state?.message) setMsg(String(state.message))
+  }, [location.state])
+
+  // Back from the identity provider: a one-time code to swap for a session,
+  // or the reason it did not work.
+  useEffect(() => {
+    const code = params.get('sso')
+    const err = params.get('sso_error')
+    if (err) {
+      setSsoError(err)
+      setParams({}, { replace: true })
+      return
+    }
+    if (!code) return
+    setParams({}, { replace: true })
+    setSsoBusy(true)
+    apiService.oidcExchange(code)
+      .then(({ data }) => loginWithTokens(data))
+      .then(() => navigate('/', { replace: true }))
+      .catch((e: any) => setSsoError(extractApiError(e, t('login.ssoFailed'))))
+      .finally(() => setSsoBusy(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const formatRetryTime = (seconds: number) => {
     if (seconds <= 0) return '0s'
@@ -85,10 +121,36 @@ export function Login() {
   }
 
   const locked = retryAfterSeconds > 0
+  const sso = options?.oidc?.enabled ? options.oidc : null
+  const localAllowed = !sso || sso.allow_local_login || showLocal
 
   return (
     <AuthLayout>
       <form onSubmit={onSubmit} className="space-y-5">
+          {ssoError && <AuthAlert tone="error" icon={<AlertCircle size={16} />}>{ssoError}</AuthAlert>}
+          {sso && (
+            <div className="space-y-3">
+              <a
+                href={`/api/v1/auth/oidc/start`}
+                className={authButton}
+                aria-disabled={ssoBusy}
+                onClick={(e) => { if (ssoBusy) e.preventDefault() }}
+              >
+                {ssoBusy ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
+                {ssoBusy ? t('login.ssoSigningIn') : `${t('login.ssoContinue')} ${sso.label}`}
+              </a>
+              {!sso.allow_local_login && !showLocal ? (
+                <div className="text-center text-xs">
+                  <button type="button" className={authLink} onClick={() => setShowLocal(true)}>{t('login.adminSignIn')}</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-xs text-[var(--text-dim)]">
+                  <span className="h-px flex-1 bg-[#2a3a4f]" />{t('login.orPassword')}<span className="h-px flex-1 bg-[#2a3a4f]" />
+                </div>
+              )}
+            </div>
+          )}
+          {localAllowed && (<>
           {setupRequired && (
             <AuthAlert tone="warn" icon={<AlertTriangle size={16} />}>{t('login.setupRequired')}</AuthAlert>
           )}
@@ -124,7 +186,7 @@ export function Login() {
               <label htmlFor="login-password" className={authLabel}>
                 {t('login.password')}
               </label>
-              <ForgotPassword />
+              <ForgotPassword emailReset={!!options?.email_reset} />
             </div>
             <div className="relative">
               <Lock size={16} className={authFieldIcon} />
@@ -161,6 +223,7 @@ export function Login() {
                 ? `${t('login.tryAgainIn')} ${formatRetryTime(retryAfterSeconds)}`
                 : t('login.signIn')}
           </button>
+          </>)}
       </form>
     </AuthLayout>
   )
@@ -173,10 +236,26 @@ export function Login() {
  *  pushing the form down, opens on click only (a hover card that appears
  *  as the pointer crosses the form is a distraction), and closes on
  *  "Got it", Escape or a click outside. */
-function ForgotPassword() {
+function ForgotPassword({ emailReset }: { emailReset: boolean }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [email, setEmail] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  const send = async () => {
+    if (!email) return
+    setSending(true)
+    try {
+      await apiService.forgotPassword(email)
+      setSent(true)
+    } catch {
+      setSent(true)                 // the server answers the same way for every address; so do we
+    } finally {
+      setSending(false)
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -219,16 +298,38 @@ function ForgotPassword() {
             <span className="grid h-8 w-8 shrink-0 place-items-center bg-[#5eb3f6]/15 text-[#5eb3f6]">
               <KeyRound size={16} />
             </span>
-            <div className="space-y-1">
+            <div className="space-y-1 flex-1">
               <div className="text-sm font-semibold text-[var(--text)]">{t('login.forgotTitle')}</div>
-              <p className="text-xs leading-relaxed text-[var(--text-dim)]">{t('login.forgotHelp')}</p>
+              <p className="text-xs leading-relaxed text-[var(--text-dim)]">
+                {emailReset ? (sent ? t('login.forgotSent') : t('login.forgotEmailHelp')) : t('login.forgotHelp')}
+              </p>
+              {emailReset && !sent && (
+                <div className="relative mt-2">
+                  <Mail size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t('login.forgotEmailLabel')}
+                    autoFocus
+                    className="h-9 w-full border border-[#2a3a4f] bg-[#0d141d] pl-8 pr-2 text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[#5eb3f6]"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); send() } }}
+                  />
+                </div>
+              )}
             </div>
           </div>
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex justify-end gap-2">
+            {emailReset && !sent && (
+              <button type="button" onClick={send} disabled={sending || !email}
+                className="px-2.5 py-1 text-xs font-medium bg-[var(--accent)] text-white disabled:opacity-50">
+                {sending ? t('login.forgotSending') : t('login.forgotSend')}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setOpen(false)}
-              autoFocus
+              autoFocus={!emailReset || sent}
               className="px-2.5 py-1 text-xs font-medium text-[#5eb3f6] hover:bg-white/5"
             >
               {t('login.forgotOk')}

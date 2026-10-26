@@ -51,6 +51,11 @@ export const authService = {
   loginJson: (username: string, password: string, code?: string) =>
     api.post('/api/v1/auth/login-json', { username, password, code }),
   me: () => api.get('/api/v1/auth/me'),
+  // Ways in besides a password, for the login page: e-mailed reset, single sign-on.
+  recoveryOptions: () => api.get('/api/v1/auth/recovery-options'),
+  forgotPassword: (email: string) => api.post('/api/v1/auth/forgot', { email }),
+  resetPassword: (token: string, password: string) => api.post('/api/v1/auth/reset', { token, password }),
+  oidcExchange: (code: string) => api.post('/api/v1/auth/oidc/exchange', { code }),
   myPermissions: () => api.get('/api/v1/users/me/permissions'),
   mfaSetup: (responseType: 'json' | 'text' | 'blob' = 'json') =>
     api.post('/api/v1/auth/mfa/setup', '', { responseType }),

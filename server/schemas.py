@@ -678,6 +678,7 @@ class UserResponse(UserBase):
     is_superuser: bool
     password_set: bool
     mfa_enabled: bool
+    auth_provider: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -810,6 +811,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: str | None = None
+    ver: int | None = None
 
 
 class UserLogin(BaseModel):

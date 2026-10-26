@@ -88,6 +88,8 @@ from routers import (
     onvif as onvif_router,
     orphaned_recordings,
     password_policy,
+    sso,
+    auth_settings,
     permissions,
     recordings,
     roles,
@@ -1060,6 +1062,8 @@ async def get_jwks():
 
 # Include routers
 app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(sso.router, prefix=settings.api_prefix)
+app.include_router(auth_settings.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(cameras.router, prefix=settings.api_prefix)
 app.include_router(camera_settings.router, prefix=settings.api_prefix)
