@@ -8,6 +8,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Workflow runs are recorded.** Three tables, one Alembic revision:
+  `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
+  #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:
+  the step's row and inputs are written before the model is called, then
+  its outcome, the rule that decided and every model and tool call. A step
+  waiting on an `ask` tool keeps its state on the row and resumes from it
+  after a restart. Steps that set no limits get the box's hardware class
+  (GPU when `DETECT_HWACCEL` is an accelerator, else CPU).
 - **The workflow file's `ai:` step, checked and run.**
   `opennvr_app_sdk.workflows`: `check_ai_step()` lists everything wrong
   with a step (an actuator or unknown skill as a tool, a rule naming an

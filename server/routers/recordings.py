@@ -981,6 +981,43 @@ async def export_clip(
         entry["path"], entry["start"], entry["duration"], entry["filename"])
 
 
+async def _clamp_to_recording(path: str, start: str, duration: float) -> tuple[str, float] | None:
+    """The first recorded sample at or after ``start`` within the asked
+    range, as (start, duration) for a second try — or None when nothing
+    is recorded in the range (a true 404) or the list is unavailable."""
+    try:
+        want = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if want.tzinfo is None:
+        want = want.replace(tzinfo=UTC)
+    end = want + timedelta(seconds=float(duration))
+    segments = await mediamtx_client.list_segments(path, start=want, end=end, use_cache=False)
+    for seg in segments or []:
+        try:
+            seg_start = datetime.fromisoformat(str(seg.get("start")).replace("Z", "+00:00"))
+            seg_len = float(seg.get("duration") or 0)
+        except (TypeError, ValueError):
+            continue
+        if seg_start.tzinfo is None:
+            seg_start = seg_start.replace(tzinfo=UTC)
+        if seg_start + timedelta(seconds=seg_len) <= want:
+            continue                                     # ended before the range
+        if seg_start <= want:
+            return None                                  # the range IS inside a recording: not a boundary case
+        if seg_start >= end:
+            return None
+        shift = (seg_start - want).total_seconds() + 0.05   # a hair past the first sample
+        new_duration = max(1.0, float(duration) - shift)
+        return _fmt_rfc3339_ms(want + timedelta(seconds=shift)), round(new_duration, 3)
+    return None
+
+
+def _fmt_rfc3339_ms(dt: datetime) -> str:
+    dt = dt.astimezone(UTC)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+
+
 async def stream_playback_clip(
     path: str, start: str, duration: float, filename: str, *, inline: bool = False
 ):
@@ -1007,14 +1044,30 @@ async def stream_playback_clip(
     client = mediamtx_client.get_client()
     httpx_timeout = _httpx.Timeout(30.0, read=600.0)
 
-    req = client.build_request("GET", url, params=params, timeout=httpx_timeout)
-    try:
-        resp = await client.send(req, stream=True)
-    except Exception as e:
-        recording_logger.warning(f"Clip export: MediaMTX unreachable: {e}")
-        raise HTTPException(
-            status_code=502, detail="Recording source unavailable"
-        )
+    async def _fetch(p: dict):
+        req = client.build_request("GET", url, params=p, timeout=httpx_timeout)
+        try:
+            return await client.send(req, stream=True)
+        except Exception as e:
+            recording_logger.warning(f"Clip export: MediaMTX unreachable: {e}")
+            raise HTTPException(
+                status_code=502, detail="Recording source unavailable"
+            )
+
+    resp = await _fetch(params)
+    if resp.status_code == 404:
+        # MediaMTX refuses a range that begins before its first sample, and
+        # the start a caller has (the segment list's minute-rounded start,
+        # the timeline's left edge) is routinely a fraction of a second
+        # earlier than that (#130). Move the start forward to the first
+        # recorded sample inside the asked range and ask once more.
+        await resp.aclose()
+        clamped = await _clamp_to_recording(path, start, duration)
+        if clamped is not None:
+            new_start, new_duration = clamped
+            recording_logger.info(
+                f"Clip export: start {start} moved to {new_start} (recording begins there)")
+            resp = await _fetch({**params, "start": new_start, "duration": str(new_duration)})
 
     if resp.status_code != 200:
         status = resp.status_code
