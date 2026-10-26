@@ -736,8 +736,8 @@ async def refresh_access_token(
     user = db.query(User).filter(User.username == username, User.is_active == True).first()
     if not user:
         raise credentials_exception
-    if payload.get("ver") is not None and int(payload.get("ver")) != int(user.token_version or 0):
-        raise credentials_exception                   # password changed since: sign in again
+    if int(payload.get("ver") or 0) != int(user.token_version or 0):
+        raise credentials_exception                   # password changed since (no ver = 0): sign in again
 
     new_access_token = create_access_token(data=_token_claims(user))
     new_refresh_token = create_refresh_token(data=_token_claims(user))
