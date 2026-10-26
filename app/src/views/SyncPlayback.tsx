@@ -37,7 +37,10 @@ import {
   Loader2,
   Film,
   Video,
+  Scissors,
+  Download,
 } from 'lucide-react'
+import { apiService } from '../lib/apiService'
 import { warmHls } from '../lib/loadHls'
 import { useCameraAspects, useRecordingsByDate, useSegmentsForCameras } from '../lib/queries'
 import { localDateKey, localDayEnd, localDayStart, todayLocalKey } from '../lib/time'
@@ -78,6 +81,15 @@ const ZOOMS: { label: string; span: number }[] = [
   { label: '10m', span: 600_000 },
 ]
 
+/** Clip export: the server streams at most 4 h per clip. */
+const MAX_EXPORT_MS = 4 * 3600_000
+const EXPORT_PRESETS: { label: string; ms: number }[] = [
+  { label: '1m', ms: 60_000 },
+  { label: '5m', ms: 300_000 },
+  { label: '15m', ms: 900_000 },
+  { label: '1h', ms: 3600_000 },
+]
+
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16]
 const RATE_1X = 2
 /** Grid limit — also keeps concurrent HLS sessions within the server cap. */
@@ -102,6 +114,14 @@ function formatDuration(seconds: number) {
   const hours = Math.floor(seconds / 3600)
   const mins = Math.floor((seconds % 3600) / 60)
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+}
+
+function formatClipLength(ms: number) {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m${s % 60 ? ` ${s % 60}s` : ''}`
 }
 
 function formatDateLong(date: string, fmt: DateFormatters) {
@@ -208,6 +228,14 @@ export function SyncPlayback() {
   const [zoomIdx, setZoomIdx] = useState(0)
   const [previewMs, setPreviewMs] = useState<number | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // ---- Clip export ---------------------------------------------------------
+  // Export mode turns a timeline drag into a range; Download fetches one MP4
+  // per chosen camera through the ticketed export route (streamed to disk).
+  const [exportMode, setExportMode] = useState(false)
+  const [exportSel, setExportSel] = useState<{ startMs: number; endMs: number } | null>(null)
+  const [exportCamIds, setExportCamIds] = useState<number[]>([])
+  const [exporting, setExporting] = useState(false)
 
   const masterMsRef = useRef(masterMs)
   useEffect(() => {
@@ -399,6 +427,7 @@ export function SyncPlayback() {
     setSelectedDate(date)
     dateInitRef.current = null
     setPlaying(false)
+    setExportMode(false)
     setSelectedIds((prev) => {
       const kept = prev.filter((id) => avail.includes(id))
       return kept.length ? kept : avail.slice(0, 1)
@@ -487,6 +516,58 @@ export function SyncPlayback() {
     else stageRef.current?.requestFullscreen?.()
   }
 
+  // Opens with 5 minutes from the playhead, every shown camera ticked.
+  const toggleExport = () => {
+    if (exportMode) {
+      setExportMode(false)
+      return
+    }
+    const start = clamp(previewMs ?? masterMs, dayStart, dayEnd - 1)
+    setExportSel({ startMs: start, endMs: Math.min(start + 300_000, dayEnd) })
+    setExportCamIds(selectedIds)
+    setExportMode(true)
+  }
+
+  const setExportLength = (ms: number) =>
+    setExportSel((s) => s && { startMs: s.startMs, endMs: Math.min(s.startMs + ms, dayEnd) })
+
+  const toggleExportCam = (id: number) =>
+    setExportCamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+
+  const runExport = async (cams: OverviewCamera[]) => {
+    if (!exportSel || cams.length === 0) return
+    setExporting(true)
+    const start = new Date(exportSel.startMs)
+    const stamp = start.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const duration = Math.max(1, Math.round((exportSel.endMs - exportSel.startMs) / 1000))
+    let failed = 0
+    for (const cam of cams) {
+      try {
+        const name = (cam.camera_name || `camera-${cam.camera_id}`).replace(/\s+/g, '-')
+        const res: any = await apiService.createClipExportTicket({
+          camera_id: cam.camera_id,
+          start: start.toISOString(),
+          duration,
+          filename: `${name}_${stamp}.mp4`,
+        })
+        const url = res.data?.download_url
+        if (!url) throw new Error('No download URL returned')
+        const a = document.createElement('a')
+        a.href = url
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        // Browsers drop back-to-back downloads; give each one a moment.
+        if (cams.length > 1) await new Promise((r) => setTimeout(r, 600))
+      } catch (e: any) {
+        failed++
+        showError(`${cam.camera_name}: ${e?.data?.detail || e?.message || t('playback.exportFailed')}`)
+      }
+    }
+    setExporting(false)
+    if (!failed) setExportMode(false)
+  }
+
   // ---- Layout derivations --------------------------------------------------
   const selectedCams = useMemo(
     () => selectedIds.map((id) => (overview || []).find((c) => c.camera_id === id)).filter(Boolean) as OverviewCamera[],
@@ -508,6 +589,18 @@ export function SyncPlayback() {
 
   const effectiveCurrent = previewMs ?? masterMs
   const activeCam = selectedCams.find((c) => c.camera_id === activeId)
+  const exportCams = selectedCams.filter((c) => exportCamIds.includes(c.camera_id))
+  const exportLen = exportSel ? exportSel.endMs - exportSel.startMs : 0
+  const exportProblem =
+    exportLen < 1000
+      ? t('playback.exportRangeHint')
+      : exportLen > MAX_EXPORT_MS
+        ? t('playback.exportTooLong')
+        : exportCams.length === 0
+          ? t('playback.exportNoCamera')
+          : null
+  const clockTime = (ms: number) =>
+    fmt.time(ms, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
   // ---- Render --------------------------------------------------------------
   // While the overview loads, the page frame renders immediately with
@@ -655,10 +748,88 @@ export function SyncPlayback() {
             ))}
           </div>
 
+          <button
+            onClick={toggleExport}
+            disabled={selectedCams.length === 0}
+            title={exportMode ? t('common.cancel') : t('playback.exportTitle')}
+            className={`ml-1 px-1.5 py-0.5 flex items-center gap-1 text-[10px] font-medium border transition-colors disabled:opacity-40 ${
+              exportMode
+                ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)] hover:bg-[var(--panel)]'
+            }`}
+          >
+            <Scissors size={12} />
+            {t('playback.export')}
+          </button>
+
           <IconBtn title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </IconBtn>
         </div>
+
+        {/* Clip export: the range (drawn on the timeline), its length, which
+            cameras, and Download. */}
+        {exportMode && exportSel && (
+          <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 border-t border-[var(--border)] text-[11px]">
+            <Scissors size={12} className="text-[var(--warn)] shrink-0" />
+            <span className="font-mono tabular-nums">
+              {clockTime(exportSel.startMs)} → {clockTime(exportSel.endMs)}
+            </span>
+            <span className="text-[var(--text-dim)] font-mono">{formatClipLength(exportLen)}</span>
+            <div className="flex items-center overflow-hidden border border-[var(--border)]" title={t('playback.exportLength')}>
+              {EXPORT_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => setExportLength(p.ms)}
+                  className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                    Math.abs(exportLen - p.ms) < 1000
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'text-[var(--text-dim)] hover:bg-[var(--panel)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {selectedCams.length > 1 &&
+              selectedCams.map((c) => {
+                const on = exportCamIds.includes(c.camera_id)
+                return (
+                  <button
+                    key={c.camera_id}
+                    onClick={() => toggleExportCam(c.camera_id)}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 border text-[10px] max-w-36 ${
+                      on ? 'border-[var(--accent)] text-[var(--text)]' : 'border-[var(--border)] text-[var(--text-dim)]'
+                    }`}
+                  >
+                    <span
+                      className={`w-3 h-3 shrink-0 border flex items-center justify-center ${
+                        on ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--border)]'
+                      }`}
+                    >
+                      {on && <Check size={9} className="text-white" />}
+                    </span>
+                    <span className="truncate">{c.camera_name}</span>
+                  </button>
+                )
+              })}
+            <span className={`truncate min-w-0 ${exportProblem && exportLen >= 1000 ? 'text-[var(--warn)]' : 'text-[var(--text-dim)]'}`}>
+              {exportProblem ?? t('playback.exportRangeHint')}
+            </span>
+            <div className="flex-1" />
+            <button onClick={() => setExportMode(false)} className="btn px-2 py-0.5 text-[11px]">
+              {t('common.cancel')}
+            </button>
+            <button
+              onClick={() => runExport(exportCams)}
+              disabled={!!exportProblem || exporting}
+              className="btn-primary btn px-2 py-0.5 text-[11px] flex items-center gap-1 disabled:opacity-50"
+            >
+              {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              {exporting ? t('playback.exporting') : t('playback.exportDownload')}
+            </button>
+          </div>
+        )}
 
         {/* Multi-camera timeline */}
         {timelineRows.length > 0 && view.end > view.start && (
@@ -679,6 +850,9 @@ export function SyncPlayback() {
                 onPan={panBy}
                 activeId={activeId}
                 onRowClick={setActiveId}
+                selecting={exportMode}
+                selection={exportSel}
+                onSelectionChange={setExportSel}
               />
             )}
           </div>
