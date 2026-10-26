@@ -1,6 +1,7 @@
 # Copyright (c) 2026 OpenNVR
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Recordings and the playback console, including the timeline scrub."""
+"""The Recordings page (/playback/sync): the multi-camera timeline, its
+scrub, and clip export."""
 
 from __future__ import annotations
 
@@ -11,125 +12,98 @@ from .base import DEFAULT_TIMEOUT_MS, BasePage
 
 
 class PlaybackPage(BasePage):
-    """The recordings list, and the console it opens."""
+    """The Recordings page every route into footage lands on.
 
-    #: The route is /playback but the heading reads "Recordings" -- the sidebar
-    #: entry labelled "Recordings" actually points at /playback/sync.
-    path = "/playback"
+    The old per-camera list at /playback is gone (it redirects here); its
+    console and Close button went with it.
+    """
+
+    path = "/playback/sync"
     ready = S.PLAYBACK_HEADING
 
     def has_recordings(self) -> bool:
         return self.find(S.PLAYBACK_EMPTY).count() == 0
 
-    def open_first_recording(self, camera: str) -> None:
-        """Expand this camera's group and play its first day of footage.
+    def open_camera(self, camera_id: int) -> None:
+        """Open on exactly this camera, through the page's deep link.
 
-        The camera name is required, and the expansion is not optional. The
-        Recordings list groups footage under one collapsible button per
-        camera and auto-expands only when exactly ONE camera has any -- which
-        stops being true the moment a second test leaves a recording behind.
-        Past that point every Play button is out of the DOM until the right
-        group is opened.
-
-        This used to fall back to clicking ``get_by_role("button").first``,
-        which is worth naming as a mistake rather than quietly deleting: on
-        this page the first button is the sidebar toggle, so it opened
-        navigation, left the group collapsed, and the test then timed out
-        against a Play button that was never going to exist. A blind
-        ``.first`` click is not a fallback -- it is a different action that
-        happens not to raise.
+        Ticking it in the camera list instead would be a toggle: the page
+        pre-selects the latest day's first few cameras, so a click can just
+        as well UNtick the one under test. ``?camera=`` selects it and only
+        it, which is also what search results and alarms use.
         """
-        play = self.find(S.PLAY_RECORDING)
-        if play.count() == 0:
-            self.find(S.PLAYBACK_CAMERA_GROUP, camera=camera).first.click()
-            play = self.find(S.PLAY_RECORDING)
-        play.first.click()
+        self.page.goto(f"{self.path}?camera={camera_id}")
         self.find(S.TIMELINE_TRACK).first.wait_for(
             state="visible", timeout=int(BUDGETS.HLS_SESSION_READY * 1000)
         )
 
     # -- the timeline ----------------------------------------------------
-    def scrub_to(self, fraction: float) -> None:
-        """Drag the playhead to a fraction of the visible window.
-
-        The timeline is the hardest element in the app to drive: bare ``<div>``
-        elements with no role, no label and no id, positioned with inline
-        percentages. There is no click handler either -- it is pointer-down,
-        move, up with pointer capture -- so a plain ``.click()`` does nothing
-        at all. Hence the explicit mouse gestures.
-
-        This is the strongest argument for the ``data-testid`` on the track;
-        until that lands the selector falls back to a Tailwind class chain,
-        which is exactly the brittleness the testid exists to remove.
-        """
-        track = self.find(S.TIMELINE_TRACK).first
-        track.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
-        box = track.bounding_box()
+    def _footage_box(self) -> dict:
+        """The last block of footage, zoomed to the 10-minute preset when it
+        is too thin to aim inside (a minute of footage in the default 24h
+        window is under a pixel wide)."""
+        block = self.find(S.TIMELINE_FOOTAGE).last
+        block.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
+        box = block.bounding_box()
+        if box and box["width"] < 40:
+            self.page.get_by_role("button", name="10m", exact=True).click()
+            self.page.wait_for_timeout(300)
+            box = block.bounding_box()
         if not box:
-            raise AssertionError("the timeline track has no bounding box to scrub")
+            raise AssertionError("no footage block on the timeline")
+        return box
 
-        x = box["x"] + box["width"] * fraction
-        y = box["y"] + box["height"] / 2
-        self.page.mouse.move(x, y)
+    def _drag(self, x0: float, x1: float, y: float) -> None:
+        """Pointer down, move, up: the timeline has no click handler (it is
+        pointer capture), so ``.click()`` does nothing. Several small moves,
+        because one teleport can be coalesced away."""
+        self.page.mouse.move(x0, y)
         self.page.mouse.down()
-        # Several small moves rather than one jump: the component tracks
-        # pointermove, and a single teleport can be coalesced away.
-        self.page.mouse.move(x, y, steps=4)
+        self.page.mouse.move(x1, y, steps=6)
         self.page.mouse.up()
 
-        # Then get the pointer off the track, which is not tidying up -- it is
-        # what makes the result readable. The playhead readout renders only
-        # while `hoverMs == null`, so the component deliberately swaps it for
-        # the hover time chip whenever the pointer is over the timeline. Leave
-        # the mouse where the drag ended and the readout is simply not in the
-        # DOM, and playhead_text() reports "" for a scrub that worked
-        # perfectly.
-        self.page.mouse.move(box["x"], box["y"] - 120)
+    def _pointer_off_track(self) -> None:
+        # The playhead readout renders only while nothing hovers the track;
+        # leave the pointer there and playhead_text() reads "" for a scrub
+        # that worked.
+        track = self.find(S.TIMELINE_TRACK).first.bounding_box()
+        if track:
+            self.page.mouse.move(track["x"], track["y"] - 120)
 
     def scrub_into_footage(self, fraction: float) -> None:
         """Drag the playhead to a point INSIDE the last block of footage.
 
-        Scrubbing to a fraction of the whole window is not a reliable probe:
-        a drag that lands in a gap deliberately snaps to the nearest footage
-        edge (``snap`` in PlaybackTimeline.tsx). On a test stack with a minute
-        of footage in a wide window, 60% of the window is a gap that snaps
-        back to where playback already is -- the readout does not change and
-        the scrub looks broken when it is working exactly as designed.
+        A drag that lands in a gap snaps to the nearest footage edge by
+        design, so 60% of a wide window is no probe at all.
         """
-        block = self.find(S.TIMELINE_FOOTAGE).last
-        block.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
-        box = block.bounding_box()
-        # A minute of footage in the default 24h window is under a pixel
-        # wide, so every point "inside" it is the same second. Zoom to the
-        # 2-minute preset (centred on the playhead, i.e. on this footage).
-        if box and box["width"] < 40:
-            self.page.get_by_role("button", name="2m", exact=True).click()
-            self.page.wait_for_timeout(300)
-            box = block.bounding_box()
-        track = self.find(S.TIMELINE_TRACK).first.bounding_box()
-        if not box or not track:
-            raise AssertionError("no footage block to scrub into")
+        box = self._footage_box()
         x = box["x"] + max(1, box["width"] * fraction)
         y = box["y"] + box["height"] / 2
-        self.page.mouse.move(x, y)
-        self.page.mouse.down()
-        self.page.mouse.move(x, y, steps=4)
-        self.page.mouse.up()
-        # Off the track, so the playhead readout (hidden while hovering) shows.
-        self.page.mouse.move(track["x"], track["y"] - 120)
+        self._drag(x, x, y)
+        self._pointer_off_track()
 
     def playhead_text(self) -> str:
-        """The playhead readout above the track, e.g. ``09/09, 14:23:59``.
-
-        Empty when the readout is not rendered, which is a real state and not
-        only a missing selector: the component hides it whenever the pointer
-        is over the timeline, and whenever the playhead sits outside the
-        visible window.
-        """
+        """The playhead readout above the tracks, e.g. ``10/26, 14:23:59``;
+        empty while hovering or when the playhead is outside the window."""
         readout = self.find(S.TIMELINE_PLAYHEAD)
         if readout.count() == 0:
             return ""
         return (readout.first.inner_text() or "").strip()
 
-    def close(self) -> None:
-        self.find(S.PLAYBACK_CLOSE).first.click()
+    # -- export ----------------------------------------------------------
+    def start_export(self) -> None:
+        self.find(S.EXPORT_TOGGLE).first.click()
+        self.find(S.EXPORT_DOWNLOAD).first.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
+
+    def mark_range_in_footage(self, start: float, end: float) -> None:
+        """In export mode a drag marks a range instead of seeking."""
+        box = self._footage_box()
+        y = box["y"] + box["height"] / 2
+        self._drag(box["x"] + box["width"] * start, box["x"] + box["width"] * end, y)
+        self._pointer_off_track()
+
+    def download(self):
+        """Click Download and return the Playwright Download it starts."""
+        with self.page.expect_download(timeout=int(BUDGETS.HLS_SESSION_READY * 1000)) as dl:
+            self.find(S.EXPORT_DOWNLOAD).first.click()
+        return dl.value
