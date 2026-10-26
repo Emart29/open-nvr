@@ -15,7 +15,6 @@ from __future__ import annotations
 ROUTES: list[str] = [
     "/",
     "/live",
-    "/playback",
     "/playback/sync",
     "/search",
     "/cameras",

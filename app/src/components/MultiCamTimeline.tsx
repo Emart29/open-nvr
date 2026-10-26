@@ -150,6 +150,7 @@ const TrackRow = memo(function TrackRow({
         {blocks.map((b, i) => (
           <div
             key={i}
+            data-testid="sync-footage-block"
             className="absolute top-0 bottom-0"
             style={{ left: `${b.left}%`, width: `${b.width}%`, background: 'var(--accent)' }}
           />
@@ -358,6 +359,7 @@ export function MultiCamTimeline({
         <div className="flex-1 h-4 relative text-[10px] font-mono">
           {currentVisible && hoverMs == null && (
             <span
+              data-testid="sync-timeline-playhead"
               className="absolute -translate-x-1/2 px-1 bg-[var(--accent)] text-white whitespace-nowrap z-10"
               style={{ left: `clamp(3.5rem, ${currentPct}%, calc(100% - 3.5rem))` }}
             >
@@ -407,6 +409,7 @@ export function MultiCamTimeline({
         {/* Interactive overlay spanning every track row (not the labels) */}
         <div
           ref={overlayRef}
+          data-testid="sync-timeline-track"
           className={`absolute inset-y-0 left-16 sm:left-28 right-0 touch-none ${selecting ? 'cursor-crosshair' : 'cursor-pointer'}`}
           onPointerDown={handleDown}
           onPointerMove={handleMove}

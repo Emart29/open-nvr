@@ -151,7 +151,6 @@ export const NAV_PERMISSIONS = {
   // the alerts that were delivered or held back — the alerts tier, like
   // the inbox they came from.
   '/notifications': 'alerts.view',
-  '/playback': 'recordings.view',
   // Search answers with evidence photos and opens recordings — it is
   // the recordings workflow, and carries its tier.
   '/search': 'recordings.view',

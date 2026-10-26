@@ -56,15 +56,12 @@ Legend:
   - [ ] snapshot downloads
   - [ ] WebRTC ↔ HLS switch
   - [ ] Menu tiles each go somewhere real
-- [ ] **Recordings (sync):**
+- [ ] **Recordings (`/playback/sync`; `/playback` redirects here):**
   - [ ] calendar marks days with footage
-  - [ ] multi-camera timeline plays in sync
+  - [ ] multi-camera timeline plays in sync `[auto]`
   - [ ] scrub, speed and step controls work
-- [ ] **Recordings (single, `/playback`):**
-  - [ ] day list
-  - [ ] a clip plays in the console `[auto]`
-  - [ ] download works
-  - [ ] upload works, with a confirmation
+  - [ ] Export: a dragged range downloads one MP4 per ticked camera
+  - [ ] upload a camera's day to cloud works, with a confirmation (superuser)
 - [ ] **Search:**
   - [ ] a natural-language query returns results
   - [ ] table/grid toggle

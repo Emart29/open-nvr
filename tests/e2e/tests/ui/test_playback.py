@@ -1,11 +1,12 @@
 # Copyright (c) 2026 OpenNVR
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Recorded footage, opened and scrubbed by hand.
+"""Recorded footage, found, scrubbed and exported by hand on the Recordings
+page (/playback/sync).
 
 The API mirror proves segments are indexed and a clip can be exported. This
-proves an operator can find the footage, open it, and move the playhead --
-which runs through the timeline component, the HLS session lifecycle and the
-player, none of which the API tier touches.
+proves an operator can find the footage, move the playhead and take a clip
+home -- through the multi-camera timeline, the HLS tiles and the export
+strip, none of which the API tier touches.
 """
 
 from __future__ import annotations
@@ -15,14 +16,13 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from harness import selectors as S
 from pages.base import fatal_errors
 
 pytestmark = [pytest.mark.ui, pytest.mark.media]
 
 
 def test_the_recordings_page_lists_footage(playback_page, recorded_camera):
-    """A camera with a completed segment shows up as playable footage.
+    """A camera with a completed segment shows up with footage on its day.
 
     ``recorded_camera`` waits for a segment to actually close, which matters:
     a camera deleted seconds after it starts publishing never produces one, and
@@ -40,32 +40,21 @@ def test_the_recordings_page_lists_footage(playback_page, recorded_camera):
     assert not fatal_errors(errors), f"the Recordings page threw: {errors[:3]}"
 
 
-def test_a_recording_opens_and_the_timeline_can_be_scrubbed(
-    playback_page, recorded_camera
-):
-    """Open the console and drag the playhead.
+def test_the_timeline_can_be_scrubbed(playback_page, recorded_camera):
+    """Drag the playhead on the multi-camera timeline.
 
-    The timeline is the hardest element in the app to drive -- bare divs, no
-    role, no id, and pointer-capture rather than a click handler -- which is
-    exactly why it is worth covering: nothing else in the suite would notice if
-    it stopped responding, and no operator could use playback without it.
-
-    Asserted on the HH:MM:SS readout rather than on pixel positions, because
-    the readout is what a person actually uses to know where they are.
+    The timeline is pointer capture on bare divs, which is why it is worth
+    covering: nothing else in the suite would notice if it stopped
+    responding, and no operator could use playback without it. Asserted on
+    the HH:MM:SS readout, which is what a person uses to know where they are.
     """
     camera, _segment = recorded_camera
-    playback_page.open()
-    playback_page.open_first_recording(camera["name"])
+    playback_page.open_camera(camera["id"])
 
     before = playback_page.playhead_text()
-    # Into the footage, not 60% of the window: a gap snaps to the nearest
-    # footage edge by design (see PlaybackPage.scrub_into_footage).
     playback_page.scrub_into_footage(0.6)
     after = playback_page.playhead_text()
 
-    # The readout is locale-formatted as "MM/DD, HH:MM:SS" (fmtFull in
-    # PlaybackTimeline.tsx), so search for the clock rather than anchoring at
-    # the start of the string.
     assert re.search(r"\d{2}:\d{2}:\d{2}", after or ""), (
         f"the playhead readout is not a time after scrubbing: {after!r}"
     )
@@ -73,15 +62,22 @@ def test_a_recording_opens_and_the_timeline_can_be_scrubbed(
         f"scrubbing did not move the playhead (still {after!r}) -- the track "
         "may no longer respond to pointer events"
     )
-    playback_page.close()
 
 
-def test_the_playback_console_closes(playback_page, recorded_camera):
-    """An overlay you cannot dismiss traps the operator on one clip."""
+def test_a_range_exports_as_an_mp4(playback_page, recorded_camera):
+    """Export: mark a range on the timeline, Download, get a real MP4.
+
+    The range starts inside footage on purpose; a start before the first
+    sample is the server's job (and the API tier's), not the page's.
+    """
     camera, _segment = recorded_camera
-    playback_page.open()
-    playback_page.open_first_recording(camera["name"])
+    playback_page.open_camera(camera["id"])
 
-    playback_page.close()
+    playback_page.start_export()
+    playback_page.mark_range_in_footage(0.2, 0.8)
+    download = playback_page.download()
 
-    expect(playback_page.find(S.TIMELINE_TRACK)).to_have_count(0, timeout=30_000)
+    assert download.suggested_filename.endswith(".mp4"), download.suggested_filename
+    with open(download.path(), "rb") as fh:
+        head = fh.read(12)
+    assert b"ftyp" in head, f"the download is not an MP4: {head!r}"
