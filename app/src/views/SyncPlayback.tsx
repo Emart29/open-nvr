@@ -39,8 +39,11 @@ import {
   Video,
   Scissors,
   Download,
+  Upload,
 } from 'lucide-react'
 import { apiService } from '../lib/apiService'
+import { useAuth } from '../auth/AuthContext'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { warmHls } from '../lib/loadHls'
 import { useCameraAspects, useRecordingsByDate, useSegmentsForCameras } from '../lib/queries'
 import { localDateKey, localDayEnd, localDayStart, todayLocalKey } from '../lib/time'
@@ -66,6 +69,13 @@ interface OverviewCamera {
   recording_count: number
   total_duration: number
   recordings: DailyRecording[]
+}
+
+interface CloudUploadStatus {
+  queue_size: number
+  worker_running: boolean
+  configured?: boolean
+  stats?: { completed_total?: number; failed_total?: number }
 }
 
 interface RawSegment {
@@ -142,7 +152,9 @@ function formatDateLong(date: string, fmt: DateFormatters) {
 export function SyncPlayback() {
   const fmt = useDateFormat()
   const { t } = useTranslation()
-  const { showError } = useSnackbar()
+  const { showError, showSuccess } = useSnackbar()
+  const { user } = useAuth()
+  const confirm = useConfirm()
   const stageRef = useRef<HTMLDivElement>(null)
   // Per-camera display-aspect settings for the grid tiles (#354).
   const cameraAspects = useCameraAspects()
@@ -236,6 +248,13 @@ export function SyncPlayback() {
   const [exportSel, setExportSel] = useState<{ startMs: number; endMs: number } | null>(null)
   const [exportCamIds, setExportCamIds] = useState<number[]>([])
   const [exporting, setExporting] = useState(false)
+
+  // ---- Cloud upload (superusers) -------------------------------------------
+  // Queue one camera's day for the configured cloud storage. The queue is
+  // watched only after something was queued, until it drains.
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null)
+  const [cloudStatus, setCloudStatus] = useState<CloudUploadStatus | null>(null)
+  const [cloudWatch, setCloudWatch] = useState(false)
 
   const masterMsRef = useRef(masterMs)
   useEffect(() => {
@@ -412,6 +431,32 @@ export function SyncPlayback() {
     }
   }, [masterMs, previewMs, view.start, view.end, dayStart, dayEnd])
 
+  // Cloud upload progress, polled while a queued upload is moving.
+  useEffect(() => {
+    if (!cloudWatch) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const poll = async () => {
+      try {
+        const { data } = await apiService.getCloudUploadStatus()
+        if (stopped) return
+        setCloudStatus(data)
+        if (!data || data.configured === false || (!data.worker_running && !data.queue_size)) {
+          setCloudWatch(false)
+          return
+        }
+      } catch {
+        // Informational only: a failed status read never blocks playback.
+      }
+      if (!stopped) timer = setTimeout(poll, 3000)
+    }
+    poll()
+    return () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [cloudWatch])
+
   // Fullscreen tracking.
   useEffect(() => {
     const onFs = () => setIsFullscreen(!!document.fullscreenElement)
@@ -451,6 +496,37 @@ export function SyncPlayback() {
       })
     },
     [showError]
+  )
+
+  const uploadDay = useCallback(
+    async (cam: OverviewCamera, date: string) => {
+      // A whole day of footage leaves the box: say so first.
+      const ok = await confirm({
+        title: t('playback.confirmUploadTitle'),
+        message: t('playback.confirmUploadMessage', { camera: cam.camera_name || `Camera ${cam.camera_id}`, date }),
+        confirmLabel: t('playback.upload'),
+      })
+      if (!ok) return
+      const key = `${cam.camera_id}:${date}`
+      setUploadingKey(key)
+      try {
+        const { data } = await apiService.queueCloudUploadForDay(cam.camera_id, date)
+        const queued = data?.queued ?? 0
+        const skipped = data?.skipped_missing ?? 0
+        showSuccess(`Queued ${queued} file(s) for cloud upload${skipped ? ` (${skipped} missing skipped)` : ''}`)
+        setCloudWatch(true)
+      } catch (err: any) {
+        const detail = err?.data?.detail || err?.message || ''
+        showError(
+          /deployment_mode=offline|not configured|no cloud|refused/i.test(detail)
+            ? 'Cloud server not configured — cloud upload is unavailable.'
+            : detail || 'Failed to queue cloud upload'
+        )
+      } finally {
+        setUploadingKey((k) => (k === key ? null : k))
+      }
+    },
+    [confirm, t, showSuccess, showError]
   )
 
   const seekTo = (ms: number) => {
@@ -651,6 +727,16 @@ export function SyncPlayback() {
           </span>
           {!mediamtxAvailable && (
             <span className="text-[11px] text-[var(--warn)] truncate">Playback server offline — playback unavailable</span>
+          )}
+          {cloudWatch && cloudStatus && (
+            <span className="flex items-center gap-1 text-[11px] text-[var(--text-dim)] font-mono tabular-nums truncate" title={t('playback.cloudStatus')}>
+              <Upload size={11} className="text-[var(--ok)] animate-pulse shrink-0" />
+              {t('playback.cloudProgress', {
+                queued: cloudStatus.queue_size,
+                done: cloudStatus.stats?.completed_total ?? 0,
+                failed: cloudStatus.stats?.failed_total ?? 0,
+              })}
+            </span>
           )}
           {!isFullscreen && (
             <button
@@ -897,6 +983,8 @@ export function SyncPlayback() {
             selectedIds={selectedIds}
             activeId={activeId}
             onToggle={toggleCamera}
+            onUpload={user?.is_superuser ? uploadDay : undefined}
+            uploadingKey={uploadingKey}
           />
         </div>
       </aside>
@@ -928,6 +1016,8 @@ const CameraChecklist = memo(function CameraChecklist({
   selectedIds,
   activeId,
   onToggle,
+  onUpload,
+  uploadingKey,
 }: {
   overview: OverviewCamera[] | null
   overviewLoading: boolean
@@ -936,7 +1026,11 @@ const CameraChecklist = memo(function CameraChecklist({
   selectedIds: number[]
   activeId: number | null
   onToggle: (id: number) => void
+  /** Superusers only: queue this camera's selected day for cloud upload. */
+  onUpload?: (cam: OverviewCamera, date: string) => void
+  uploadingKey: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div className="overflow-y-auto sidebar-scroll max-h-64 lg:max-h-none">
       {overviewLoading &&
@@ -950,17 +1044,21 @@ const CameraChecklist = memo(function CameraChecklist({
         const rec = selectedDate ? recByCamDate.get(cam.camera_id)?.get(selectedDate) : undefined
         const checked = selectedIds.includes(cam.camera_id)
         const disabled = !rec && !checked
+        const uploading = uploadingKey === `${cam.camera_id}:${selectedDate}`
         return (
-          <button
+          <div
             key={cam.camera_id}
+            className={`group flex items-center border-l-2 transition-colors ${
+              cam.camera_id === activeId ? 'border-l-[var(--accent)]' : 'border-l-transparent'
+            } ${checked ? 'bg-[var(--accent)]/10' : ''} ${disabled ? '' : 'hover:bg-[var(--panel)]'}`}
+          >
+          <button
             onClick={() => !disabled && onToggle(cam.camera_id)}
             disabled={disabled}
             title={rec ? `${formatDuration(rec.total_duration)} recorded` : 'No recordings on this date'}
-            className={`group w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-colors border-l-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent)] ${
-              cam.camera_id === activeId ? 'border-l-[var(--accent)] text-[var(--accent)]' : 'border-l-transparent'
-            } ${checked ? 'bg-[var(--accent)]/10' : ''} ${
-              disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-[var(--panel)]'
-            }`}
+            className={`flex-1 min-w-0 flex items-center gap-2 pl-2.5 pr-1 py-1.5 text-xs text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--accent)] ${
+              cam.camera_id === activeId ? 'text-[var(--accent)]' : ''
+            } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             <span
               className={`shrink-0 w-4 h-4 border flex items-center justify-center transition-colors ${
@@ -976,6 +1074,18 @@ const CameraChecklist = memo(function CameraChecklist({
               {rec ? formatDuration(rec.total_duration) : '—'}
             </span>
           </button>
+          {onUpload && rec && selectedDate && (
+            <button
+              onClick={() => onUpload(cam, selectedDate)}
+              disabled={uploading}
+              title={`${t('playback.upload')}: ${t('playback.confirmUploadTitle')}`}
+              aria-label={`${t('playback.upload')} ${cam.camera_name} ${selectedDate}`}
+              className="shrink-0 p-1.5 mr-1 text-[var(--text-dim)] hover:text-[var(--ok)] disabled:opacity-60"
+            >
+              {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+            </button>
+          )}
+          </div>
         )
       })}
     </div>

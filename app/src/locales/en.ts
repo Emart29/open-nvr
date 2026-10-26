@@ -109,6 +109,7 @@ export const translations: TranslationCatalog = {
   'playback.exportDownload': 'Download',
   'playback.exportTooLong': 'Up to 4 hours per clip',
   'playback.exportNoCamera': 'Pick at least one camera',
+  'playback.cloudProgress': 'Cloud upload: {{queued}} queued · {{done}} done · {{failed}} failed',
   'playback.upload': 'Upload',
   'playback.confirmUploadTitle': 'Upload this day to cloud storage?',
   'playback.confirmUploadMessage': 'Every segment recorded by {{camera}} on {{date}} is sent to the configured cloud storage.',
