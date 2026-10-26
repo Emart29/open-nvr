@@ -1664,3 +1664,101 @@ class CameraZone(Base):
     labels = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class WorkflowRun(Base):
+    """One run of a workflow (RFC #620, §8): created when a trigger
+    matches, then each step is written before the next starts.
+
+    ``workflow_id`` and ``workflow_version`` point at the ``workflows`` and
+    ``workflow_versions`` tables once the engine adds them; plain columns
+    until then. ``correlation_id`` goes on every alert, notification and
+    action the run causes. ``test`` runs perform no action."""
+
+    __tablename__ = "workflow_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workflow_id = Column(Integer, nullable=True, index=True)
+    workflow_version = Column(Integer, nullable=True)
+    correlation_id = Column(String(32), nullable=False, unique=True,
+                            default=lambda: uuid.uuid4().hex)
+    chain_depth = Column(Integer, nullable=False, default=0)
+    test = Column(Boolean, nullable=False, default=True)
+    # The event that fired it, as received.
+    trigger = Column(JSON, nullable=True)
+    # running | waiting (a step waits for a person) | done | failed
+    status = Column(String(16), nullable=False, default="running", index=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    steps = relationship("WorkflowRunStep", back_populates="run",
+                         cascade="all, delete-orphan", order_by="WorkflowRunStep.seq")
+
+
+class WorkflowRunStep(Base):
+    """One step of a run, written before the next step starts.
+
+    ``step_path`` is the step's place in the file (``then[0]``). The AI step's
+    columns are ``opennvr_app_sdk.workflows.StepResult.row()`` as it is:
+    ``outcome`` is null while the step waits for a person, and ``state``
+    holds what resuming needs, only while it waits."""
+
+    __tablename__ = "workflow_run_steps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+                    nullable=False, index=True)
+    seq = Column(Integer, nullable=False)
+    step_path = Column(String(120), nullable=False)
+    kind = Column(String(16), nullable=False)          # ai | if | action | ...
+    # running | waiting | done
+    status = Column(String(16), nullable=False, default="running")
+    inputs = Column(JSON, nullable=True)
+    # The AI step's result.
+    mode = Column(String(16), nullable=True)           # look | investigate
+    outcome = Column(String(64), nullable=True)
+    fields = Column(JSON, nullable=True)
+    reason = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    confidence_source = Column(String(32), nullable=True)
+    self_reported = Column(Float, nullable=True)
+    unsure_reason = Column(String(32), nullable=True)
+    proposed = Column(String(64), nullable=True)
+    rule = Column(Integer, nullable=True)              # which rule decided, from 1
+    evidence = Column(JSON, nullable=True)             # workflow_tool_calls ids
+    model = Column(String(120), nullable=True)
+    usage = Column(JSON, nullable=True)
+    state = Column(JSON, nullable=True)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    run = relationship("WorkflowRun", back_populates="steps")
+    tool_calls = relationship("WorkflowToolCall", back_populates="step",
+                              cascade="all, delete-orphan", order_by="WorkflowToolCall.seq")
+
+    __table_args__ = (UniqueConstraint("run_id", "seq", name="uq_workflow_run_step_seq"),)
+
+
+class WorkflowToolCall(Base):
+    """One model call or tool call of an AI step: the SDK's
+    ``TraceRow.as_row()`` as it is, so a run explains itself. ``args_asked``
+    is what the model asked for, before any handler normalised it."""
+
+    __tablename__ = "workflow_tool_calls"
+
+    id = Column(String(32), primary_key=True)          # the TraceRow id
+    run_step_id = Column(Integer, ForeignKey("workflow_run_steps.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    seq = Column(Integer, nullable=False)
+    kind = Column(String(8), nullable=False)           # llm | tool
+    name = Column(String(120), nullable=False)
+    status = Column(String(16), nullable=False)        # ok | failed | refused | suspended
+    mode = Column(String(16), nullable=True)
+    args_asked = Column(JSON, nullable=True)
+    result = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    ms = Column(Integer, nullable=False, default=0)
+    tokens_in = Column(Integer, nullable=True)
+    tokens_out = Column(Integer, nullable=True)
+
+    step = relationship("WorkflowRunStep", back_populates="tool_calls")
