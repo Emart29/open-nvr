@@ -233,6 +233,10 @@ def update_user(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Cannot demote the last active superuser.",
                     )
+    if user_update.password:
+        # A reset is as sensitive as a promotion: whoever holds the admin
+        # session could otherwise take over any account. Audited below.
+        _require_mfa_code(current_user, mfa_code)
     if user_update.is_active is False:
         target = db.query(User).filter(User.id == user_id).first()
         if target is not None and target.is_superuser \
@@ -263,6 +267,7 @@ def update_user(
             entity_type="user",
             entity_id=user.id,
             details={
+                "password_reset": bool(user_update.password),
                 "updated_fields": [
                     k for k in user_update.dict(exclude_unset=True).keys()
                 ]

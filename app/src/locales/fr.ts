@@ -380,6 +380,8 @@ export const translations: TranslationCatalog = {
   'admin.addRole': 'Ajouter un rôle',
   'admin.createUser': 'Créer l’utilisateur',
   'admin.createRole': 'Créer le rôle',
+  'admin.newPassword': 'Nouveau mot de passe (facultatif)',
+  'admin.newPasswordHint': 'Laissez vide pour conserver le mot de passe actuel ; en saisir un le réinitialise',
   'admin.updateUser': 'Modifier l’utilisateur',
   'admin.updateRole': 'Modifier le rôle',
   'admin.editUser': 'Modifier l’utilisateur',
