@@ -38,12 +38,14 @@ import {
   Unplug,
   Upload,
   MonitorPlay,
+  Download,
 } from 'lucide-react'
 import { useSnackbar } from '../components/Snackbar'
 import { VideoPlayer } from '../components/VideoPlayer/VideoPlayer'
 import { PlaybackConsole } from '../components/PlaybackConsole'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/Modal'
 
 // Daily recording - one entry per camera per day
 interface DailyRecording {
@@ -139,6 +141,12 @@ export function PlaybackView() {
   const [cloudUploadConfigured, setCloudUploadConfigured] = useState(true)
   const [queueingDayKey, setQueueingDayKey] = useState<string | null>(null)
   const [queuedDayKey, setQueuedDayKey] = useState<string | null>(null)
+  // Export a chosen range of a recorded day straight from the list: a start
+  // time and a length, streamed to disk through the ticketed export route.
+  const [exportTarget, setExportTarget] = useState<{ camera: CameraWithRecordings; rec: DailyRecording } | null>(null)
+  const [exportStart, setExportStart] = useState('')
+  const [exportMinutes, setExportMinutes] = useState(15)
+  const [exporting, setExporting] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   // Load recordings grouped by camera and date — react-query: shared with
@@ -283,6 +291,47 @@ export function PlaybackView() {
       date: recording.date,
     })
     setShowPlayer(true)
+  }
+
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const openExport = (camera: CameraWithRecordings, rec: DailyRecording) => {
+    setExportTarget({ camera, rec })
+    setExportStart(rec.first_start ? toLocalInput(rec.first_start) : `${rec.date}T00:00`)
+    setExportMinutes(15)
+  }
+
+  const runExport = async () => {
+    if (!exportTarget || !exportStart) return
+    const start = new Date(exportStart)
+    if (Number.isNaN(start.getTime())) return
+    setExporting(true)
+    try {
+      const name = (exportTarget.camera.camera_name || `camera-${exportTarget.camera.camera_id}`).replace(/\s+/g, '-')
+      const stamp = start.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const res: any = await apiService.createClipExportTicket({
+        camera_id: exportTarget.camera.camera_id,
+        start: start.toISOString(),
+        duration: Math.max(60, Math.min(4 * 3600, Math.round(exportMinutes * 60))),
+        filename: `${name}_${stamp}.mp4`,
+      })
+      const url = res.data?.download_url
+      if (!url) throw new Error('No download URL returned')
+      const a = document.createElement('a')
+      a.href = url
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setExportTarget(null)
+    } catch (e: any) {
+      showError(e?.data?.detail || e?.message || t('playback.exportFailed'))
+    } finally {
+      setExporting(false)
+    }
   }
 
   const uploadRecordingDay = async (camera: CameraWithRecordings, recording: DailyRecording) => {
@@ -560,6 +609,16 @@ export function PlaybackView() {
                         )}
 
                         <button
+                          onClick={() => openExport(camera, rec)}
+                          className="px-3 py-2 text-sm flex items-center gap-2 border border-[var(--border)] hover:bg-[var(--panel-2)] transition-colors disabled:opacity-60"
+                          title={rec.playback_url ? t('playback.exportTitle') : 'Export unavailable - Media Server offline'}
+                          disabled={!rec.playback_url}
+                        >
+                          <Download size={15} />
+                          {t('playback.export')}
+                        </button>
+
+                        <button
                           onClick={() => playRecording(camera, rec)}
                           className={`px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
                             rec.playback_url 
@@ -591,6 +650,47 @@ export function PlaybackView() {
       </div>
 
       {/* DVR Playback Console (preferred — MediaMTX available) */}
+      {exportTarget && (
+        <Modal
+          open
+          title={<><Download size={18} /> {t('playback.exportTitle')}</>}
+          onClose={() => setExportTarget(null)}
+          widthClassName="w-[calc(100vw-2rem)] max-w-md"
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <button type="button" className="px-4 py-2 text-sm border border-[var(--border)] hover:bg-[var(--panel-2)]" onClick={() => setExportTarget(null)}>{t('common.cancel')}</button>
+              <button type="button" className="px-4 py-2 text-sm bg-[var(--accent)] text-white disabled:opacity-50 flex items-center gap-2" disabled={exporting || !exportStart} onClick={runExport}>
+                {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {exporting ? t('playback.exporting') : t('playback.export')}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--text-dim)]">
+              {exportTarget.camera.camera_name} · {formatDate(exportTarget.rec.date)} · {formatDuration(exportTarget.rec.total_duration)} {t('playback.exportRecorded')}
+            </p>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--text-dim)]">{t('playback.exportStart')}</span>
+              <input type="datetime-local" step={1} className="bg-[var(--bg-2)] border border-[var(--border)] px-3 py-2 text-sm" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
+            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--text-dim)]">{t('playback.exportLength')}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[5, 15, 30, 60, 120, 240].map((m) => (
+                  <button key={m} type="button" onClick={() => setExportMinutes(m)}
+                    className={`px-2.5 py-1 text-xs border transition-colors ${exportMinutes === m ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'border-[var(--border)] hover:bg-[var(--panel-2)]'}`}>
+                    {m < 60 ? `${m} min` : `${m / 60} h`}
+                  </button>
+                ))}
+                <input type="number" min={1} max={240} className="w-24 bg-[var(--bg-2)] border border-[var(--border)] px-2 py-1 text-xs" value={exportMinutes} onChange={(e) => setExportMinutes(Math.max(1, Math.min(240, Number(e.target.value) || 1)))} /> <span className="text-xs text-[var(--text-dim)] self-center">min</span>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--text-dim)]">{t('playback.exportHelp')}</p>
+          </div>
+        </Modal>
+      )}
+
       {showPlayer && consoleTarget && (
         <PlaybackConsole
           cameraId={consoleTarget.cameraId}

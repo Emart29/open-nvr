@@ -829,7 +829,10 @@ export function PlaybackConsole({
                   : 'text-[var(--text)] hover:bg-[var(--panel)]'
               }`}
             >
-              <Scissors size={16} />
+              <span className="flex items-center gap-1">
+                <Scissors size={16} />
+                <span className="text-[11px] font-medium hidden sm:inline">{clipMode ? 'Done' : 'Export'}</span>
+              </span>
             </button>
 
             <div className="flex-1" />
