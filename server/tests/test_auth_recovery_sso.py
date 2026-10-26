@@ -376,6 +376,6 @@ def test_oidc_settings_are_superuser_only_and_validated(env):
 
 
 def test_migration_chains_off_head():
-    text = (_HERE / "migrations" / "versions" / "bb33cc44dd55_add_user_token_version_and_oidc.py").read_text()
-    assert 'revision: str = "bb33cc44dd55"' in text
-    assert 'down_revision: str | None = "aa22bb33cc44"' in text
+    text = (_HERE / "migrations" / "versions" / "cc44dd55ee66_add_user_token_version_and_oidc.py").read_text()
+    assert 'revision: str = "cc44dd55ee66"' in text
+    assert 'down_revision: str | None = "bb33cc44dd55"' in text

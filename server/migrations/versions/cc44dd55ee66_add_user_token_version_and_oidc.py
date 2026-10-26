@@ -5,8 +5,8 @@ tokens as ``ver``, so a reset ends the old sessions. auth_provider /
 oidc_issuer / oidc_subject identify an account that signs in through the
 site's OpenID Connect provider.
 
-Revision ID: bb33cc44dd55
-Revises: aa22bb33cc44
+Revision ID: cc44dd55ee66
+Revises: bb33cc44dd55
 Create Date: 2026-10-25
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "bb33cc44dd55"
-down_revision: str | None = "aa22bb33cc44"
+revision: str = "cc44dd55ee66"
+down_revision: str | None = "bb33cc44dd55"
 branch_labels = None
 depends_on = None
 
