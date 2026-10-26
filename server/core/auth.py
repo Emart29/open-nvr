@@ -211,8 +211,10 @@ def get_current_user(
         )
         raise credentials_exception
 
-    if token_data.ver is not None and int(token_data.ver) != int(user.token_version or 0):
-        # The password was changed or reset after this token was issued.
+    if int(token_data.ver or 0) != int(user.token_version or 0):
+        # The password was changed or reset after this token was issued. A
+        # token from before versions existed counts as version 0, so the
+        # first reset after an upgrade ends those sessions too.
         auth_logger.log_action(
             "auth.user_auth_failed",
             user_id=user.id,

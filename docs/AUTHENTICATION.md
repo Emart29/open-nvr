@@ -43,6 +43,23 @@ Access Control → Authentication → *Identity provider*:
 
 A single sign-on account skips the TOTP wall: the provider owns MFA.
 
+### Linking existing accounts
+
+The first single sign-on from a person whose e-mail matches an existing
+OpenNVR account links the two, and from then on that account opens
+without its password or TOTP. So linking is narrow:
+
+- The provider must say it **verified** the address (`email_verified:
+  true` in the id_token or userinfo). Providers that let users edit their
+  own e-mail and send no such claim, such as Entra ID, never link
+  existing accounts; with *Create accounts on first sign-in* on, new
+  people still get accounts.
+- **Superusers are never linked**, verified address or not. They sign in
+  with their password and TOTP; give an operator single sign-on through
+  a separate account, or a superuser value in the role map.
+- A linked account stays a password account: its password, TOTP and the
+  e-mailed reset keep working.
+
 ### Dex, self-hosted, next to OpenNVR
 
 ```yaml
