@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 
 COPY examples/garbage-dumping/garbage_dumping.py          ./
 COPY examples/garbage-dumping/config.example.yml     ./config.example.yml
+COPY examples/garbage-dumping/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "garbage_dumping.py"]

@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 
 COPY examples/camera-tamper/camera_tamper.py      ./
 COPY examples/camera-tamper/config.example.yml    ./config.example.yml
+COPY examples/camera-tamper/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "camera_tamper.py"]

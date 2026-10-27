@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 
 COPY examples/package-delivery/package_delivery.py ./package_delivery.py
 COPY examples/package-delivery/config.example.yml ./config.example.yml
+COPY examples/package-delivery/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 

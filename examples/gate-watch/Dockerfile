@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 
 COPY examples/gate-watch/gate_watch.py          ./
 COPY examples/gate-watch/config.example.yml     ./config.example.yml
+COPY examples/gate-watch/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "gate_watch.py"]
