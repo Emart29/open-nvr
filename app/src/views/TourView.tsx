@@ -12,28 +12,31 @@
  * * moving the mouse does not pause it — pausing is a button (or Space), and
  *   a paused wall says so until it is resumed;
  * * tiles play the low-res substream, falling back to the main stream for a
- *   camera whose substream does not work, and remembering that for the rest
- *   of the session so later pages do not wait on it again;
+ *   camera whose substream does not work, and remembering that for ten
+ *   minutes so later pages do not wait on it again;
  * * the next page's stream tokens are fetched a few seconds before it shows;
  * * edits to the tour reach a running wall within five minutes, and a failed
  *   fetch keeps showing the tour it has while it retries.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CameraOff, ChevronLeft, ChevronRight, Maximize, Minimize, Pause, Play, PauseCircle, Route, X } from 'lucide-react'
+import { AlertTriangle, BellRing, CameraOff, ChevronLeft, ChevronRight, ExternalLink, Maximize, Minimize, Pause, Pencil, Play, PauseCircle, Route, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
 import { rebaseToCurrentOrigin } from '../lib/streamUrl'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { resolveLayout, type WindowLayoutSettings } from '../lib/liveLayouts'
-import { buildPages, formatDuration, wrapIndex, type TourPage } from '../lib/tourPlan'
-import type { Tour } from '../services/tourService'
+import { autoGrid, buildPages, formatDuration, wrapIndex, type TourPage } from '../lib/tourPlan'
+import type { ActiveAlert } from '../lib/tourAlerts'
+import { DEFAULT_TOUR_SETTINGS, type Tour } from '../services/tourService'
 import { useCameraStatus } from '../hooks/useCameraStatus'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { usePageVisible } from '../hooks/usePageVisible'
+import { usePermissions } from '../hooks/usePermissions'
+import { useTourAlerts } from '../hooks/useTourAlerts'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { cameraState, STATE_INK } from './dashboard/WidgetFrame'
 
@@ -46,8 +49,20 @@ const SUB_STALL_MS = 12_000
 /** The stream token lives 60 minutes; reuse the info a little under that. */
 const STREAM_STALE_MS = 45 * 60_000
 
-/** Cameras whose substream failed this session: they start on the main stream. */
-const NO_SUB = new Set<number>()
+/** How long a camera whose substream failed stays on the main stream before
+ *  the substream is tried again: a slow start once must not cost a 20-tile
+ *  wall its cheap streams for the rest of the day. */
+const SUB_RETRY_MS = 10 * 60_000
+
+/** Cameras whose substream failed, and until when they start on the main stream. */
+const NO_SUB = new Map<number, number>()
+const subBlocked = (cameraId: number) => {
+  const until = NO_SUB.get(cameraId)
+  if (until == null) return false
+  if (Date.now() < until) return true
+  NO_SUB.delete(cameraId)
+  return false
+}
 
 type StreamInfo = { urls?: { webrtc?: string; webrtc_sub?: string; hls?: string }; token?: string }
 
@@ -57,7 +72,12 @@ const fetchStream = async (cameraId: number) => {
   return data as StreamInfo
 }
 
-export function TourView() {
+/**
+ * `display` is the bare display route (/display/tour/:id): the whole browser
+ * window, no app shell, for a board that runs in kiosk mode. Without it the
+ * tour sits inside the app like any other page (/live/tour/:id).
+ */
+export function TourView({ display = false }: { display?: boolean }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -99,6 +119,13 @@ export function TourView() {
     return m
   }, [pages])
 
+  const settings = tour.data?.settings ?? DEFAULT_TOUR_SETTINGS
+  const tourCameras = useMemo(() => new Set((tour.data?.steps ?? []).flatMap((s) => s.camera_ids)), [tour.data])
+  // Alarm takeover: an alert on a camera brings it to the front; the tour
+  // waits underneath and carries on where it was (lib/tourAlerts.ts).
+  const { active: alerts, dismiss } = useTourAlerts(tour.data?.enabled ? settings.alerts : undefined, tourCameras)
+  const alerting = alerts.length > 0
+
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [spot, setSpot] = useState<number | null>(null)
@@ -120,11 +147,16 @@ export function TourView() {
   // tab and a refetch of the unchanged tour; only a new page starts from zero.
   const elapsed = useRef(0)
   useEffect(() => { elapsed.current = 0 }, [pageKey])
-  const running = !!page && pages.length > 1 && !paused && visible && spot == null
+  const running = !!page && pages.length > 1 && !paused && visible && spot == null && !alerting
+  // When the page turns, for the countdown chip: a deadline while running,
+  // the time left while held.
+  const [deadline, setDeadline] = useState<number | null>(null)
+  const heldLeftMs = page ? Math.max(0, page.durationMs - elapsed.current) : 0
   useEffect(() => {
     if (!running || !page) return
     const started = Date.now()
     const remaining = Math.max(0, page.durationMs - elapsed.current)
+    setDeadline(started + remaining)
     const next = pages[wrapIndex(current, 1, pages.length)]
     const prefetch = window.setTimeout(() => {
       for (const cid of next.cameraIds) {
@@ -136,15 +168,21 @@ export function TourView() {
       window.clearTimeout(prefetch)
       window.clearTimeout(advance)
       elapsed.current += Date.now() - started
+      setDeadline(null)
     }
   }, [running, page, pages, current, go, qc])
 
   // The bar shows on mouse movement and hides again; it stays while paused.
   const [barShown, setBarShown] = useState(true)
   const hideTimer = useRef<number | undefined>(undefined)
-  const poke = useCallback(() => {
+  // The bar's height band at the top of the wall: while the pointer is in
+  // it the bar stays, so it never fades out under a cursor aiming at a button.
+  const barRef = useRef<HTMLDivElement>(null)
+  const poke = useCallback((e?: { clientY: number }) => {
     setBarShown(true)
     window.clearTimeout(hideTimer.current)
+    const bar = barRef.current?.getBoundingClientRect()
+    if (e && bar && e.clientY >= bar.top && e.clientY <= bar.bottom) return
     hideTimer.current = window.setTimeout(() => setBarShown(false), BAR_HIDE_MS)
   }, [])
   useEffect(() => {
@@ -154,28 +192,53 @@ export function TourView() {
   const barVisible = barShown || paused || spot != null
 
   const exitTour = useCallback(() => navigate('/live'), [navigate])
-  const togglePause = useCallback(() => setPaused((p) => !p), [])
+  // A one-page tour has nothing to pause: no Pause button, no pill, and a
+  // pause would only leave the bar stuck on screen.
+  const canPause = pages.length > 1
+  const togglePause = useCallback(() => { if (canPause) setPaused((p) => !p) }, [canPause])
+  useEffect(() => { if (!canPause) setPaused(false) }, [canPause])
 
   useEffect(() => {
+    const typing = (el: HTMLElement | null) =>
+      !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (typing(el)) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      if (e.key === ' ') { e.preventDefault(); togglePause() }
+      // Space always means pause, even with a bar or tile button focused
+      // after a click; the button's own Space activation is cancelled on
+      // keyup below, or one press would act twice.
+      if (e.key === ' ') { e.preventDefault(); if (!e.repeat) togglePause() }
       else if (e.key === 'ArrowRight') go(1)
       else if (e.key === 'ArrowLeft') go(-1)
       else if (e.key === 'f' || e.key === 'F') toggleFs()
       else if (e.key === 'Escape') {
         // In fullscreen the browser takes Escape to leave it; out of it,
         // Escape lets go of a spotlit tile first, then leaves the tour.
-        if (spot != null) setSpot(null)
+        if (alerting) dismiss()
+        else if (spot != null) setSpot(null)
         else if (!isFullscreen) exitTour()
       } else return
       poke()
     }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ' && (e.target as HTMLElement | null)?.tagName === 'BUTTON') e.preventDefault()
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [go, togglePause, toggleFs, exitTour, poke, spot, isFullscreen])
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [go, togglePause, toggleFs, exitTour, poke, spot, isFullscreen, alerting, dismiss])
+
+  // Edit from the wall: the full-page editor, which comes back here on save.
+  const location = useLocation()
+  const { hasPermission } = usePermissions()
+  const canEdit = !!tour.data?.editable && hasPermission('cameras.manage')
+  const editTour = () => navigate(`/tours/${id}/edit?return=${encodeURIComponent(location.pathname)}`)
+  const openDisplay = () => window.open(`/display/tour/${id}`, '_blank', 'noopener')
+  const cover = settings.fit === 'fill'
 
   const step = page && tour.data ? tour.data.steps[page.stepIndex] : undefined
   const hidden = step?.hidden_count ?? 0
@@ -198,12 +261,18 @@ export function TourView() {
     )
   } else if (!tour.data.enabled) {
     body = <WallMessage icon={<PauseCircle size={22} />} title={t('tours.turnedOff')} detail={t('tours.turnedOffHint')} />
-  } else if (!page) {
+  } else if (!page && !alerting) {
     body = <WallMessage icon={<CameraOff size={22} />} title={t('tours.nothingToShow')} detail={t('tours.nothingToShowHint')} />
   } else {
-    const spotCam = spot
-    const layout = spotCam != null ? { gridCols: 1, gridRows: 1, tiles: [{ row: 0, col: 0, rowSpan: 1, colSpan: 1 }] } : page.layout
-    const ids = spotCam != null ? [spotCam] : page.cameraIds
+    // What the wall shows, most urgent first: the alarming cameras, a
+    // spotlit tile, or the tour's page.
+    const alertBy = new Map(alerts.map((a) => [a.cameraId, a]))
+    const spotCam = alerting ? null : spot
+    const layout = alerting
+      ? autoGrid(alerts.length)
+      : spotCam != null ? autoGrid(1) : page!.layout
+    const ids = alerting ? alerts.map((a) => a.cameraId) : spotCam != null ? [spotCam] : page!.cameraIds
+    const labelClass = labelSize(layout.gridRows)
     body = (
       <div
         className="absolute inset-0 grid gap-px bg-[#1a1f29]"
@@ -221,6 +290,10 @@ export function TourView() {
                 pausedCamera={pausedIds.has(cid)}
                 playing={visible}
                 spotlit={spotCam === cid}
+                cover={cover}
+                labelClass={labelClass}
+                alert={alertBy.get(cid)}
+                onDismissAlert={() => dismiss(cid)}
                 onSpotlight={() => setSpot((s) => (s === cid ? null : cid))}
               />
             </div>
@@ -235,7 +308,11 @@ export function TourView() {
   const pageLabel = page ? (step?.label || t('tours.stepN', { n: stepOrdinal.get(page.stepIndex) ?? 1 })) : ''
 
   return (
-    <section className="flex flex-col h-[calc(100vh-5rem)] border border-[var(--border)] bg-black overflow-hidden">
+    <section className={clsx(
+      'flex flex-col bg-black overflow-hidden',
+      // On the display route the tour is the whole page, nothing around it.
+      display ? 'h-screen w-full' : 'h-[calc(100vh-5rem)] border border-[var(--border)]',
+    )}>
       <div
         ref={wallRef}
         data-testid="tour-wall"
@@ -261,7 +338,8 @@ export function TourView() {
             'absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-2 pb-6 text-white bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300',
             barVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
           )}
-          onFocus={poke}
+          ref={barRef}
+          onFocus={() => poke()}
         >
           <Route size={14} className="shrink-0 text-white/70" aria-hidden="true" />
           <span className="text-sm font-semibold truncate" data-testid="tour-name">{tour.data?.name ?? ''}</span>
@@ -296,12 +374,51 @@ export function TourView() {
                 <span className="w-px h-4 bg-white/20 mx-1" aria-hidden="true" />
               </>
             )}
+            {canEdit && (
+              <BarButton label={t('tours.editHere')} onClick={editTour}><Pencil size={13} /></BarButton>
+            )}
+            {!display && (
+              <BarButton label={t('tours.openAsDisplay')} onClick={openDisplay}><ExternalLink size={13} /></BarButton>
+            )}
             <BarButton label={isFullscreen ? t('video.exitFullscreen') : t('live.fullscreen')} onClick={toggleFs}>
               {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
             </BarButton>
             <BarButton label={t('tours.exit')} onClick={exitTour}><X size={15} /></BarButton>
           </span>
         </div>
+
+        {/* Alarm takeover banner: always on screen while it lasts. */}
+        {alerting && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-3 z-40 flex items-center gap-3 pl-3 pr-1 py-1 text-white bg-[var(--danger)] shadow-lg max-w-[90%]" role="alert" data-testid="tour-alert">
+            <BellRing size={15} className="shrink-0 animate-pulse" aria-hidden="true" />
+            <span className="text-xs font-bold tracking-[0.18em] uppercase shrink-0">{t('tours.alert')}</span>
+            <span className="text-sm font-medium truncate">
+              {alerts[0].title} · {camById.get(alerts[0].cameraId)?.name ?? t('tours.cameraN', { id: alerts[0].cameraId })}
+              {alerts.length > 1 && ` · ${t('tours.moreAlerts', { count: alerts.length - 1 })}`}
+            </span>
+            <span className="text-xs font-mono tabular-nums opacity-80 shrink-0">{new Date(alerts[0].at).toLocaleTimeString()}</span>
+            <button type="button" onClick={() => dismiss()} className="shrink-0 px-2 py-0.5 text-xs border border-white/40 bg-black/20 hover:bg-black/40">
+              {t('tours.backToTour')}
+            </button>
+          </div>
+        )}
+
+        {/* What comes next, always on screen: a guard should not need the
+            mouse to know the wall is turning, or when. */}
+        {page && pages.length > 1 && !alerting && (
+          <NextChip
+            deadline={deadline}
+            heldLeftMs={heldLeftMs}
+            held={!running}
+            current={`${pageLabel}${page.pages > 1 ? ` ${page.page + 1}/${page.pages}` : ''}`}
+            next={(() => {
+              const nx = pages[wrapIndex(current, 1, pages.length)]
+              if (nx.stepIndex === page.stepIndex) return t('tours.pageOf', { n: nx.page + 1, total: nx.pages })
+              return tour.data?.steps[nx.stepIndex]?.label || t('tours.stepN', { n: stepOrdinal.get(nx.stepIndex) ?? 1 })
+            })()}
+            large={display}
+          />
+        )}
 
         {paused && page && pages.length > 1 && (
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-4 z-20 px-3 py-1 text-[11px] font-bold tracking-[0.2em] uppercase text-black bg-[var(--on-video-warn)]" role="status">
@@ -310,6 +427,56 @@ export function TourView() {
         )}
       </div>
     </section>
+  )
+}
+
+/** Camera-name size for a grid this many rows high: readable across a room. */
+function labelSize(rows: number): string {
+  if (rows <= 1) return 'text-base'
+  if (rows === 2) return 'text-sm'
+  if (rows === 3) return 'text-[13px]'
+  return 'text-xs'
+}
+
+/** "North 1/3 → South in 18 s", ticking; held (paused, spotlit, hidden tab) it shows the time left, frozen. */
+function NextChip({ deadline, heldLeftMs, held, current, next, large }: {
+  deadline: number | null
+  heldLeftMs: number
+  held: boolean
+  current: string
+  next: string
+  large: boolean
+}) {
+  const { t } = useTranslation()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (held || deadline == null) return
+    // Start from the real time, not the time the chip mounted: otherwise the
+    // first tick reads a second longer than the page lasts.
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), 250)
+    return () => window.clearInterval(id)
+  }, [held, deadline])
+  const leftMs = held || deadline == null ? heldLeftMs : Math.max(0, deadline - now)
+  const secs = Math.ceil(leftMs / 1000)
+  const soon = !held && secs <= 5
+  return (
+    <div
+      className={clsx(
+        'pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2 px-2.5 py-1 text-white border transition-colors',
+        soon ? 'bg-[var(--accent)] border-transparent' : 'bg-black/65 border-white/10',
+        large ? 'text-sm' : 'text-xs',
+      )}
+      data-testid="tour-next"
+      aria-live="off"
+    >
+      <span className="font-medium truncate max-w-[14rem]">{current}</span>
+      <span aria-hidden="true" className="opacity-70">→</span>
+      <span className="truncate max-w-[14rem]">{next}</span>
+      <span className="font-mono tabular-nums opacity-90">
+        {held ? t('tours.heldFor', { left: formatDuration(secs) }) : t('tours.inSeconds', { left: formatDuration(secs) })}
+      </span>
+    </div>
   )
 }
 
@@ -342,15 +509,22 @@ function WallMessage({ icon, title, detail, children }: { icon: React.ReactNode;
 /**
  * One tour tile. Plays the substream when the server offers one and it
  * works; any failure of the substream that is not an expired token (which
- * only needs a fresh token) moves this camera to the main stream for the
- * rest of the session.
+ * only needs a fresh token) moves this camera to the main stream for
+ * SUB_RETRY_MS, after which a new page tries the substream again.
  */
-function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, onSpotlight }: {
+function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, cover, labelClass, alert, onDismissAlert, onSpotlight }: {
   cameraId: number
   cam: CameraItem | undefined
   pausedCamera: boolean
   playing: boolean
   spotlit: boolean
+  /** Crop to fill the tile (the tour's "Fill"). */
+  cover: boolean
+  /** Camera-name text size for this grid (labelSize). */
+  labelClass: string
+  /** Set while an alarm has this camera at the front of the wall. */
+  alert?: ActiveAlert
+  onDismissAlert: () => void
   onSpotlight: () => void
 }) {
   const { t } = useTranslation()
@@ -359,7 +533,7 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, onSpotlight }
   const state = cam ? cameraState(cam) : 'degraded'
   const isPaused = pausedCamera || cam?.is_active === false
   const live = !isPaused && (state === 'online' || state === 'degraded')
-  const [preferSub, setPreferSub] = useState(() => !NO_SUB.has(cameraId))
+  const [preferSub, setPreferSub] = useState(() => !subBlocked(cameraId))
 
   const info = useQuery({
     queryKey: streamKey(cameraId),
@@ -383,7 +557,7 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, onSpotlight }
   const hls = rebaseToCurrentOrigin(info.data?.urls?.hls)
 
   const dropSub = useCallback(() => {
-    NO_SUB.add(cameraId)
+    NO_SUB.set(cameraId, Date.now() + SUB_RETRY_MS)
     setPreferSub(false)
   }, [cameraId])
   const onError = useCallback((msg: string) => {
@@ -427,6 +601,7 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, onSpotlight }
           muted
           displayAspectOverride={cam?.display_aspect_ratio}
           cameraId={cameraId}
+          cover={cover}
           className="w-full h-full !bg-black"
         />
       ) : (
@@ -448,23 +623,49 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, onSpotlight }
       )}
 
       {/* Label band */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/75 to-transparent" />
-      <div className="pointer-events-none absolute left-2 right-2 bottom-1.5 flex items-center gap-1.5 text-white">
-        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: isPaused ? 'var(--text-dim)' : STATE_INK[state] }} aria-hidden="true" />
-        <span className="text-[11px] font-medium truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]" data-testid="tour-tile-name">{name}</span>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/80 to-transparent" />
+      <div className={clsx('pointer-events-none absolute left-2 bottom-1.5 flex items-center gap-1.5 text-white', alert ? 'right-11' : 'right-2')}>
+        {/* An alarming tile says why on its own label; the banner above names the newest. */}
+        {alert && (
+          <span className="shrink-0 inline-flex items-center gap-1 max-w-[55%] px-1.5 py-0.5 bg-[var(--danger)] text-white text-xs font-semibold">
+            <BellRing size={12} aria-hidden="true" />
+            <span className="truncate">{alert.title}</span>
+            <span className="font-mono tabular-nums font-normal opacity-85">{new Date(alert.at).toLocaleTimeString()}</span>
+          </span>
+        )}
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: isPaused ? 'var(--text-dim)' : STATE_INK[state] }} aria-hidden="true" />
+        <span className={clsx(labelClass, 'font-semibold truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]')} data-testid="tour-tile-name">{name}</span>
         {cam?.location && (
-          <span className="shrink-0 text-[10px] text-white/60 truncate max-w-[40%] [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{cam.location}</span>
+          <span className="shrink-0 text-[0.8em] text-white/65 truncate max-w-[40%] [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{cam.location}</span>
         )}
       </div>
 
-      {/* Click the picture to spotlight it (the tour waits), click again to return. */}
-      <button
-        type="button"
-        onClick={onSpotlight}
-        className="absolute inset-0 z-10 cursor-[inherit] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:-outline-offset-2"
-        aria-label={spotlit ? t('dashboard.backToWall') : t('tours.spotlight', { name })}
-        title={spotlit ? t('dashboard.backToWall') : t('tours.spotlight', { name })}
-      />
+      {/* Click the picture to spotlight it (the tour waits), click again to
+          return. Not during an alarm: a stray click must not reshuffle it. */}
+      {!alert && (
+        <button
+          type="button"
+          onClick={onSpotlight}
+          className="absolute inset-0 z-10 cursor-[inherit] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:-outline-offset-2"
+          aria-label={spotlit ? t('dashboard.backToWall') : t('tours.spotlight', { name })}
+          title={spotlit ? t('dashboard.backToWall') : t('tours.spotlight', { name })}
+        />
+      )}
+
+      {alert && (
+        <>
+          <div className="pointer-events-none absolute inset-0 z-10 ring-4 ring-inset ring-[var(--danger)]" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={onDismissAlert}
+            className="absolute right-2 bottom-1.5 z-20 p-1 text-white bg-black/55 hover:bg-black/80 border border-white/20"
+            aria-label={t('tours.dismissAlert', { name })}
+            title={t('tours.dismissAlert', { name })}
+          >
+            <X size={13} />
+          </button>
+        </>
+      )}
     </div>
   )
 }

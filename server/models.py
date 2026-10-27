@@ -1683,6 +1683,9 @@ class CameraTour(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     steps = Column(JSON, nullable=False)
+    # How the wall draws and reacts: {"fit": "fit"|"fill", "alerts": {...}};
+    # see routers/tours.py TourSettings. NULL = the defaults.
+    settings = Column(JSON, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True, server_default="true")
     # Bumped on every save; an edit names the revision it started from so
     # two admins cannot silently overwrite each other (409 instead).

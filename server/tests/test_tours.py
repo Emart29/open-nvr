@@ -210,6 +210,52 @@ def test_a_manager_cannot_overwrite_a_tour_with_cameras_they_cannot_see(env):  #
         steps=[{"layout_id": "1x1", "camera_ids": [1]}])).status_code == 201
 
 
+def test_a_manager_who_can_only_view_a_camera_may_not_change_its_tour(env):  # noqa: F811
+    """Sees every camera, manages one: Edit would only ever end in a 422,
+    so the tour is read-only for them, and they may not delete it either."""
+    t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [1, 2]}])
+    O = _operator(env, view=(1, 2), manage=(1,))
+    got = env.client.get(f"{URL}/{t['id']}", headers=O).json()
+    assert got["steps"][0]["camera_ids"] == [1, 2] and got["editable"] is False
+    assert env.client.put(f"{URL}/{t['id']}", headers=O, json=_body(
+        steps=[{"layout_id": "2x2", "camera_ids": [1]}])).status_code == 403
+    assert env.client.patch(f"{URL}/{t['id']}", headers=O, json={"enabled": False}).status_code == 403
+    assert env.client.delete(f"{URL}/{t['id']}", headers=O).status_code == 403
+
+
+def test_turning_a_tour_off_rewrites_nothing_else(env):  # noqa: F811
+    """The switch must work on a tour whose layout went away and whose step
+    lost every camera to the bin, and must not drop those cameras or the
+    description (re-saving the viewer's filtered copy did all three)."""
+    _window_settings(env, {"custom_layouts": [
+        {"id": "wall", "name": "Wall", "grid_columns": 5, "grid_rows": 4}]})
+    t = _create(env, description="Ops wall, screen 2", steps=[
+        {"layout_id": "wall", "camera_ids": [1]},
+        {"layout_id": "2x2", "camera_ids": [2, 3]}])
+    s = env.Session()
+    s.get(env.models.Camera, 1).deleted_at = datetime.now(UTC)
+    row = s.query(env.models.SecuritySetting).filter_by(key="window_division_settings").one()
+    row.json_value = json.dumps({"custom_layouts": []})
+    s.commit()
+    s.close()
+
+    A = env.jwt("admin")
+    r = env.client.patch(f"{URL}/{t['id']}", headers=A, json={"enabled": False, "expected_revision": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()["enabled"] is False and r.json()["revision"] == 2
+    s = env.Session()
+    stored = s.get(env.models.CameraTour, t["id"])
+    assert stored.description == "Ops wall, screen 2"
+    assert [x["camera_ids"] for x in stored.steps] == [[1], [2, 3]]
+    assert stored.steps[0]["layout_id"] == "wall"
+    s.close()
+    # A stale revision is refused, and a viewer may not switch it.
+    assert env.client.patch(f"{URL}/{t['id']}", headers=A,
+                            json={"enabled": True, "expected_revision": 1}).status_code == 409
+    assert env.client.patch(f"{URL}/{t['id']}", headers=env.jwt("vera"),
+                            json={"enabled": True}).status_code == 403
+
+
 def test_a_stale_revision_is_409(env):  # noqa: F811
     t = _create(env)
     A = env.jwt("admin")
@@ -224,3 +270,92 @@ def test_tokens_cannot_reach_tours(env):  # noqa: F811
     tok = _mint(env, scopes=["live.view", "cameras.manage"])["token"]
     assert env.client.get(URL, headers=_as(tok)).status_code == 403
     assert env.client.post(URL, headers=_as(tok), json=_body()).status_code == 403
+
+
+# ── settings ─────────────────────────────────────────────────────────
+
+
+def test_settings_default_validate_and_survive_a_save_without_them(env):  # noqa: F811
+    A = env.jwt("admin")
+    t = _create(env)
+    assert t["settings"]["fit"] == "fit"
+    assert t["settings"]["alerts"] == {"enabled": False, "sources": ["app_alert", "camera_event"],
+                                       "min_severity": "medium", "scope": "tour",
+                                       "hold_s": 30, "cooldown_s": 60}
+    wanted = {"fit": "fill", "alerts": {"enabled": True, "sources": ["app_alert", "app_alert"],
+                                        "min_severity": "high", "scope": "visible",
+                                        "hold_s": 20, "cooldown_s": 0}}
+    r = env.client.put(f"{URL}/{t['id']}", headers=A, json=_body(settings=wanted))
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["fit"] == "fill"
+    assert r.json()["settings"]["alerts"]["sources"] == ["app_alert"]
+    # An update that does not send settings keeps them.
+    r = env.client.put(f"{URL}/{t['id']}", headers=A, json=_body(name="Renamed"))
+    assert r.json()["settings"]["alerts"]["scope"] == "visible"
+    for bad in ({"fit": "stretch"}, {"alerts": {"hold_s": 1}}, {"alerts": {"sources": []}},
+                {"alerts": {"min_severity": "urgent"}}):
+        assert env.client.put(f"{URL}/{t['id']}", headers=A,
+                              json=_body(settings=bad)).status_code == 422
+
+
+def test_unreadable_stored_settings_fall_back_to_defaults(env):  # noqa: F811
+    t = _create(env)
+    s = env.Session()
+    s.get(env.models.CameraTour, t["id"]).settings = {"fit": 42}
+    s.commit()
+    s.close()
+    got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin"))
+    assert got.status_code == 200 and got.json()["settings"]["fit"] == "fit"
+
+
+# ── thumbnails ───────────────────────────────────────────────────────
+
+
+def _fake_grab(monkeypatch, result=b"\xff\xd8jpeg"):
+    from services import camera_thumbnail as ct
+
+    ct.clear()
+    calls = []
+
+    async def grab(url):
+        calls.append(url)
+        return result
+
+    monkeypatch.setattr(ct, "grab_frame", grab)
+    monkeypatch.setattr(ct, "_source_url", lambda cid, url: f"tap://{cid}")
+    return calls
+
+
+def test_a_thumbnail_is_grabbed_once_and_cached(env, monkeypatch):  # noqa: F811
+    calls = _fake_grab(monkeypatch)
+    A = env.jwt("admin")
+    for _ in range(3):
+        r = env.client.get(f"{URL}/thumbnails/1", headers=A)
+        assert r.status_code == 200 and r.content == b"\xff\xd8jpeg"
+        assert r.headers["content-type"] == "image/jpeg"
+    assert calls == ["tap://1"]
+
+
+def test_a_failed_thumbnail_is_503_and_not_retried_at_once(env, monkeypatch):  # noqa: F811
+    calls = _fake_grab(monkeypatch, result=None)
+    A = env.jwt("admin")
+    assert env.client.get(f"{URL}/thumbnails/2", headers=A).status_code == 503
+    assert env.client.get(f"{URL}/thumbnails/2", headers=A).status_code == 503
+    assert len(calls) == 1
+
+
+def test_thumbnails_follow_camera_visibility(env, monkeypatch):  # noqa: F811
+    calls = _fake_grab(monkeypatch)
+    V = env.jwt("vera")  # sees camera 3 only
+    assert env.client.get(f"{URL}/thumbnails/1", headers=V).status_code == 404
+    assert env.client.get(f"{URL}/thumbnails/3", headers=V).status_code == 200
+    s = env.Session()
+    s.get(env.models.Camera, 3).is_active = False
+    s.get(env.models.Camera, 2).deleted_at = datetime.now(UTC)
+    s.commit()
+    s.close()
+    from services import camera_thumbnail as ct
+    ct.clear()
+    assert env.client.get(f"{URL}/thumbnails/3", headers=V).status_code == 503
+    assert env.client.get(f"{URL}/thumbnails/2", headers=env.jwt("admin")).status_code == 404
+    assert calls == ["tap://3"]

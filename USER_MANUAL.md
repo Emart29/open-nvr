@@ -91,27 +91,50 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   the Live View layouts, so a 20-camera wall needs no custom layout.
 - **More cameras than tiles.** A step pages through them, a full duration
   per page: "North, all 60 cameras, 5×4" shows three pages of 20.
-- **Picking cameras.** Search by name or IP, filter by the camera's
-  **Location** field, and add a whole location at once. Filling in each
-  camera's Location (North, South, Branch 12…) is what makes this quick.
+- **Picking cameras.** The editor is a page of its own: steps on the left
+  (drag to reorder), the selected step on the right. Search by name or IP,
+  filter by the camera's **Location** field, and add a whole location at
+  once; each camera shows a small picture, and pointing at one shows it
+  larger. Chosen cameras can be dragged into order or sorted A to Z or by
+  location, and **Preview** shows every page as the wall will. Filling in
+  each camera's Location (North, South, Branch 12…) is what makes this quick.
+- **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
+  crops it to fill its tile, which suits portrait and fisheye cameras.
 - **Who sees what.** Every viewer sees only the cameras they are allowed
-  to see; the bar says how many were left out. A tour that includes
-  cameras someone cannot see can be run by them but not edited.
+  to see; the bar says how many were left out. Changing or deleting a tour
+  needs the right to manage every camera in it; anyone else can run it.
+
+**Alarms on the wall.** Turn on **Bring alarms to the front** in a tour's
+settings and an alert on one of its cameras takes over the wall: the
+camera fills the screen with a red frame and a banner saying what happened
+and when, and up to four alarming cameras share the wall. After **Show
+for** (30 s by default) the tour carries on exactly where it was; **Back to
+tour** or **Esc** returns at once. Choose what counts — alerts from apps and
+camera analytics (with a lowest severity), the camera's own alarms
+(motion, tamper, line crossing), or both — and whether only the tour's
+cameras or any camera the screen can see may take over. **Then ignore that
+camera for** stops one busy camera from holding the wall.
 
 Running a tour on a display board:
 
 1. Copy the tour's **display link** from the Camera Tours page
-   (`https://<host>/live/tour/<id>`).
+   (`https://<host>/display/tour/<id>`). It shows the wall alone, with no
+   sidebar or header. (Live View's **Tours** button opens the same tour
+   inside the app instead.)
 2. On the display PC, sign in with an account that only has `live.view`
    and the cameras that board should show.
-3. Start the browser in kiosk mode so it opens fullscreen on its own, e.g.
-   `chrome --kiosk https://<host>/live/tour/<id>`, and turn off the
-   operating system's screen sleep.
+3. Start the browser in kiosk mode, e.g.
+   `chrome --kiosk https://<host>/display/tour/<id>`. Kiosk mode makes the
+   browser window fill the screen with no address bar, and the display
+   link fills that window. Turn off the operating system's screen sleep.
 
-On the wall: **Space** pauses and resumes (a paused wall says so until it
-is resumed — moving the mouse never pauses it), **← / →** step, **F**
-toggles fullscreen, and clicking a tile shows that camera on its own until
-it is clicked again. Edits to a tour reach running walls within five
+On the wall: a chip in the bottom corner always says what is on screen and
+what comes next ("North → South in 18 s"). **Space** pauses and resumes (a
+paused wall says so until it is resumed — moving the mouse never pauses
+it), **← / →** step, **F** toggles fullscreen, and clicking a tile shows
+that camera on its own until it is clicked again. Someone who may edit the
+tour can open the editor from the wall's bar (**Edit this tour**); saving
+brings them back to the running wall. Edits to a tour reach running walls within five
 minutes; a turned-off tour shows a notice and starts again by itself when
 it is turned back on. A running board keeps itself signed in; one left
 switched off for more than 30 days has to sign in again.

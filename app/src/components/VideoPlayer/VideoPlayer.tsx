@@ -98,6 +98,10 @@ export interface VideoPlayerProps {
       caller and uses the compact loading and error states — a wall of
       tiles that labels its own feeds. */
   chrome?: 'full' | 'controls' | 'none'
+  /** Crop the picture to fill the whole player instead of letterboxing it
+      (a tour wall's "Fill"). Off by default: every other surface keeps the
+      stream's own shape. */
+  cover?: boolean
 }
 
 export interface VideoPlayerHandle {
@@ -135,6 +139,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       cameraId = null,
       showDetections = false,
       chrome = 'full',
+      cover = false,
     },
     ref
   ) {
@@ -1076,7 +1081,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         <div
           className="relative flex justify-center"
           style={
-            videoAspect
+            videoAspect && !cover
               ? { width: '100%', height: `min(100%, calc(100cqw / ${videoAspect}))`, containerType: 'inline-size' }
               : { width: '100%', height: '100%', containerType: 'inline-size' }
           }
@@ -1086,7 +1091,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             min-w-0 keeps the video's intrinsic size from inflating it. */}
         <div
           className="relative h-full min-w-0 bg-black"
-          style={videoAspect ? { aspectRatio: String(videoAspect) } : { width: '100%' }}
+          style={videoAspect && !cover ? { aspectRatio: String(videoAspect) } : { width: '100%' }}
         >
 
         {/* Video element. The feed box already carries the stream's DISPLAY
@@ -1097,7 +1102,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             fill would smear the frame across the whole tile. */}
         <video
           ref={videoRef}
-          className={`block w-full h-full ${stretched ? 'object-fill' : 'object-contain'}`}
+          className={`block w-full h-full ${cover ? 'object-cover' : stretched ? 'object-fill' : 'object-contain'}`}
           playsInline
           muted={isMuted}
           autoPlay={autoPlay}

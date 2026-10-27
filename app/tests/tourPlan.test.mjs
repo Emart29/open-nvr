@@ -25,6 +25,18 @@ test('the last page holds the remainder', () => {
   assert.deepEqual(pages.map((p) => p.cameraIds), [[1, 2, 3, 4], [5]])
 })
 
+test('a plain grid with cameras missing shrinks to fit them; a layout with a big tile does not', () => {
+  const [short, two] = buildPages([
+    { label: '', layout_id: 'wall', duration_s: 30, camera_ids: ids(6) },
+    { label: '', layout_id: '2x2', duration_s: 30, camera_ids: ids(2) },
+  ], resolve)
+  assert.deepEqual([short.layout.gridCols, short.layout.gridRows], [3, 2])
+  assert.deepEqual([two.layout.gridCols, two.layout.gridRows], [2, 1])
+  const big = { name: '1+5', gridCols: 3, gridRows: 3, tiles: [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }, ...grid(3, 3).tiles.slice(0, 5)] }
+  const [kept] = buildPages([{ label: '', layout_id: '1+5', duration_s: 30, camera_ids: ids(2) }], (id) => (id === '1+5' ? big : null))
+  assert.equal(kept.layout, big)
+})
+
 test('a step with no visible camera is skipped', () => {
   const pages = buildPages([
     { label: 'North', layout_id: '2x2', duration_s: 30, camera_ids: [] },
