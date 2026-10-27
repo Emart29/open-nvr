@@ -700,6 +700,48 @@ What it says:
   requires the live camera, but the stored event is equal evidence of
   tampering. It costs the rules run one pass.
 
+## The Look eval (`tools/look_eval.py`)
+
+RFC #620 offers Look everywhere; its gate comes from Look cases on a
+site's own pictures. `tools/look_eval.py` runs each picture through the
+workflow's Look step (`tools/look_templates.yml`, written as an `ai:`
+step and run by the SDK's `run_ai_step`, so it measures what ships) and
+gates on the Wilson lower bound of the pass rate (>= 0.80) with p95
+inside the hardware class's seconds, per template.
+
+The labels are a CSV a person can keep in a spreadsheet
+(`tools/look_cases.example.csv`): the file, the template, and the right
+answer, as the decision (`delivery`), facts (`who=guard`) or both
+(`delivery; company=swiggy`). With a rule table, a fact label is enough:
+`who=stranger` expects `alert`. A run passes when the decision and every
+fact the label names are right.
+
+    python tools/look_eval.py --cases site/cases.csv --check      # labels only
+    python tools/look_eval.py --cases site/cases.csv --model qwen3-vl:2b-instruct \
+        --hardware cpu --repeat 3 --out look.json
+    python tools/look_eval.py --cases site/cases.csv --rescore look.json  # after fixing a label
+
+A site's pictures stay out of the repository; the run file keeps names,
+answers, timings and, when the model's output was no answer, what it
+said.
+
+**No accuracy yet**: that needs the site pictures. A plumbing check on 4
+coco128 frames (2 dogs, 2 scenes with nobody; `yard_threat`, CPU, 4
+threads), which says nothing about accuracy but two things about the
+step:
+
+- **Seconds**: `qwen2.5vl:3b` took 47-53 s a step; `qwen3-vl:2b-instruct`
+  37-49 s on the first pass and 13-20 s on reruns of one frame. Inside
+  CPU's 120 s, but a CPU Look step is tens of seconds, not the 9-12 s of
+  a text step; the site run will give the real p95.
+- **Two failures to watch on the real cases**: `qwen2.5vl:3b` wrote "a
+  small dog" in its reason and `who: nobody` in the field (the
+  Investigate finding again, right observation and wrong fact); and
+  `qwen3-vl:2b-instruct` twice in 8 runs wrote a reason long enough to
+  run out of tokens before the JSON closed (`invalid_output`). The second
+  is a fix for the SDK (a tighter reason, or more tokens for Look),
+  measured on the site cases before and after.
+
 ## Measured: the vision models on coco128 (16 October 2026)
 
 `tools/vqa_eval.py` asks each model the agent's questions on coco128's
