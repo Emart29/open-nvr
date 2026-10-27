@@ -107,9 +107,10 @@ async def _run(job: ImportJob, planned: list[PlannedCamera], probe: bool) -> Non
     try:
         await asyncio.gather(*(one(p) for p in planned))
     finally:
-        job.state = "done"
         job.finished_at = time.time()
+        # Audit before saying "done": whoever is polling may act on it at once.
         _audit(job)
+        job.state = "done"
 
 
 def _result(p: PlannedCamera, outcome: str, message: str = "", camera_id: int | None = None) -> dict[str, Any]:
