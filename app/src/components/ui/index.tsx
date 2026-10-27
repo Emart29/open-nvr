@@ -249,9 +249,11 @@ export function ErrorCard({ title = 'Error', message, onRetry }: { title?: strin
 
 /* ---------------------------- Table ----------------------------- */
 
-export function Table({ children, className = '', ...rest }: TableHTMLAttributes<HTMLTableElement>) {
+/** `wrapperClassName` styles the scrolling box around the table, e.g. a
+ *  height limit with `overflow-auto` for a table whose header sticks. */
+export function Table({ children, className = '', wrapperClassName = '', ...rest }: TableHTMLAttributes<HTMLTableElement> & { wrapperClassName?: string }) {
   return (
-    <div className="overflow-x-auto border border-[var(--border)] rounded-[var(--radius-card)]">
+    <div className={clsx('overflow-x-auto border border-[var(--border)] rounded-[var(--radius-card)]', wrapperClassName)}>
       <table className={clsx('w-full text-sm', className)} {...rest}>
         {children}
       </table>

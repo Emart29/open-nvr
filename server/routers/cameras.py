@@ -60,7 +60,7 @@ from schemas import (
 )
 from services.audit_service import audit_request, write_audit_log
 from services.camera_identity import path_name_for_camera, read_marker
-from services.camera_service import CameraService, camera_search_filter
+from services.camera_service import CameraService, camera_location_filter, camera_search_filter
 from services.camera_status_service import get_camera_status_service
 from services.mediamtx_admin_service import MediaMtxAdminService
 from services.recording_watchdog import (
@@ -590,6 +590,10 @@ def get_cameras(
     # never declared it, so FastAPI dropped it and the search box filtered
     # nothing. Missing or empty = the unfiltered list, exactly as before.
     q: str | None = Query(None, max_length=100),
+    # The Cameras page's Location filter: one location (trimmed, any case),
+    # or no_location for cameras with none. Missing = every location.
+    location: str | None = Query(None, max_length=100),
+    no_location: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     request: Request = None,
@@ -626,6 +630,9 @@ def get_cameras(
     match = camera_search_filter(q)
     if match is not None:
         query = query.filter(match)
+    place = camera_location_filter(location, no_location)
+    if place is not None:
+        query = query.filter(place)
     total = query.count()
     cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
     camera_logger.log_action(
@@ -791,6 +798,45 @@ def get_cameras_by_ip(
         )
 
     return cameras
+
+
+# NOTE: must be registered before GET /{camera_id} — otherwise "locations"
+# would be parsed as the int camera_id and 422.
+@router.get("/locations")
+def get_camera_locations(
+    active_only: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Every Location among the cameras the caller can see, with how many
+    cameras each has, for the Cameras page's Location filter. Spellings that
+    differ only in case are one location (the filter treats them alike),
+    named by its most common spelling. Cameras with no location are counted
+    in ``none``, not listed."""
+    from services.camera_scope import visible_camera_ids
+
+    scope = visible_camera_ids(db, current_user)
+    place = func.trim(Camera.location)
+    query = db.query(place, func.count(Camera.id)).filter(Camera.deleted_at.is_(None))
+    if active_only:
+        query = query.filter(Camera.is_active == True)  # noqa: E712
+    if scope is not None:
+        query = query.filter(Camera.id.in_(scope or {-1}))
+    merged: dict[str, dict] = {}
+    none = 0
+    for name, count in query.group_by(place).all():
+        if not name:
+            none += count
+            continue
+        row = merged.setdefault(name.lower(), {"location": name, "count": 0, "_top": 0})
+        row["count"] += count
+        # Most cameras wins; a tie goes to the one sorting first, which puts
+        # "North Zone" before "north zone" whatever order the rows come in.
+        if count > row["_top"] or (count == row["_top"] and name < row["location"]):
+            row["location"], row["_top"] = name, count
+    locations = [{"location": r["location"], "count": r["count"]} for r in merged.values()]
+    locations.sort(key=lambda row: row["location"].lower())
+    return {"locations": locations, "none": none}
 
 
 # NOTE: must be registered before GET /{camera_id} — otherwise "deleted"

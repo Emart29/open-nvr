@@ -71,6 +71,9 @@ export type CameraListParams = {
   limit?: number
   active_only?: boolean
   q?: string
+  /** One location (any case), or no_location for cameras without one. */
+  location?: string
+  no_location?: boolean
 }
 
 /**

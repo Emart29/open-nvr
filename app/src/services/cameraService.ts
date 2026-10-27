@@ -90,6 +90,10 @@ export const cameraService = {
   deleteCamera: (cameraId: number) => api.delete(`/api/v1/cameras/${cameraId}`),
   // Bin (irreversibly soft-deleted cameras)
   getDeletedCameras: () => api.get('/api/v1/cameras/deleted'),
+  // The locations among the cameras the caller can see, with counts, for the
+  // Cameras page's Location filter; `none` counts cameras without one.
+  getCameraLocations: (params: { active_only?: boolean } = {}) =>
+    api.get('/api/v1/cameras/locations', { params }),
   hardDeleteCamera: (cameraId: number, confirmationPhrase: string, mfaCode: string) =>
     api.post(
       `/api/v1/cameras/${cameraId}/hard-delete`,

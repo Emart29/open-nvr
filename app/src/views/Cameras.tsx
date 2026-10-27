@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { apiService } from '../lib/apiService'
@@ -45,6 +46,12 @@ import { Modal } from '../components/Modal'
 // docs/design/per-camera-assignment.md. Written only here (the camera
 // settings surface); consumers read it from the internal endpoint.
 type CameraAssignment = { skill: string; labels?: string[] | null }
+
+/** The Location filter's value for cameras that have none (any string a
+ *  location cannot be). */
+const NO_LOCATION = '\u0000none'
+
+type CameraLocations = { locations: Array<{ location: string; count: number }>; none: number }
 
 type Camera = {
   id: number
@@ -143,6 +150,8 @@ export function Cameras() {
   const skip = useMemo(() => (page - 1) * limit, [page, limit])
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  // '' every location; NO_LOCATION the cameras without one; else one location.
+  const [location, setLocation] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const liveUpdates = useCameraStatusConnected()
 
@@ -157,7 +166,14 @@ export function Cameras() {
     limit,
     active_only: activeOnly,
     q: debouncedQuery || undefined,
+    ...(location === NO_LOCATION ? { no_location: true } : location ? { location } : {}),
   })
+  const locationsQuery = useQuery({
+    queryKey: ['camera-locations', activeOnly],
+    queryFn: async () => (await apiService.getCameraLocations({ active_only: activeOnly })).data as CameraLocations,
+    staleTime: 60_000,
+  })
+  const locations = locationsQuery.data
   const cameras = useMemo<Camera[]>(
     () => (camsQuery.data?.cameras ?? []) as Camera[],
     [camsQuery.data],
@@ -181,7 +197,7 @@ export function Cameras() {
   // selection on a background refresh would be maddening.
   useEffect(() => {
     setSelected(new Set())
-  }, [skip, limit, activeOnly, debouncedQuery])
+  }, [skip, limit, activeOnly, debouncedQuery, location])
 
   // Bulk assign state
   const [showBulkAssign, setShowBulkAssign] = useState(false)
@@ -330,8 +346,11 @@ export function Cameras() {
   // Every mutation funnels through here. Invalidating the key rather than
   // refetching this component's params keeps the Dashboard's copy of the list
   // honest too, since both read the same cache.
-  const refreshCameras = () =>
-    queryClient.invalidateQueries({ queryKey: ['cameras'] })
+  const refreshCameras = () => {
+    // An edit can change a camera's location, so the filter's menu too.
+    queryClient.invalidateQueries({ queryKey: ['camera-locations'] })
+    return queryClient.invalidateQueries({ queryKey: ['cameras'] })
+  }
 
   // A camera's address, port and credentials live twice over: in these fields
   // and again inside the RTSP URL. Re-sync when the operator leaves a control
@@ -499,12 +518,15 @@ export function Cameras() {
   const hasNext = cameras.length === limit
 
   return (
-    <section className="space-y-2">
+    // The page is the window's height, as Search is: the table takes what
+    // the filters leave and scrolls under its own header, and the pager
+    // stays in view below it instead of a long page scrolling away.
+    <section className="flex h-[calc(100vh-5rem)] min-h-[480px] flex-col gap-2">
       {/* Title and filters in one panel, as on Search: the title is the
           panel's header, the filters its body. The title bar, body padding
           and field height are Search's own, shared, so the two pages cannot
           drift apart. */}
-      <div className="border border-[var(--border)] bg-[var(--panel-2)]">
+      <div className="shrink-0 border border-[var(--border)] bg-[var(--panel-2)]">
         <PageTitleBar
           icon={<CameraIcon size={16} />}
           title={t('nav.cameras')}
@@ -555,6 +577,23 @@ export function Cameras() {
               className="h-9 w-full border border-[var(--border)] bg-[var(--bg-2)] pl-9 pr-2 text-[13px] outline-none transition-colors placeholder:text-[color-mix(in_oklab,var(--text-dim)_50%,transparent)] focus:border-[var(--accent)] focus:placeholder:text-[color-mix(in_oklab,var(--text-dim)_20%,transparent)]"
             />
           </div>
+          {/* Only once there is a location to pick: on a recorder where
+              no camera has one, the menu would offer nothing. */}
+          {(locations?.locations.length ?? 0) > 0 && (
+            <select
+              value={location}
+              onChange={(e) => { setPage(1); setLocation(e.target.value) }}
+              aria-label={t('camera.location')}
+              title={t('camera.location')}
+              className="h-9 w-52 max-w-full border border-[var(--border)] bg-[var(--bg-2)] px-2 text-[13px] outline-none transition-colors focus:border-[var(--accent)]"
+            >
+              <option value="">{t('camera.allLocations')}</option>
+              {locations!.locations.map((l) => (
+                <option key={l.location} value={l.location}>{l.location} ({l.count})</option>
+              ))}
+              {locations!.none > 0 && <option value={NO_LOCATION}>{t('camera.noLocation')} ({locations!.none})</option>}
+            </select>
+          )}
           <Checkbox
             label={t('camera.activeOnly')}
             checked={activeOnly}
@@ -660,14 +699,14 @@ export function Cameras() {
           on screen and just dims them, because swapping a populated table for
           skeletons flashes the whole page. */}
       {camsQuery.isPending ? (
-        <div className="space-y-2">
+        <div className="min-h-0 space-y-2 overflow-hidden">
           {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
         </div>
       ) : cameras.length === 0 ? (
         <EmptyState
           icon={<CameraOff size={28} />}
           title={t('camera.noCamerasTitle')}
-          description={query || activeOnly
+          description={query || activeOnly || location
             ? t('camera.noMatch')
             : t('camera.addAction')}
           action={canManageCameras ? (
@@ -682,8 +721,12 @@ export function Cameras() {
            squeezed to nothing; past that point letting the wrapper scroll is
            the lesser evil. At any normal window width the table fits and no
            scrollbar appears. */
-        <Table className={`table-fixed min-w-[760px] ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}>
-          <THead>
+        <Table
+          wrapperClassName="min-h-0 overflow-auto"
+          className={`table-fixed min-w-[900px] ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}
+        >
+          {/* Sticks while the rows scroll under it. */}
+          <THead className="sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
             <TR>
               <TH className="w-[26px] !pr-0">
                 <input
@@ -700,6 +743,7 @@ export function Cameras() {
                 />
               </TH>
               <TH className="text-xs">{t('nav.cameras')}</TH>
+              <TH className="text-xs w-[150px]">{t('camera.location')}</TH>
               <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.stream')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.recording')}</TH>
@@ -746,6 +790,9 @@ export function Cameras() {
                         {deviceLine}
                       </div>
                     )}
+                  </TD>
+                  <TD className="truncate" title={c.location || undefined}>
+                    {c.location?.trim() ? c.location : <span className="text-[var(--text-dim)]">—</span>}
                   </TD>
                   <TD className="whitespace-nowrap truncate" title={`${c.ip_address}:${c.port}`}>
                     {c.ip_address}<span className="text-[var(--text-dim)]">:{c.port}</span>
@@ -804,6 +851,7 @@ export function Cameras() {
       {/* activeOnly filters client-side of the count the backend returns, so
           the total would lie -- pass none and let the hasNext probe decide. */}
       {(page > 1 || hasNext) && (
+      <div className="shrink-0">
       <Pagination
         page={page}
         pageSize={limit}
@@ -816,6 +864,7 @@ export function Cameras() {
         isFetching={camsQuery.isFetching}
         label={t('camera.camerasNoun')}
       />
+      </div>
       )}
 
       {/* Edit Camera Dialog */}
