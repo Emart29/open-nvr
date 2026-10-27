@@ -28,7 +28,7 @@ import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-rou
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, BellRing, CameraOff, ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Maximize, Minimize, Pause, Pencil, Play, PauseCircle, Route, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useTranslation } from '../i18n'
+import { useDateFormat, useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
 import { rebaseToCurrentOrigin } from '../lib/streamUrl'
 import { useCameras, type CameraItem } from '../lib/queries'
@@ -115,6 +115,7 @@ const fetchStream = async (cameraId: number) => {
  */
 export function TourView({ display = false }: { display?: boolean }) {
   const { t } = useTranslation()
+  const fmt = useDateFormat()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { tourId } = useParams()
@@ -661,7 +662,7 @@ export function TourView({ display = false }: { display?: boolean }) {
               {alerts[0].title} · {camById.get(alerts[0].cameraId)?.name ?? t('tours.cameraN', { id: alerts[0].cameraId })}
               {alerts.length > 1 && ` · ${t('tours.moreAlerts', { count: alerts.length - 1 })}`}
             </span>
-            <span className="text-xs font-mono tabular-nums opacity-80 shrink-0">{new Date(alerts[0].at).toLocaleTimeString()}</span>
+            <span className="text-xs font-mono tabular-nums opacity-80 shrink-0">{fmt.time(alerts[0].at)}</span>
             <button type="button" onClick={() => dismiss()} className="shrink-0 px-2 py-0.5 text-xs border border-white/40 bg-black/20 hover:bg-black/40">
               {t('tours.backToTour')}
             </button>
@@ -796,6 +797,7 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, cover, labelC
   onSpotlight: () => void
 }) {
   const { t } = useTranslation()
+  const fmt = useDateFormat()
   const qc = useQueryClient()
   const { version } = useCameraStatus(cameraId)
   const state = cam ? cameraState(cam) : 'degraded'
@@ -927,7 +929,7 @@ function TourTile({ cameraId, cam, pausedCamera, playing, spotlit, cover, labelC
           <span className="shrink-0 inline-flex items-center gap-1 max-w-[55%] px-1.5 py-0.5 bg-[var(--danger)] text-white text-xs font-semibold">
             <BellRing size={12} aria-hidden="true" />
             <span className="truncate">{alert.title}</span>
-            <span className="font-mono tabular-nums font-normal opacity-85">{new Date(alert.at).toLocaleTimeString()}</span>
+            <span className="font-mono tabular-nums font-normal opacity-85">{fmt.time(alert.at)}</span>
           </span>
         )}
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: isPaused ? 'var(--text-dim)' : STATE_INK[state] }} aria-hidden="true" />
