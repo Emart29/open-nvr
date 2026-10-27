@@ -71,7 +71,6 @@ export function buildPages(
     const per = layout.tiles.length
     const pages = Math.ceil(ids.length / per)
     const durationMs = Math.max(1, step.duration_s) * 1000
-    const uniform = layout.tiles.every((t) => t.rowSpan === 1 && t.colSpan === 1)
     for (let page = 0; page < pages; page++) {
       const cameraIds = ids.slice(page * per, page * per + per)
       out.push({
@@ -80,10 +79,10 @@ export function buildPages(
         page,
         pages,
         label: step.label,
-        // A plain grid with cameras missing (a short last page, a small
-        // step) shrinks to fit them instead of showing black tiles. A
-        // layout with a large tile keeps its shape: the big one is the point.
-        layout: uniform && cameraIds.length < per ? autoGrid(cameraIds.length) : layout,
+        // Always the layout as chosen, tiles without a camera left empty: the
+        // editor's preview draws these same pages, so what the admin arranges
+        // is exactly what the wall shows.
+        layout,
         layoutFallback: !resolved,
         cameraIds,
         durationMs,

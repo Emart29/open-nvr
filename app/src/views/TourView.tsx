@@ -298,7 +298,7 @@ export function TourView({ display = false }: { display?: boolean }) {
               />
             </div>
           ) : (
-            <div key={`empty-${i}`} style={area} className="bg-black" />
+            <div key={`empty-${i}`} style={area} className="bg-[#0b0f16]" />
           )
         })}
       </div>

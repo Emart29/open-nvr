@@ -177,6 +177,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   const step = draft.steps.find((s) => s.uid === selected) ?? draft.steps[0]
   const emptySteps = draft.steps.filter((s) => s.camera_ids.length === 0).length
   const canSave = !readOnly && !!draft.name.trim() && draft.steps.length > 0 && emptySteps === 0 && !saving
+  const nameError = touched && !draft.name.trim()
 
   // Leaving with unsaved changes asks first: in-app links, and the tab itself.
   const blocker = useBlocker(dirty && !saved && !saving)
@@ -261,26 +262,33 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   }
 
   return (
-    <div className="space-y-3" data-testid="tour-editor">
-      {/* Title and summary on the left, the two actions pinned right at every width. */}
-      <div className="flex items-start gap-3 border-b border-[var(--border)] pb-3">
-        <div className="min-w-0 flex-1">
-          <Button variant="ghost" size="sm" onClick={() => navigate(back)} className="-ml-2"><ArrowLeft size={14} /> {t('tours.backToList')}</Button>
-          <h1 className="mt-1 text-base font-semibold flex items-center gap-2 min-w-0">
-            <Route size={16} className="shrink-0 text-[var(--accent)]" />
-            <span className="truncate">{draft.id == null ? t('tours.newTitle') : t('tours.editTitle', { name: initial.name })}</span>
-          </h1>
-          <div className="mt-0.5 text-xs text-[var(--text-dim)] font-mono tabular-nums" data-testid="tour-cycle">
-            {t('tours.cycleSummary', { steps: draft.steps.length, pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
-          </div>
+    <div className="space-y-2" data-testid="tour-editor">
+      {/* One sticky toolbar: back, the tour's name (it is the title), on/off,
+          the cycle summary and the two actions, always in reach. */}
+      <h1 className="sr-only">{draft.id == null ? t('tours.newTitle') : t('tours.editTitle', { name: initial.name })}</h1>
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-2 border-b border-[var(--border)] bg-[var(--bg)]" data-testid="tour-toolbar">
+        <IconAction label={t('tours.backToList')} onClick={() => navigate(back)}><ArrowLeft size={16} /></IconAction>
+        <Route size={16} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
+        <div className="min-w-[12rem] flex-1">
+          <Input id="tour-name" value={draft.name} maxLength={100} autoFocus={draft.id == null}
+            placeholder={t('tours.namePlaceholder')} aria-label={t('tours.name')} title={t('tours.name')}
+            aria-invalid={nameError || undefined}
+            className={clsx('font-semibold', nameError && '!border-[var(--danger)]')}
+            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} onBlur={() => setTouched(true)} />
         </div>
-        <div className="shrink-0 flex items-center gap-2 pt-1">
-          <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
-          <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
-            {saving ? t('tours.saving') : t('tours.save')}
-          </Button>
-        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Switch checked={draft.enabled} onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))} label={t('tours.enabled')} />
+          {t('tours.enabled')}
+        </label>
+        <span className="hidden lg:inline text-xs text-[var(--text-dim)] font-mono tabular-nums" data-testid="tour-cycle">
+          {t('tours.cycleSummary', { steps: draft.steps.length, pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
+        </span>
+        <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
+        <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
+          {saving ? t('tours.saving') : t('tours.save')}
+        </Button>
       </div>
+      {nameError && <p className="-mt-2 text-xs text-[var(--danger)]">{t('tours.nameRequired')}</p>}
 
       {readOnly && <div className="text-sm text-[var(--text-dim)] border border-[var(--border)] p-2">{t('tours.readOnly')}</div>}
       {error && (
@@ -289,17 +297,6 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
           {error.conflict && <Button size="sm" variant="outline" onClick={onReload}>{t('tours.reload')}</Button>}
         </div>
       )}
-
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-end">
-        <Field label={t('tours.name')} required error={touched && !draft.name.trim() ? t('tours.nameRequired') : undefined} htmlFor="tour-name">
-          <Input id="tour-name" value={draft.name} maxLength={100} autoFocus={draft.id == null} placeholder={t('tours.namePlaceholder')}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} onBlur={() => setTouched(true)} />
-        </Field>
-        <label className="flex items-center gap-2 text-sm pb-1.5">
-          <Switch checked={draft.enabled} onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))} label={t('tours.enabled')} />
-          {t('tours.enabled')}
-        </label>
-      </div>
 
       {/* Two columns from xl up (steps + settings | the selected step); below
           that one column in reading order: steps, the step, then settings.
@@ -596,61 +593,63 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
 
   return (
     <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}>
-      <header className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
-        <span className="text-xs font-semibold text-[var(--text-dim)] font-mono">{index + 1}</span>
-        <span className="text-sm font-medium truncate">{step.label || t('tours.stepN', { n: index + 1 })}</span>
-        <span className="ml-auto flex items-center gap-0.5">
+      {/* One row: the step's number, label, layout and time, then its actions.
+          The controls carry their own names (placeholder, tooltip, aria). */}
+      <header className="flex flex-wrap items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
+        <span className="shrink-0 w-6 h-6 inline-flex items-center justify-center text-xs font-semibold font-mono bg-[var(--accent)] text-white">{index + 1}</span>
+        <div className="min-w-[10rem] flex-1">
+          <Input value={step.label} maxLength={60} placeholder={t('tours.stepLabelPlaceholder')}
+            aria-label={t('tours.stepLabel')} title={t('tours.stepLabel')} onChange={(e) => onChange({ label: e.target.value })} />
+        </div>
+        <div className="w-44 shrink-0">
+          <Select value={step.layout_id} onChange={(e) => { onChange({ layout_id: e.target.value }); setPreviewPage(0) }}
+            aria-label={t('tours.layout')} title={t('tours.layout')}
+            className={clsx((badLayout || !known) && '!border-[var(--danger)]')}>
+            {!known && <option value={step.layout_id}>{t('tours.layoutGone', { id: step.layout_id })}</option>}
+            <optgroup label={t('tours.layoutsGrids')}>
+              {extraGrid && <option value={extraGrid.id}>{extraGrid.label} ({extraGrid.tiles})</option>}
+              {options.grids.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
+            </optgroup>
+            <optgroup label={t('tours.layoutsBuiltIn')}>
+              {options.builtIn.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
+            </optgroup>
+            {options.custom.length > 0 && (
+              <optgroup label={t('tours.layoutsCustom')}>
+                {options.custom.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
+              </optgroup>
+            )}
+          </Select>
+        </div>
+        <div className="shrink-0 flex items-center gap-1" title={t('tours.duration')}>
+          <div className="w-32">
+            <Select
+              value={custom ? 'custom' : String(step.duration_s)}
+              onChange={(e) => onChange({ duration_s: e.target.value === 'custom' ? (custom ? step.duration_s : 90) : Number(e.target.value) })}
+              aria-label={t('tours.duration')}
+            >
+              {DURATION_PRESETS.map((d) => <option key={d} value={d}>{t('tours.everyDuration', { d: formatDuration(d) })}</option>)}
+              <option value="custom">{t('tours.durationCustom')}</option>
+            </Select>
+          </div>
+          {custom && (
+            // Sized by a wrapper: the shared control class is always w-full.
+            <div className="w-20">
+              <Input
+                type="number" min={MIN_DURATION} max={MAX_DURATION} value={step.duration_s}
+                aria-label={t('tours.durationSeconds')} title={t('tours.durationSeconds')}
+                onChange={(e) => onChange({ duration_s: Math.min(MAX_DURATION, Math.max(MIN_DURATION, Number(e.target.value) || MIN_DURATION)) })}
+              />
+            </div>
+          )}
+        </div>
+        <span className="flex items-center gap-0.5">
           <IconAction label={t('tours.duplicateStep')} onClick={onDuplicate}><CopyPlus size={13} /></IconAction>
           <IconAction label={t('tours.removeStep')} onClick={onRemove} disabled={count === 1} danger><Trash2 size={13} /></IconAction>
         </span>
       </header>
+      {(badLayout || !known) && <p className="px-2 pt-1.5 text-xs text-[var(--danger)]">{t('tours.layoutUnavailable')}</p>}
 
-      <div className="p-3 space-y-4">
-        <div className="grid gap-3 @md:grid-cols-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,15rem)_minmax(0,15rem)]">
-          <Field label={t('tours.stepLabel')} hint={t('tours.stepLabelHint')} className="@md:col-span-2 @3xl:col-span-1">
-            <Input value={step.label} maxLength={60} placeholder={t('tours.stepLabelPlaceholder')} onChange={(e) => onChange({ label: e.target.value })} />
-          </Field>
-          <Field label={t('tours.layout')} error={badLayout || !known ? t('tours.layoutUnavailable') : undefined}>
-            <Select value={step.layout_id} onChange={(e) => { onChange({ layout_id: e.target.value }); setPreviewPage(0) }}>
-              {!known && <option value={step.layout_id}>{t('tours.layoutGone', { id: step.layout_id })}</option>}
-              <optgroup label={t('tours.layoutsGrids')}>
-                {extraGrid && <option value={extraGrid.id}>{extraGrid.label} ({extraGrid.tiles})</option>}
-                {options.grids.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
-              </optgroup>
-              <optgroup label={t('tours.layoutsBuiltIn')}>
-                {options.builtIn.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
-              </optgroup>
-              {options.custom.length > 0 && (
-                <optgroup label={t('tours.layoutsCustom')}>
-                  {options.custom.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
-                </optgroup>
-              )}
-            </Select>
-          </Field>
-          <Field label={t('tours.duration')}>
-            <div className="flex items-center gap-2">
-              <Select
-                value={custom ? 'custom' : String(step.duration_s)}
-                onChange={(e) => onChange({ duration_s: e.target.value === 'custom' ? (custom ? step.duration_s : 90) : Number(e.target.value) })}
-                className="flex-1 min-w-0"
-              >
-                {DURATION_PRESETS.map((d) => <option key={d} value={d}>{formatDuration(d)}</option>)}
-                <option value="custom">{t('tours.durationCustom')}</option>
-              </Select>
-              {custom && (
-                // Sized by a wrapper: the shared control class is always w-full.
-                <div className="w-24 shrink-0">
-                  <Input
-                    type="number" min={MIN_DURATION} max={MAX_DURATION} value={step.duration_s}
-                    aria-label={t('tours.durationSeconds')} title={t('tours.durationSeconds')}
-                    onChange={(e) => onChange({ duration_s: Math.min(MAX_DURATION, Math.max(MIN_DURATION, Number(e.target.value) || MIN_DURATION)) })}
-                  />
-                </div>
-              )}
-            </div>
-          </Field>
-        </div>
-
+      <div className="p-2 space-y-2">
         {/* Two panes: pick cameras on the left, arrange them on the right in
             the preview itself (drag tiles to reorder, x to remove). They stack
             when the panel is too narrow for both. */}
@@ -687,6 +686,11 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                     ? t('tours.pagesOf', { count: step.camera_ids.length, pages: pages.length, per: layout?.tiles.length ?? 0 })
                     : t('tours.tilesUsed', { count: step.camera_ids.length, tiles: layout?.tiles.length ?? 0 })}
               </span>
+              {byLocation.map(([loc, n]) => (
+                <span key={loc} className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 border border-[var(--border)] text-[var(--text-dim)]" title={t('tours.byLocation')}>
+                  <MapPin size={10} aria-hidden="true" /> {loc} · {n}
+                </span>
+              ))}
               {step.camera_ids.length > 1 && (
                 <span className="ml-auto flex items-center gap-1">
                   <Button size="sm" variant="ghost" onClick={() => sortBy('name')}><ArrowDownAZ size={12} /> {t('tours.sortName')}</Button>
@@ -695,15 +699,6 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                 </span>
               )}
             </div>
-            {byLocation.length > 0 && (
-              <div className="flex flex-wrap gap-1" aria-label={t('tours.byLocation')}>
-                {byLocation.map(([loc, n]) => (
-                  <span key={loc} className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 border border-[var(--border)] text-[var(--text-dim)]">
-                    <MapPin size={10} aria-hidden="true" /> {loc} · {n}
-                  </span>
-                ))}
-              </div>
-            )}
             {shownPage ? (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onCameraDrag}>
                 <SortableContext items={shownPage.cameraIds} strategy={rectSortingStrategy}>
@@ -748,7 +743,7 @@ function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLiv
 }) {
   return (
     <div
-      className="w-full max-w-[calc(60vh*16/9)] aspect-video bg-black p-px"
+      className="w-full max-w-[calc((100vh-15rem)*16/9)] aspect-video bg-black p-px"
       style={{ display: 'grid', gridTemplateColumns: `repeat(${layout.gridCols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.gridRows}, minmax(0, 1fr))`, gap: '1px' }}
       data-testid="tour-page-preview"
     >
@@ -759,7 +754,9 @@ function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLiv
           <PreviewTile key={cid} cameraId={cid} order={firstOrder + i} area={area} cam={camById.get(cid)} cover={cover}
             bad={bad.has(cid)} onLive={() => onLive(cid)} onRemove={() => onRemove(cid)} />
         ) : (
-          <div key={`e${i}`} style={area} className="bg-[#0b0f16]" />
+          <div key={`e${i}`} style={area} className="flex items-center justify-center border border-dashed border-white/10 bg-[#0b0f16] text-[10px] font-mono text-white/25" aria-hidden="true">
+            {firstOrder + i}
+          </div>
         )
       })}
     </div>
@@ -894,22 +891,22 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
   const locationLabel = (loc: string) => (loc === NO_LOCATION ? t('tours.noLocation') : loc)
 
   return (
-    <div className="@container border border-[var(--border)] bg-[var(--panel)] min-w-0" data-testid="tour-camera-picker">
+    <div className="@container border border-[var(--border)] bg-[var(--panel)] min-w-0" data-testid="tour-camera-picker" role="group" aria-label={t('tours.addCameras')}>
+      {/* Search on its own line (the pane is narrow); location and "add all" share the next. */}
       <div className="space-y-2 p-2 border-b border-[var(--border)]">
-        <div className="text-sm font-medium">{t('tours.addCameras')}</div>
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" aria-hidden="true" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tours.searchCameras')} className="pl-7" aria-label={t('tours.searchCameras')} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="min-w-0 flex-1 basis-40">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
             <Select value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('tours.location')}>
               <option value="">{t('tours.allLocations', { count: cameras.length })}</option>
               {locations.map(([loc, n]) => <option key={loc} value={loc}>{locationLabel(loc)} ({n})</option>)}
             </Select>
           </div>
           {notYet.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => onChange([...selected, ...notYet.map((c) => c.id)])}>
+            <Button size="sm" variant="outline" className="shrink-0 whitespace-nowrap" onClick={() => onChange([...selected, ...notYet.map((c) => c.id)])}>
               {location
                 ? t('tours.addAllFrom', { count: notYet.length, location: locationLabel(location) })
                 : t('tours.addAllShown', { count: notYet.length })}
@@ -920,7 +917,7 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
       {shown.length === 0 ? (
         <div className="p-3 text-xs text-[var(--text-dim)]">{t('tours.noCamerasMatch')}</div>
       ) : (
-        <ul className="max-h-[30rem] overflow-auto divide-y divide-[var(--border)]">
+        <ul className="max-h-[calc(100vh-18rem)] min-h-48 overflow-auto divide-y divide-[var(--border)]">
           {shown.map((c) => (
             <li key={c.id} className={clsx('flex items-center gap-2 pr-1 hover:bg-[var(--panel-2)]', chosen.has(c.id) && 'bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]')}>
               <label className="flex flex-1 min-w-0 items-center gap-2 pl-2 py-1.5 text-xs cursor-pointer">

@@ -95,9 +95,10 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   (drag to reorder; the panel and its sections fold away), the selected step
   on the right, split in two. On its left, pick cameras: search by name or
   IP, filter by the camera's **Location** field, or add a whole location at
-  once. On its right, **Preview** shows each page as the wall will, from
-  still pictures: drag a tile to reorder, ✕ to remove it, or sort A to Z or
-  by location. Pictures are stills; **▶** on any camera opens it live, only
+  once. On its right, **Preview** lays each page out exactly as the wall
+  does, from still pictures: the layout you chose, every tile in its place,
+  and tiles without a camera left empty (numbered here, dark on the wall).
+  Drag a tile to reorder, ✕ to remove it, or sort A to Z or by location. Pictures are stills; **▶** on any camera opens it live, only
   when asked. Filling in each camera's Location (North, South, Branch 12…)
   is what makes this quick.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
