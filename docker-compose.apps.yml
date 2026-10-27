@@ -142,29 +142,39 @@ services:
   # ──────────────────────────────────────────────────────────────
   loitering-detection-config-init:
     profiles: [apps, loitering-detection]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/loitering-detection/Dockerfile
+    image: ${LOITERING_DETECTION_IMAGE:-opennvr/loitering-detection:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_loitering_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for loitering-detection: mount examples/loitering-detection at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         # busybox sed substitutes only INTERNAL_API_KEY, leaving other
         # ``$`` sigils untouched (no envsubst / apk fetch, which some
         # operator ISPs filter). Same pattern as the camera-agent overlay.
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (loitering-detection) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (loitering-detection) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/loitering-detection:/template:ro
       - opennvr_loitering_config:/generated
-
   loitering-detection:
     profiles: [apps, loitering-detection]
     build:
@@ -231,26 +241,36 @@ services:
     # stream that is always on and need no extra adapter, model, or GPU.
     # Opt out with OPENNVR_DEFAULT_APPS=off in .env.
     profiles: [apps, default-apps, occupancy-counting]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/occupancy-counting/Dockerfile
+    image: ${OCCUPANCY_COUNTING_IMAGE:-opennvr/occupancy-counting:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_occupancy_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for occupancy-counting: mount examples/occupancy-counting at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (occupancy-counting) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (occupancy-counting) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/occupancy-counting:/template:ro
       - opennvr_occupancy_config:/generated
-
   occupancy-counting:
     # In BOTH profiles: ``apps`` (the everything-on profile / the
     # reconciler's) and ``default-apps`` — the profile start.sh/start.ps1
@@ -311,26 +331,36 @@ services:
   # ──────────────────────────────────────────────────────────────
   line-crossing-config-init:
     profiles: [apps, line-crossing]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/line-crossing/Dockerfile
+    image: ${LINE_CROSSING_IMAGE:-opennvr/line-crossing:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_line_crossing_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for line-crossing: mount examples/line-crossing at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (line-crossing) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (line-crossing) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/line-crossing:/template:ro
       - opennvr_line_crossing_config:/generated
-
   line-crossing:
     profiles: [apps, line-crossing]
     build:
@@ -386,26 +416,36 @@ services:
   # ──────────────────────────────────────────────────────────────
   abandoned-object-config-init:
     profiles: [apps, abandoned-object]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/abandoned-object/Dockerfile
+    image: ${ABANDONED_OBJECT_IMAGE:-opennvr/abandoned-object:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_abandoned_object_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for abandoned-object: mount examples/abandoned-object at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (abandoned-object) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (abandoned-object) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/abandoned-object:/template:ro
       - opennvr_abandoned_object_config:/generated
-
   abandoned-object:
     profiles: [apps, abandoned-object]
     build:
@@ -458,26 +498,36 @@ services:
   # ──────────────────────────────────────────────────────────────
   intrusion-detection-config-init:
     profiles: [apps, intrusion-detection]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/intrusion-detection/Dockerfile
+    image: ${INTRUSION_DETECTION_IMAGE:-opennvr/intrusion-detection:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_intrusion_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for intrusion-detection: mount examples/intrusion-detection at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (intrusion-detection) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (intrusion-detection) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/intrusion-detection:/template:ro
       - opennvr_intrusion_detection_config:/generated
-
   intrusion-detection:
     profiles: [apps, intrusion-detection]
     build:
@@ -558,26 +608,36 @@ services:
 
   camera-tamper-config-init:
     profiles: [apps, camera-tamper]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/camera-tamper/Dockerfile
+    image: ${CAMERA_TAMPER_IMAGE:-opennvr/camera-tamper:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_camera_tamper_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for camera-tamper: mount examples/camera-tamper at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (camera-tamper) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (camera-tamper) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/camera-tamper:/template:ro
       - opennvr_camera_tamper_config:/generated
-
   camera-tamper:
     profiles: [apps, camera-tamper]
     build:
@@ -654,26 +714,36 @@ services:
 
   gate-watch-config-init:
     profiles: [apps, gate-watch]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/gate-watch/Dockerfile
+    image: ${GATE_WATCH_IMAGE:-opennvr/gate-watch:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_gate_watch_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for gate-watch: mount examples/gate-watch at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (gate-watch) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (gate-watch) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/gate-watch:/template:ro
       - opennvr_gate_watch_config:/generated
-
   gate-watch:
     profiles: [apps, gate-watch]
     build:
@@ -750,26 +820,36 @@ services:
 
   garbage-dumping-config-init:
     profiles: [apps, garbage-dumping]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/garbage-dumping/Dockerfile
+    image: ${GARBAGE_DUMPING_IMAGE:-opennvr/garbage-dumping:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_garbage_dumping_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for garbage-dumping: mount examples/garbage-dumping at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (garbage-dumping) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (garbage-dumping) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/garbage-dumping:/template:ro
       - opennvr_garbage_dumping_config:/generated
-
   garbage-dumping:
     profiles: [apps, garbage-dumping]
     build:
@@ -822,26 +902,36 @@ services:
 
   ppe-check-config-init:
     profiles: [apps, ppe-check]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/ppe-check/Dockerfile
+    image: ${PPE_CHECK_IMAGE:-opennvr/ppe-check:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_ppe_check_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for ppe-check: mount examples/ppe-check at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (ppe-check) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (ppe-check) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/ppe-check:/template:ro
       - opennvr_ppe_check_config:/generated
-
   ppe-check:
     profiles: [apps, ppe-check]
     build:
@@ -1148,26 +1238,36 @@ services:
   # ──────────────────────────────────────────────────────────────
   license-plate-recognition-config-init:
     profiles: [apps, license-plate-recognition]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/license-plate-recognition/Dockerfile
+    image: ${LICENSE_PLATE_RECOGNITION_IMAGE:-opennvr/license-plate-recognition:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_license_plate_recognition_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for license-plate-recognition: mount examples/license-plate-recognition at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (license-plate-recognition) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (license-plate-recognition) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/license-plate-recognition:/template:ro
       - opennvr_license_plate_recognition_config:/generated
-
   license-plate-recognition:
     profiles: [apps, license-plate-recognition]
     build:
@@ -1226,7 +1326,11 @@ services:
   # ──────────────────────────────────────────────────────────────
   alert-notifier-config-init:
     profiles: [apps, alert-notifier]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/alert-notifier/Dockerfile
+    image: ${ALERT_NOTIFIER_IMAGE:-opennvr/alert-notifier:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_alert_notifier_config_init
     logging: *svc-logs
     restart: "no"
@@ -1238,14 +1342,14 @@ services:
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (alert-notifier) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (alert-notifier) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/alert-notifier:/template:ro
       - opennvr_alert_notifier_config:/generated
-
   alert-notifier:
     profiles: [apps, alert-notifier]
     build:
@@ -1299,7 +1403,11 @@ services:
   # ──────────────────────────────────────────────────────────────
   gate-controller-config-init:
     profiles: [apps, gate-controller]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/gate-controller/Dockerfile
+    image: ${GATE_CONTROLLER_IMAGE:-opennvr/gate-controller:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_gate_controller_config_init
     logging: *svc-logs
     restart: "no"
@@ -1311,14 +1419,14 @@ services:
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (gate-controller) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (gate-controller) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/gate-controller:/template:ro
       - opennvr_gate_controller_config:/generated
-
   gate-controller:
     profiles: [apps, gate-controller]
     build:
@@ -1470,26 +1578,36 @@ services:
   # ──────────────────────────────────────────────────────────────
   smart-doorbell-config-init:
     profiles: [apps, smart-doorbell]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/smart-doorbell/Dockerfile
+    image: ${SMART_DOORBELL_IMAGE:-opennvr/smart-doorbell:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_doorbell_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for smart-doorbell: mount examples/smart-doorbell at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (smart-doorbell) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (smart-doorbell) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/smart-doorbell:/template:ro
       - opennvr_smart_doorbell_config:/generated
-
   smart-doorbell:
     profiles: [apps, smart-doorbell]
     build:
@@ -1703,26 +1821,36 @@ services:
 
   package-delivery-config-init:
     profiles: [apps, package-delivery]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/package-delivery/Dockerfile
+    image: ${PACKAGE_DELIVERY_IMAGE:-opennvr/package-delivery:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_package_delivery_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for package-delivery: mount examples/package-delivery at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (package-delivery) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (package-delivery) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/package-delivery:/template:ro
       - opennvr_package_delivery_config:/generated
-
   package-delivery:
     profiles: [apps, package-delivery]
     build:
@@ -1787,26 +1915,36 @@ services:
     # stream that is always on and need no extra adapter, model, or GPU.
     # Opt out with OPENNVR_DEFAULT_APPS=off in .env.
     profiles: [apps, default-apps, footage-search]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/footage-search/Dockerfile
+    image: ${FOOTAGE_SEARCH_IMAGE:-opennvr/footage-search:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_footage_search_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for footage-search: mount examples/footage-search at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (footage-search) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (footage-search) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/footage-search:/template:ro
       - opennvr_footage_search_config:/generated
-
   footage-search:
     # In BOTH profiles: ``apps`` (the everything-on profile / the
     # reconciler's) and ``default-apps`` — the profile start.sh/start.ps1
@@ -1871,15 +2009,25 @@ services:
   # ──────────────────────────────────────────────────────────────
   home-assistant-relay-config-init:
     profiles: [apps, home-assistant-relay]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/home-assistant-relay/Dockerfile
+    image: ${HOME_ASSISTANT_RELAY_IMAGE:-opennvr/home-assistant-relay:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_home_assistant_relay_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for home-assistant-relay: mount examples/home-assistant-relay at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         mhost=$$(sed_esc "$${HA_MQTT_HOST}")
@@ -1889,8 +2037,9 @@ services:
             -e "s/[$$][{]HA_MQTT_HOST[}]/$$mhost/g" \
             -e "s/[$$][{]HA_URL[}]/$$haurl/g" \
             -e "s/[$$][{]HA_TOKEN[}]/$$hatok/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (home-assistant-relay) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (home-assistant-relay) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       # Operator-set in .env — the relay's Home Assistant endpoint.
@@ -1904,7 +2053,6 @@ services:
     volumes:
       - ./examples/home-assistant-relay:/template:ro
       - opennvr_home_assistant_relay_config:/generated
-
   home-assistant-relay:
     profiles: [apps, home-assistant-relay]
     build:
@@ -1950,26 +2098,36 @@ services:
 
   guard-scan-compliance-config-init:
     profiles: [apps, guard-scan-compliance]
-    image: alpine:3.20
+    build:
+      context: .
+      dockerfile: examples/guard-scan-compliance/Dockerfile
+    image: ${GUARD_SCAN_COMPLIANCE_IMAGE:-opennvr/guard-scan-compliance:local-build}
+    pull_policy: ${APPS_PULL_POLICY:-build}
     container_name: opennvr_guard_scan_config_init
     logging: *svc-logs
     restart: "no"
-    command:
+    # The app image bakes config.docker.yml, so an install that pulls
+    # images without the source checkout still renders its config; a
+    # mounted examples/<app> folder overrides it (edit the template, re-up).
+    entrypoint:
       - sh
       - -c
       - |
         set -e
+        tpl=/template/config.docker.yml
+        [ -f "$$tpl" ] || tpl=/app/config.docker.yml
+        [ -f "$$tpl" ] || { echo "ERROR: no config template for guard-scan-compliance: mount examples/guard-scan-compliance at /template or use an image that bakes config.docker.yml" >&2; exit 1; }
         sed_esc() { printf '%s' "$$1" | sed -e 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'; }
         ikey=$$(sed_esc "$${INTERNAL_API_KEY}")
         sed -e "s/[$$][{]INTERNAL_API_KEY[}]/$$ikey/g" \
-            < /template/config.docker.yml > /generated/config.yml
-        echo "Wrote /generated/config.yml (guard-scan-compliance) from template."
+            < "$$tpl" > /generated/config.yml
+        echo "Wrote /generated/config.yml (guard-scan-compliance) from $$tpl."
+    command: []
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
     volumes:
       - ./examples/guard-scan-compliance:/template:ro
       - opennvr_guard_scan_config:/generated
-
   guard-scan-compliance:
     profiles: [apps, guard-scan-compliance]
     build:
