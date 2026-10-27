@@ -123,6 +123,9 @@ def test_provision_substream_adds_on_demand_path(monkeypatch):
     assert url.endswith("/config/paths/add/cam-1-sub")
     assert body["source"] == "rtsp://1.2.3.4:554/Streaming/Channels/102"
     assert body["sourceOnDemand"] is True
+    # pathDefaults records every path; the sub must opt out or each camera
+    # is recorded twice (once more for every reader of its sub).
+    assert body["record"] is False
 
 
 def test_provision_substream_prefers_stored_url(monkeypatch):
@@ -196,6 +199,8 @@ def test_provision_substream_replaces_on_conflict(monkeypatch):
     assert posts[0][0].endswith("/config/paths/add/cam-1-sub")
     assert posts[1][0].endswith("/config/paths/replace/cam-1-sub")
     assert posts[1][1]["source"] == "rtsp://1.2.3.4:554/Streaming/Channels/102"
+    # The replace is what fixes a sub provisioned by an older release.
+    assert posts[1][1]["record"] is False
 
 
 def test_provision_substream_skips_when_not_derivable(monkeypatch):
