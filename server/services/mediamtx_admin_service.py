@@ -1449,6 +1449,13 @@ class MediaMtxAdminService:
                                if isinstance(config, dict) else None),
         })
         payload["sourceOnDemand"] = True   # only pull while the agent watches
+        # Never record the sub. pathDefaults has record: yes, so a path that
+        # does not say otherwise records whenever anything reads it — and
+        # Tier-0 reads every sub path all day. That recorded each camera
+        # twice, into cam-N-sub/ folders no camera owns: the segment hook
+        # gets camera_id null, so retention never ages them out, and
+        # pausing recording (which only touches main paths) did not stop it.
+        payload["record"] = False
         url = MediaMtxAdminService._base() + f"/config/paths/add/{sub}"
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
