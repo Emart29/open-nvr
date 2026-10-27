@@ -22,8 +22,21 @@ Handles CRUD operations for cameras with proper authentication and ownership che
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -339,6 +352,32 @@ async def create_camera(
     templates) and back-fills the camera's identity — so operators normally
     only need IP + username + password.
     """
+    return await create_camera_checked(
+        camera_create, force=force, db=db, current_user=current_user, request=request
+    )
+
+
+async def create_camera_checked(
+    camera_create: CameraCreate,
+    *,
+    force: bool,
+    db: Session,
+    current_user: User,
+    request: Request | None,
+    probe: bool = True,
+    duplicate_check: bool = True,
+) -> CameraResponse:
+    """Everything POST /cameras/ does, callable from the camera import
+    (services/camera_import.py) so an imported camera goes through the same
+    SSRF guard, RTSP derivation, duplicate check and provisioning as one
+    added by hand. ``probe=False`` skips reading the device's identity and
+    setting its clock for a camera whose RTSP URL is given — seconds per
+    camera that a thousand-camera import would otherwise spend; a camera
+    without an RTSP URL is still resolved, as it cannot be added otherwise.
+    ``duplicate_check=False`` is for the import, which matches cameras itself:
+    the owner-wide IP check here would refuse every channel of an NVR after
+    the first, as they all share its address.
+    """
     _log_camera_creation_start(current_user.id, camera_create, request)
 
     # SSRF guard, mirroring routers/onvif.py:83, which has always had it —
@@ -439,7 +478,7 @@ async def create_camera(
                 camera_create.ip_address,
                 camera_create.username,
                 camera_create.password,
-            )
+            ) if probe else None
             if identity:
                 onvif_port = identity.get("onvif_port")
                 control_scheme = identity.get("control_scheme")
@@ -459,13 +498,14 @@ async def create_camera(
 
         # Correct the camera clock (fixes the timestamp burned into the video).
         # sync_camera_time is self-guarding — it returns False rather than raising.
-        await sync_camera_time(
-            camera_create.ip_address,
-            camera_create.username,
-            camera_create.password,
-            onvif_port,
-            control_scheme,
-        )
+        if probe:
+            await sync_camera_time(
+                camera_create.ip_address,
+                camera_create.username,
+                camera_create.password,
+                onvif_port,
+                control_scheme,
+            )
 
     # Keep the stored RTSP port in step with the URL that will actually be
     # pulled. `port` defaults to 554, so a camera added with an explicit URL on
@@ -490,7 +530,7 @@ async def create_camera(
     # can show "already added — add anyway?" and retry with ?force=true.
     duplicates = _find_duplicate_cameras(
         db, current_user.id, camera_create.ip_address, camera_create.rtsp_url
-    )
+    ) if duplicate_check else []
     if duplicates and not force:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -798,6 +838,157 @@ def get_cameras_by_ip(
         )
 
     return cameras
+
+
+# ── Import and export (the Cameras page's spreadsheet round trip) ──────
+# Registered before GET /{camera_id}, which would otherwise take "export" and
+# "import" for a camera id. The work is services/camera_io.py (reading,
+# checking, writing) and services/camera_import.py (applying).
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _sheet_response(body: bytes, fmt: str, stem: str) -> Response:
+    ext, media = ("xlsx", _XLSX) if fmt == "xlsx" else ("csv", "text/csv; charset=utf-8")
+    return Response(content=body, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="{stem}.{ext}"',
+        "Cache-Control": "no-store",
+    })
+
+
+@router.get("/export")
+def export_cameras(
+    format: Literal["csv", "xlsx"] = "csv",
+    include_passwords: bool = False,
+    active_only: bool = False,
+    q: str | None = Query(None, max_length=100),
+    location: str | None = Query(None, max_length=100),
+    no_location: bool = False,
+    mfa_code: str | None = Header(None, alias="X-MFA-Code"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_cameras_manage),
+    request: Request = None,
+):
+    """The cameras the caller manages as a spreadsheet, filtered as the
+    Cameras page is. Passwords, and the logins inside RTSP URLs, are left
+    out unless ``include_passwords``, which needs the caller's MFA code
+    (X-MFA-Code) and is audited either way."""
+    from services import camera_io
+    from services.camera_scope import manageable_camera_ids
+
+    if include_passwords:
+        require_mfa_code(current_user, mfa_code)
+    scope = manageable_camera_ids(db, current_user)
+    query = db.query(Camera).filter(Camera.deleted_at.is_(None))
+    if active_only:
+        query = query.filter(Camera.is_active == True)  # noqa: E712
+    if scope is not None:
+        query = query.filter(Camera.id.in_(scope or {-1}))
+    for cond in (camera_search_filter(q), camera_location_filter(location, no_location)):
+        if cond is not None:
+            query = query.filter(cond)
+    cameras = query.order_by(
+        func.lower(func.coalesce(Camera.location, "")), func.lower(Camera.name), Camera.id
+    ).all()
+    rows = camera_io.export_rows(cameras, include_passwords)
+    body = camera_io.to_xlsx(rows) if format == "xlsx" else camera_io.to_csv(rows)
+    write_audit_log(
+        db, action="camera.export", user_id=current_user.id, entity_type="camera",
+        details={"count": len(rows), "format": format, "include_passwords": include_passwords},
+        ip=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+    )
+    return _sheet_response(body, format, f"cameras-{datetime.now(UTC):%Y%m%d}")
+
+
+@router.get("/import/template")
+def camera_import_template(
+    format: Literal["csv", "xlsx"] = "xlsx",
+    current_user: User = Depends(require_cameras_manage),
+):
+    """An empty import file with example rows (and, as Excel, a sheet
+    explaining every column)."""
+    from services import camera_io
+
+    rows = camera_io.TEMPLATE_EXAMPLES
+    body = camera_io.to_xlsx(rows, with_help=True) if format == "xlsx" else camera_io.to_csv(rows)
+    return _sheet_response(body, format, "camera-import-template")
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    from services.camera_io import MAX_FILE_BYTES
+
+    data = await file.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="The file is larger than 5 MB.")
+    return data
+
+
+def _plan_upload(db: Session, current_user: User, data: bytes, filename: str):
+    from services import camera_io
+    from services.camera_scope import manageable_camera_ids
+
+    try:
+        planned = camera_io.plan_rows(camera_io.read_table(data, filename))
+    except camera_io.ImportFileError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Matched against every camera on the system, not only the caller's: an
+    # NVR channel someone else added is "already here", not a second copy.
+    existing = db.query(Camera).filter(Camera.deleted_at.is_(None)).all()
+    camera_io.match_existing(planned, existing, manageable_camera_ids(db, current_user))
+    return planned
+
+
+@router.post("/import/preview")
+async def preview_camera_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_cameras_manage),
+):
+    """What importing ``file`` would do, row by row; nothing is saved."""
+    from services import camera_io
+
+    planned = _plan_upload(db, current_user, await _read_upload(file), file.filename or "")
+    return {
+        "filename": file.filename,
+        "summary": camera_io.summary(planned),
+        "rows": [camera_io.preview_row(p) for p in planned],
+    }
+
+
+@router.post("/import")
+async def run_camera_import(
+    file: UploadFile = File(...),
+    mode: Literal["add", "add_update"] = Form("add"),
+    probe: bool = Form(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_cameras_manage),
+):
+    """Import ``file``: add its new cameras and, with mode=add_update, change
+    the ones it matches. The file is checked again here, so it is applied
+    as it is now, not as it was at preview. Runs in the background; poll
+    GET /cameras/import/jobs/{id}. ``probe`` also reads each camera's
+    identity and sets its clock (slower)."""
+    from services import camera_import
+
+    if camera_import.running_job(current_user.id):
+        raise HTTPException(status_code=409, detail="An import of yours is still running.")
+    planned = _plan_upload(db, current_user, await _read_upload(file), file.filename or "")
+    job = camera_import.start_import(
+        current_user.id, file.filename or "", planned, mode=mode, probe=probe
+    )
+    return job.as_dict()
+
+
+@router.get("/import/jobs/{job_id}")
+def camera_import_job(job_id: str, current_user: User = Depends(require_cameras_manage)):
+    """An import's progress and, row by row, what it did."""
+    from services import camera_import
+
+    job = camera_import.get_job(job_id, current_user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such import (results are kept two hours).")
+    return job.as_dict()
 
 
 # NOTE: must be registered before GET /{camera_id} — otherwise "locations"

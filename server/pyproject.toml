@@ -32,6 +32,7 @@ dependencies = [
     # clients now, the tool loop in Phase 2. From the in-repo path, so core
     # never waits on a PyPI release (RFC #620).
     "opennvr-app-sdk",
+    "openpyxl>=3.1",
 ]
 
 [tool.uv.sources]
