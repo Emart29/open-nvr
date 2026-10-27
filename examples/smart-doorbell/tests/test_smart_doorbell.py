@@ -135,6 +135,16 @@ def test_known_family_fires_low_severity():
     assert "Alice Smith" in alert.title
 
 
+def test_alerts_carry_the_manifest_alert_type():
+    """The inbox and the harness key on alert_type; every doorbell alert
+    names its kind from the manifest's emits."""
+    for category, kind in (("family", "known_visitor"), ("watchlist", "watchlist_visitor")):
+        doorbell, _pipeline, dispatcher = _build_doorbell([_known_read(category=category)])
+        doorbell.step()
+        alert = dispatcher.dispatch.call_args.args[0]
+        assert alert.alert_type == kind and alert.evidence["kind"] == kind
+
+
 def test_known_non_family_fires_info_severity():
     """A registered face under a workplace category (staff, contractor,
     visitor) is a notice, not a greeting — info level."""
@@ -365,6 +375,38 @@ def test_enroll_face_decodes_image_and_registers(monkeypatch):
     assert verb == "register"
     assert kw["name"] == "Alex Rivera"
     assert kw["image_bytes"] == b"\xff\xd8realish-jpeg-bytes"  # decoded
+
+
+def test_enroll_turns_an_adapter_refusal_into_a_readable_error(monkeypatch):
+    """A crop the adapter finds no face in (a side view off the strangers
+    wall) is the operator's to fix: a 400 with the adapter's reason, not
+    an 'internal error' 500."""
+    import base64 as _b64
+
+    import httpx
+
+    doorbell, _p, _d = _build_doorbell([])
+
+    class _RefusingAdmin:
+        def register(self, **kw):
+            req = httpx.Request("POST", "http://adapter/faces/register")
+            resp = httpx.Response(422, json={"detail": "no face detected in the supplied image"}, request=req)
+            raise httpx.HTTPStatusError("422", request=req, response=resp)
+
+    monkeypatch.setattr(doorbell, "_face_admin", lambda **kw: _RefusingAdmin())
+    img = _b64.b64encode(b"\xff\xd8side-view").decode()
+    with pytest.raises(ValueError) as ei:
+        doorbell.on_action("enroll_face", {"name": "Side View", "image": img})
+    assert "no face detected" in str(ei.value)
+
+    class _BrokenAdmin:
+        def register(self, **kw):
+            req = httpx.Request("POST", "http://adapter/faces/register")
+            raise httpx.HTTPStatusError("500", request=req, response=httpx.Response(500, request=req))
+
+    monkeypatch.setattr(doorbell, "_face_admin", lambda **kw: _BrokenAdmin())
+    with pytest.raises(httpx.HTTPStatusError):            # the adapter's fault stays a 500
+        doorbell.on_action("enroll_face", {"name": "Side View", "image": img})
 
 
 def test_enroll_face_strips_data_url_prefix(monkeypatch):
