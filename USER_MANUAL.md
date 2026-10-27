@@ -92,12 +92,14 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
 - **More cameras than tiles.** A step pages through them, a full duration
   per page: "North, all 60 cameras, 5×4" shows three pages of 20.
 - **Picking cameras.** The editor is a page of its own: steps on the left
-  (drag to reorder), the selected step on the right. Search by name or IP,
-  filter by the camera's **Location** field, and add a whole location at
-  once; each camera shows a small picture, and pointing at one shows it
-  larger. Chosen cameras can be dragged into order or sorted A to Z or by
-  location, and **Preview** shows every page as the wall will. Filling in
-  each camera's Location (North, South, Branch 12…) is what makes this quick.
+  (drag to reorder; the panel and its sections fold away), the selected step
+  on the right, split in two. On its left, pick cameras: search by name or
+  IP, filter by the camera's **Location** field, or add a whole location at
+  once. On its right, **Preview** shows each page as the wall will, from
+  still pictures: drag a tile to reorder, ✕ to remove it, or sort A to Z or
+  by location. Pictures are stills; **▶** on any camera opens it live, only
+  when asked. Filling in each camera's Location (North, South, Branch 12…)
+  is what makes this quick.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
   crops it to fill its tile, which suits portrait and fisheye cameras.
 - **Who sees what.** Every viewer sees only the cameras they are allowed
