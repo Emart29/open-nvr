@@ -239,19 +239,24 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
 
   return (
     <div className="space-y-3" data-testid="tour-editor">
-      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate(back)}><ArrowLeft size={14} /> {t('tours.backToList')}</Button>
-        <h1 className="text-base font-semibold flex items-center gap-2">
-          <Route size={16} className="text-[var(--accent)]" />
-          {draft.id == null ? t('tours.newTitle') : t('tours.editTitle', { name: initial.name })}
-        </h1>
-        <span className="ml-auto text-xs text-[var(--text-dim)] font-mono tabular-nums" data-testid="tour-cycle">
-          {t('tours.cycleSummary', { steps: draft.steps.length, pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
-        </span>
-        <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
-        <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
-          {saving ? t('tours.saving') : t('tours.save')}
-        </Button>
+      {/* Title and summary on the left, the two actions pinned right at every width. */}
+      <div className="flex items-start gap-3 border-b border-[var(--border)] pb-3">
+        <div className="min-w-0 flex-1">
+          <Button variant="ghost" size="sm" onClick={() => navigate(back)} className="-ml-2"><ArrowLeft size={14} /> {t('tours.backToList')}</Button>
+          <h1 className="mt-1 text-base font-semibold flex items-center gap-2 min-w-0">
+            <Route size={16} className="shrink-0 text-[var(--accent)]" />
+            <span className="truncate">{draft.id == null ? t('tours.newTitle') : t('tours.editTitle', { name: initial.name })}</span>
+          </h1>
+          <div className="mt-0.5 text-xs text-[var(--text-dim)] font-mono tabular-nums" data-testid="tour-cycle">
+            {t('tours.cycleSummary', { steps: draft.steps.length, pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-2 pt-1">
+          <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
+          <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
+            {saving ? t('tours.saving') : t('tours.save')}
+          </Button>
+        </div>
       </div>
 
       {readOnly && <div className="text-sm text-[var(--text-dim)] border border-[var(--border)] p-2">{t('tours.readOnly')}</div>}
@@ -273,58 +278,65 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
         </label>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)] items-start">
-        {/* Steps + tour settings */}
-        <div className="space-y-3 lg:sticky lg:top-2">
-          <section className="border border-[var(--border)] bg-[var(--panel-2)]">
-            <header className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] text-sm font-medium">
-              {t('tours.steps')}
-              <span className="text-xs text-[var(--text-dim)]">{t('tours.dragToReorder')}</span>
-            </header>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onStepDrag}>
-              <SortableContext items={draft.steps.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
-                <ol className="divide-y divide-[var(--border)]">
-                  {draft.steps.map((s, i) => (
-                    <StepRow
-                      key={s.uid}
-                      step={s}
-                      index={i}
-                      selected={s.uid === step?.uid}
-                      layout={resolve(s.layout_id)}
-                      invalid={touched && s.camera_ids.length === 0}
-                      onSelect={() => setSelected(s.uid)}
-                    />
-                  ))}
-                </ol>
-              </SortableContext>
-            </DndContext>
-            <div className="p-2 border-t border-[var(--border)]">
-              <Button variant="outline" size="sm" onClick={addStep}><Plus size={14} /> {t('tours.addStep')}</Button>
-            </div>
-          </section>
-          <TourSettingsPanel settings={draft.settings} onFit={(fit) => setSettings({ fit })} onAlerts={setAlerts} />
-        </div>
+      {/* Two columns from xl up (steps + settings | the selected step); below
+          that one column in reading order: steps, the step, then settings. */}
+      {/* xl:grid-rows: the step panel spans both left rows; the first row stays
+          as tall as the step list and the second takes the rest, so settings
+          sit right under the steps instead of after a gap. */}
+      <div className="grid gap-4 xl:grid-cols-[20rem_minmax(0,1fr)] xl:grid-rows-[auto_1fr] items-start">
+        <section className="border border-[var(--border)] bg-[var(--panel-2)] xl:col-start-1 xl:row-start-1">
+          <header className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] text-sm font-medium">
+            {t('tours.steps')}
+            <span className="text-xs text-[var(--text-dim)]">{t('tours.dragToReorder')}</span>
+          </header>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onStepDrag}>
+            <SortableContext items={draft.steps.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
+              <ol className="divide-y divide-[var(--border)]">
+                {draft.steps.map((s, i) => (
+                  <StepRow
+                    key={s.uid}
+                    step={s}
+                    index={i}
+                    selected={s.uid === step?.uid}
+                    layout={resolve(s.layout_id)}
+                    invalid={touched && s.camera_ids.length === 0}
+                    onSelect={() => setSelected(s.uid)}
+                  />
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
+          <div className="p-2 border-t border-[var(--border)]">
+            <Button variant="outline" size="sm" onClick={addStep}><Plus size={14} /> {t('tours.addStep')}</Button>
+          </div>
+        </section>
 
         {/* The selected step */}
         {step && (
-          <StepDetail
-            key={step.uid}
-            step={step}
-            index={draft.steps.indexOf(step)}
-            count={draft.steps.length}
-            layout={resolve(step.layout_id)}
-            windowSettings={windowSettings}
-            cameras={cameras}
-            camById={camById}
-            badCameras={badCameras}
-            badLayout={badLayouts.has(step.layout_id)}
-            showErrors={touched}
-            cover={draft.settings.fit === 'fill'}
-            onChange={(patch) => setStep(step.uid, patch)}
-            onDuplicate={() => duplicateStep(step.uid)}
-            onRemove={() => removeStep(step.uid)}
-          />
+          <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:row-span-2">
+            <StepDetail
+              key={step.uid}
+              step={step}
+              index={draft.steps.indexOf(step)}
+              count={draft.steps.length}
+              layout={resolve(step.layout_id)}
+              windowSettings={windowSettings}
+              cameras={cameras}
+              camById={camById}
+              badCameras={badCameras}
+              badLayout={badLayouts.has(step.layout_id)}
+              showErrors={touched}
+              cover={draft.settings.fit === 'fill'}
+              onChange={(patch) => setStep(step.uid, patch)}
+              onDuplicate={() => duplicateStep(step.uid)}
+              onRemove={() => removeStep(step.uid)}
+            />
+          </div>
         )}
+
+        <div className="xl:col-start-1 xl:row-start-2">
+          <TourSettingsPanel settings={draft.settings} onFit={(fit) => setSettings({ fit })} onAlerts={setAlerts} />
+        </div>
       </div>
     </div>
   )
@@ -426,7 +438,7 @@ function TourSettingsPanel({ settings, onFit, onAlerts }: {
                   <option value="visible">{t('tours.alertScopeVisible')}</option>
                 </Select>
               </Field>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 items-start">
                 <Field label={t('tours.alertHold')} hint={t('tours.seconds')}>
                   <Input type="number" min={5} max={600} value={a.hold_s}
                     onChange={(e) => onAlerts({ hold_s: Math.min(600, Math.max(5, Number(e.target.value) || 5)) })} />
@@ -513,7 +525,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
   }, [step.camera_ids, camById, t])
 
   return (
-    <section className="border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}>
+    <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}>
       <header className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
         <span className="text-xs font-semibold text-[var(--text-dim)] font-mono">{index + 1}</span>
         <span className="text-sm font-medium truncate">{step.label || t('tours.stepN', { n: index + 1 })}</span>
@@ -524,8 +536,8 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
       </header>
 
       <div className="p-3 space-y-4">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,15rem)_minmax(0,15rem)]">
-          <Field label={t('tours.stepLabel')} hint={t('tours.stepLabelHint')}>
+        <div className="grid gap-3 @md:grid-cols-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,15rem)_minmax(0,15rem)]">
+          <Field label={t('tours.stepLabel')} hint={t('tours.stepLabelHint')} className="@md:col-span-2 @3xl:col-span-1">
             <Input value={step.label} maxLength={60} placeholder={t('tours.stepLabelPlaceholder')} onChange={(e) => onChange({ label: e.target.value })} />
           </Field>
           <Field label={t('tours.layout')} error={badLayout || !known ? t('tours.layoutUnavailable') : undefined}>
@@ -698,7 +710,7 @@ function PagePreview({ layout, cameraIds, camById, cover }: { layout: LayoutDefi
         const cid = cameraIds[i]
         const area = { gridRow: `${tile.row + 1} / span ${tile.rowSpan}`, gridColumn: `${tile.col + 1} / span ${tile.colSpan}` }
         return (
-          <div key={cid ?? `e${i}`} style={area} className="relative min-w-0 min-h-0 bg-[#0b0f16]">
+          <div key={cid ?? `e${i}`} style={area} className="relative min-w-0 min-h-0 overflow-hidden bg-[#0b0f16]">
             {cid != null && (
               <>
                 <CameraThumb cameraId={cid} alt={camById.get(cid)?.name ?? `#${cid}`} className={clsx('absolute inset-0', !cover && '[&_img]:object-contain')} />
@@ -761,14 +773,14 @@ function CameraPicker({ cameras, selected, onChange }: { cameras: CameraItem[]; 
   const locationLabel = (loc: string) => (loc === NO_LOCATION ? t('tours.noLocation') : loc)
 
   return (
-    <div className="border border-[var(--border)] bg-[var(--panel)]" data-testid="tour-camera-picker">
+    <div className="@container border border-[var(--border)] bg-[var(--panel)]" data-testid="tour-camera-picker">
       <div className="flex flex-wrap items-center gap-2 p-2 border-b border-[var(--border)]">
         <span className="text-xs font-medium">{t('tours.addCameras')}</span>
         <div className="relative flex-1 min-w-[12rem]">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" aria-hidden="true" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tours.searchCameras')} className="pl-7" aria-label={t('tours.searchCameras')} />
         </div>
-        <div className="w-56 shrink-0">
+        <div className="w-full @md:w-56 shrink-0">
           <Select value={location} onChange={(e) => setLocation(e.target.value)} aria-label={t('tours.location')}>
             <option value="">{t('tours.allLocations', { count: cameras.length })}</option>
             {locations.map(([loc, n]) => <option key={loc} value={loc}>{locationLabel(loc)} ({n})</option>)}
@@ -785,7 +797,7 @@ function CameraPicker({ cameras, selected, onChange }: { cameras: CameraItem[]; 
       {shown.length === 0 ? (
         <div className="p-3 text-xs text-[var(--text-dim)]">{t('tours.noCamerasMatch')}</div>
       ) : (
-        <div className="grid md:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="grid @3xl:grid-cols-[minmax(0,1fr)_16rem]">
           <ul className="max-h-80 overflow-auto divide-y divide-[var(--border)]" onMouseLeave={() => setPeek(null)}>
             {shown.map((c) => (
               <li key={c.id} onMouseEnter={() => setPeek(c.id)} onFocus={() => setPeek(c.id)}>
@@ -793,15 +805,15 @@ function CameraPicker({ cameras, selected, onChange }: { cameras: CameraItem[]; 
                   <input type="checkbox" checked={chosen.has(c.id)} onChange={() => toggle(c.id)} />
                   <CameraThumb cameraId={c.id} alt={c.name} className="w-16 aspect-video shrink-0" />
                   <span className="truncate flex-1">{c.name}</span>
-                  {c.location && <span className="text-[var(--text-dim)] truncate max-w-[10rem]">{c.location}</span>}
+                  {c.location && <span className="hidden @md:inline text-[var(--text-dim)] truncate max-w-[10rem]">{c.location}</span>}
                   {!c.is_active && <span className="text-[10px] text-[var(--text-dim)] uppercase">{t('tours.cameraPaused')}</span>}
-                  <span className="font-mono text-[10px] text-[var(--text-dim)]">{c.ip_address}</span>
+                  <span className="hidden @xl:inline font-mono text-[10px] text-[var(--text-dim)]">{c.ip_address}</span>
                 </label>
               </li>
             ))}
           </ul>
           {/* The camera under the pointer (or focus), large enough to recognise the scene. */}
-          <div className="hidden md:block border-l border-[var(--border)] p-2" data-testid="tour-camera-peek">
+          <div className="hidden @3xl:block border-l border-[var(--border)] p-2" data-testid="tour-camera-peek">
             {peekCam ? (
               <div className="space-y-1">
                 <CameraThumb key={peekCam.id} cameraId={peekCam.id} alt={peekCam.name} className="w-full aspect-video" />

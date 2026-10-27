@@ -112,8 +112,8 @@ for** (30 s by default) the tour carries on exactly where it was; **Back to
 tour** or **Esc** returns at once. Choose what counts — alerts from apps and
 camera analytics (with a lowest severity), the camera's own alarms
 (motion, tamper, line crossing), or both — and whether only the tour's
-cameras or any camera the screen can see may take over. **Then ignore that
-camera for** stops one busy camera from holding the wall.
+cameras or any camera the screen can see may take over. **Cool-down per
+camera** stops one busy camera from holding the wall.
 
 Running a tour on a display board:
 

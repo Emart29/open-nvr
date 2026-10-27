@@ -7,9 +7,10 @@ capture pool, which keeps one OpenCV capture open per camera for good, so
 a picker scrolling through 1000 cameras would leave 1000 RTSP readers
 running inside core. A thumbnail here is one frame from a short-lived
 ``ffmpeg``, read from MediaMTX's existing session for the camera (the
-inference tap URL), so the recorder sees no extra connection. Results are
-cached for a minute, failures for 15 s, at most three grabs run at once,
-and concurrent requests for one camera share a single grab.
+inference tap URL), so the recorder sees no extra connection. A grab waits
+for the camera's next keyframe, seconds, so results are cached for five
+minutes (a picker needs no fresher still), failures for 15 s, at most four
+grabs run at once, and concurrent requests for one camera share one grab.
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ import time
 
 logger = logging.getLogger(__name__)
 
-TTL_S = 60.0
+TTL_S = 300.0
 FAIL_TTL_S = 15.0
-CONCURRENCY = 3
+CONCURRENCY = 4
 TIMEOUT_S = 8.0
 WIDTH = 320
 MAX_ENTRIES = 2000

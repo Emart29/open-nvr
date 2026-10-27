@@ -125,7 +125,8 @@ export function CameraTours() {
           />
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        // Cards at least 22rem wide, so the action row fits on one line.
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
           {tours.data.map((tour) => {
             const pages = buildPages(tour.steps, resolve)
             const locked = !tour.editable

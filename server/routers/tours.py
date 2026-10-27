@@ -282,7 +282,7 @@ async def camera_thumbnail(
     if not jpeg:
         raise HTTPException(status_code=503, detail="No picture from this camera right now")
     return Response(content=jpeg, media_type="image/jpeg",
-                    headers={"Cache-Control": "private, max-age=60"})
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.get("/{tour_id}")

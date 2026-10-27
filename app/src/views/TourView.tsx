@@ -272,7 +272,7 @@ export function TourView({ display = false }: { display?: boolean }) {
       ? autoGrid(alerts.length)
       : spotCam != null ? autoGrid(1) : page!.layout
     const ids = alerting ? alerts.map((a) => a.cameraId) : spotCam != null ? [spotCam] : page!.cameraIds
-    const labelClass = labelSize(layout.gridRows)
+    const labelClass = labelSize(layout.gridRows, display)
     body = (
       <div
         className="absolute inset-0 grid gap-px bg-[#1a1f29]"
@@ -342,12 +342,12 @@ export function TourView({ display = false }: { display?: boolean }) {
           onFocus={() => poke()}
         >
           <Route size={14} className="shrink-0 text-white/70" aria-hidden="true" />
-          <span className="text-sm font-semibold truncate" data-testid="tour-name">{tour.data?.name ?? ''}</span>
+          <span className="min-w-0 shrink text-sm font-semibold truncate" data-testid="tour-name">{tour.data?.name ?? ''}</span>
           {page && (
-            <span className="flex items-center gap-2 min-w-0 text-xs text-white/75">
+            <span className="flex-1 flex items-center gap-2 min-w-0 overflow-hidden text-xs text-white/75">
               <span aria-hidden="true">·</span>
               <span className="truncate font-medium text-white" data-testid="tour-step">{pageLabel}</span>
-              <span className="font-mono tabular-nums whitespace-nowrap">
+              <span className="hidden sm:inline font-mono tabular-nums whitespace-nowrap">
                 {t('tours.stepOf', { n: stepOrdinal.get(page.stepIndex) ?? 1, total: stepOrdinal.size })}
                 {page.pages > 1 && ` · ${t('tours.pageOf', { n: page.page + 1, total: page.pages })}`}
                 {` · ${formatDuration(page.durationMs / 1000)}`}
@@ -405,7 +405,7 @@ export function TourView({ display = false }: { display?: boolean }) {
 
         {/* What comes next, always on screen: a guard should not need the
             mouse to know the wall is turning, or when. */}
-        {page && pages.length > 1 && !alerting && (
+        {page && pages.length > 1 && !alerting && !barVisible && (
           <NextChip
             deadline={deadline}
             heldLeftMs={heldLeftMs}
@@ -430,12 +430,12 @@ export function TourView({ display = false }: { display?: boolean }) {
   )
 }
 
-/** Camera-name size for a grid this many rows high: readable across a room. */
-function labelSize(rows: number): string {
-  if (rows <= 1) return 'text-base'
-  if (rows === 2) return 'text-sm'
-  if (rows === 3) return 'text-[13px]'
-  return 'text-xs'
+/** Camera-name size for a grid this many rows high, a size larger on a
+ *  display board, which is read from across a room. */
+function labelSize(rows: number, display: boolean): string {
+  const steps = ['text-xs', 'text-[13px]', 'text-sm', 'text-base', 'text-lg', 'text-2xl']
+  const base = rows <= 1 ? 3 : rows === 2 ? 2 : rows === 3 ? 1 : 0
+  return steps[Math.min(steps.length - 1, base + (display ? 2 : 0))]
 }
 
 /** "North 1/3 → South in 18 s", ticking; held (paused, spotlit, hidden tab) it shows the time left, frozen. */
@@ -463,7 +463,7 @@ function NextChip({ deadline, heldLeftMs, held, current, next, large }: {
   return (
     <div
       className={clsx(
-        'pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2 px-2.5 py-1 text-white border transition-colors',
+        'pointer-events-none absolute right-3 top-3 z-20 flex items-center gap-2 max-w-[calc(100%-1.5rem)] px-2.5 py-1 text-white border transition-colors',
         soon ? 'bg-[var(--accent)] border-transparent' : 'bg-black/65 border-white/10',
         large ? 'text-sm' : 'text-xs',
       )}
