@@ -116,6 +116,7 @@ COPY examples/line-crossing/line_crossing.py           ./rules/line-crossing/lin
 # new task with an agent_skill becomes a skill backing with no code change.
 COPY examples/camera-agent/tasks.yml          ./tasks.yml
 COPY examples/camera-agent/config.example.yml ./config.example.yml
+COPY examples/camera-agent/config.docker.yml  ./config.docker.yml
 COPY examples/camera-agent/demo               ./demo
 
 # Point monitor_host at the bundled rule libraries (the /app layout flattens
