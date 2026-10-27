@@ -146,9 +146,14 @@ def test_admin_reset_ends_the_users_existing_sessions(env):
     assert r.status_code == 200, r.text
     assert env.client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {old['access_token']}"}).status_code == 401
     assert env.client.post("/api/v1/auth/refresh", json={"refresh_token": old["refresh_token"]}).status_code == 401
-    # Tokens from before the column existed (no ver claim) keep working.
+    # Tokens from before the column existed (no ver claim) count as version 0:
+    # they keep working until the account's first reset, and end with it.
     assert env.client.get("/api/v1/auth/me",
                           headers={"Authorization": f"Bearer {create_access_token({'sub': 'root'})}"}).status_code == 200
+    assert env.client.get("/api/v1/auth/me",
+                          headers={"Authorization": f"Bearer {create_access_token({'sub': 'plain'})}"}).status_code == 401
+    old_refresh = core_auth.create_refresh_token({"sub": "plain"})
+    assert env.client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh}).status_code == 401
 
 
 # ── e-mailed reset ─────────────────────────────────────────────────────
@@ -328,15 +333,47 @@ def test_oidc_creates_a_user_with_the_mapped_role_and_hands_off_a_one_time_code(
     assert me["username"] == "jane" and me["is_superuser"] is True
 
 
-def test_oidc_links_an_existing_local_account_by_email(env, idp):
-    idp.claims = {"sub": "u-plain", "email": "plain@example.com", "groups": []}
+def test_oidc_links_an_existing_local_account_by_verified_email(env, idp):
+    idp.claims = {"sub": "u-plain", "email": "plain@example.com", "email_verified": True, "groups": []}
     q = _finish(env, idp, _start(env, idp))
     r = env.client.post("/api/v1/auth/oidc/exchange", json={"code": q["sso"][0]})
     me = env.client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {r.json()['access_token']}"}).json()
     assert me["username"] == "plain"
     env.db.expire_all()
     row = env.db.query(User).filter_by(username="plain").one()
-    assert row.oidc_subject == "u-plain" and row.auth_provider == "oidc"
+    # Linked, but still a password account: its e-mailed reset keeps working.
+    assert row.oidc_subject == "u-plain" and row.auth_provider != "oidc"
+
+
+def test_oidc_never_links_by_an_unverified_email(env, idp):
+    for verified in (None, False, "false"):
+        claims = {"sub": "u-attacker", "email": "plain@example.com", "groups": []}
+        if verified is not None:
+            claims["email_verified"] = verified
+        idp.claims = claims
+        q = _finish(env, idp, _start(env, idp))
+        assert "sso" not in q and "not verified" in q["sso_error"][0], (verified, q)
+    env.db.expire_all()
+    row = env.db.query(User).filter_by(username="plain").one()
+    assert row.oidc_subject is None and env.db.query(User).count() == 2      # nothing linked, nothing created
+
+
+def test_oidc_never_signs_in_as_a_superuser_by_email(env, idp):
+    # Even with a verified address: a superuser's TOTP is never traded for the provider's word.
+    idp.claims = {"sub": "u-root", "email": "root@example.com", "email_verified": True, "groups": []}
+    q = _finish(env, idp, _start(env, idp))
+    assert "sso" not in q and "administrator" in q["sso_error"][0], q
+    env.db.expire_all()
+    assert env.db.query(User).filter_by(username="root").one().oidc_subject is None
+
+
+def test_oidc_refuses_a_superuser_linked_before_linking_was_restricted(env, idp):
+    env.root.oidc_issuer, env.root.oidc_subject, env.root.auth_provider = ISSUER, "u-old-link", "oidc"
+    env.db.commit()
+    idp.claims = {"sub": "u-old-link", "email": "root@example.com", "groups": []}
+    q = _finish(env, idp, _start(env, idp))
+    assert "sso" not in q and "administrator" in q["sso_error"][0], q
+    assert _login(env, "root").status_code == 200        # the password door stays open
 
 
 def test_oidc_refuses_a_bad_state_nonce_or_audience(env, idp):

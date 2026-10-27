@@ -8,6 +8,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The Look eval.** `examples/camera-agent/tools/look_eval.py` runs a
+  site's labelled pictures through the workflow's Look step (the SDK's
+  `run_ai_step`, two templates in `tools/look_templates.yml`: who is at
+  the gate, and what is in the yard at night) and gates each template on
+  the Wilson lower bound of its pass rate and its p95 seconds. The labels
+  are a CSV kept in a spreadsheet, checked before any model runs. No
+  accuracy until the site pictures arrive; a 4-frame plumbing check on
+  CPU put a vision Look step at 13-53 s (MODELS_AND_LATENCY.md).
 - **Workflow runs are recorded.** Three tables, one Alembic revision:
   `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
   #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:

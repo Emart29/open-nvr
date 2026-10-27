@@ -74,12 +74,10 @@ function reloadOnStale<T>(importer: () => Promise<T>): () => Promise<T> {
 
 const importDashboard = reloadOnStale(() => import('./views/Dashboard'))
 const importLiveView = reloadOnStale(() => import('./views/LiveView'))
-const importPlaybackView = reloadOnStale(() => import('./views/PlaybackView'))
 const importSyncPlayback = reloadOnStale(() => import('./views/SyncPlayback'))
 
 const Dashboard = lazy(() => importDashboard().then((m) => ({ default: m.Dashboard })))
 const LiveView = lazy(() => importLiveView().then((m) => ({ default: m.LiveView })))
-const PlaybackView = lazy(() => importPlaybackView().then((m) => ({ default: m.PlaybackView })))
 const SyncPlayback = lazy(() => importSyncPlayback().then((m) => ({ default: m.SyncPlayback })))
 const Cameras = lazy(reloadOnStale(() => import('./views/Cameras').then((m) => ({ default: m.Cameras }))))
 const Vehicles = lazy(reloadOnStale(() => import('./views/Vehicles').then((m) => ({ default: m.Vehicles }))))
@@ -120,7 +118,6 @@ const FirstTimeSetup = lazy(reloadOnStale(() => import('./views/FirstTimeSetup')
 // idle-prefetch the other top routes so in-app navigation is instant.
 const routeWarmups: Array<[RegExp, () => Promise<unknown>]> = [
   [/^\/playback\/sync/, importSyncPlayback],
-  [/^\/playback/, importPlaybackView],
   [/^\/live/, importLiveView],
   [/^\/$/, importDashboard],
 ]
@@ -171,7 +168,8 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Dashboard /> },
           { path: 'live', element: <LiveView /> },
-          { path: 'playback', element: <PlaybackView /> },
+          // The old per-camera list; recordings live on the multi-camera page.
+          { path: 'playback', element: <Navigate to="/playback/sync" replace /> },
           { path: 'playback/sync', element: <SyncPlayback /> },
           { path: 'search', element: <Search /> },
           { path: 'cameras', element: <Cameras /> },

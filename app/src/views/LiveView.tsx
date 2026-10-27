@@ -1182,7 +1182,7 @@ function MenuItem({ item, onClose }: { item: { icon: React.ReactNode; label: str
         navigate('/live')
         break
       case 'export':
-        navigate('/playback')
+        navigate('/playback/sync')
         break
       // /settings/webrtc was never a tab key; this is the real first tab.
       case 'settings':

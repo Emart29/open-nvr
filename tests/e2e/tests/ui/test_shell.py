@@ -83,7 +83,7 @@ def test_the_navigation_shell_is_present(authed_page):
     )
 
 
-@pytest.mark.parametrize("path", ["/cameras", "/live", "/playback", "/vehicles"])
+@pytest.mark.parametrize("path", ["/cameras", "/live", "/playback/sync", "/vehicles"])
 def test_a_core_page_renders_without_throwing(authed_page, path):
     """Each main route mounts and stays mounted.
 
@@ -100,6 +100,13 @@ def test_a_core_page_renders_without_throwing(authed_page, path):
 
     fatal = [e for e in errors if "ResizeObserver" not in e]
     assert not fatal, f"{path} threw while rendering: {fatal[:3]}"
+
+
+def test_the_old_recordings_list_redirects_to_the_recordings_page(authed_page):
+    """/playback was the per-camera list; bookmarks to it must still land
+    somewhere useful, not on a blank route."""
+    authed_page.goto("/playback")
+    expect(authed_page).to_have_url(re.compile(r"/playback/sync$"), timeout=20_000)
 
 
 def test_the_camera_page_shows_a_camera_the_api_created(

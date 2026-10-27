@@ -268,11 +268,23 @@ def _username_for(claims: dict[str, Any], db, user_model) -> str:
     return name
 
 
+def _email_verified(claims: dict[str, Any]) -> bool:
+    """Whether the provider vouches for the address. Absent means no: some
+    providers (Entra among them) let a user put any address in ``email``."""
+    v = claims.get("email_verified")
+    return v is True or (isinstance(v, str) and v.strip().lower() == "true")
+
+
 def resolve_user(db, claims: dict[str, Any], cfg: dict[str, Any]):
     """The local account for these claims: by issuer+subject, else linked by
     e-mail, else created. Role and superuser follow the claim mapping on
     every sign-in. Returns the User, or raises ValueError when sign-in
-    must be refused."""
+    must be refused.
+
+    Linking by e-mail hands an existing account, and its sessions, to
+    whoever controls that address at the provider, without that account's
+    TOTP. So it needs an address the provider has verified, and never
+    happens for a superuser: those sign in with their password."""
     from core.auth import get_password_hash
     from models import Role, User
 
@@ -281,8 +293,15 @@ def resolve_user(db, claims: dict[str, Any], cfg: dict[str, Any]):
     user = db.query(User).filter(User.oidc_issuer == issuer, User.oidc_subject == sub).first()
     if user is None and email:
         user = db.query(User).filter(User.email == email).first()
-        if user is not None and user.oidc_subject and user.oidc_subject != sub:
-            raise ValueError("this e-mail belongs to an account linked to another identity")
+        if user is not None:
+            if user.oidc_subject and user.oidc_subject != sub:
+                raise ValueError("this e-mail belongs to an account linked to another identity")
+            if user.is_superuser:
+                raise ValueError("an administrator account is never linked to single sign-on; "
+                                 "sign in with your password")
+            if not _email_verified(claims):
+                raise ValueError("the identity provider has not verified this e-mail address, "
+                                 "so it cannot be linked to an existing account")
     mapped_role, make_superuser = _role_from_claims(db, claims, cfg, Role)
     if user is None:
         if not cfg.get("auto_create", True):
@@ -308,7 +327,14 @@ def resolve_user(db, claims: dict[str, Any], cfg: dict[str, Any]):
         return user
     if not user.is_active:
         raise ValueError("this account is deactivated")
-    user.auth_provider = user.auth_provider or "oidc"
+    if user.is_superuser and user.mfa_enabled:
+        # A superuser with TOTP enrolled is a password account (single
+        # sign-on ones skip enrolment). One found by subject here was linked
+        # by e-mail before linking was restricted; refuse it all the same.
+        raise ValueError("an administrator account is never linked to single sign-on; "
+                         "sign in with your password")
+    # A linked account keeps its kind (auth_provider): one that had a password
+    # stays local, so its e-mailed reset and password sign-in keep working.
     user.oidc_issuer, user.oidc_subject = issuer, sub
     if mapped_role is not None:
         user.role_id = mapped_role.id

@@ -322,46 +322,26 @@ LIVE_TILE = Selector(
 NO_CAMERA_CHIP = Selector(name="empty tile chip", text="NO CAMERA")
 
 # ===========================================================================
-# Playback
+# Playback (the Recordings page, /playback/sync)
 # ===========================================================================
-PLAYBACK_HEADING = Selector(name="Recordings heading", role=("heading", "Recordings"))
-PLAYBACK_CAMERA_GROUP = Selector(
-    name="recordings camera group header",
-    role=("button", "{camera}"),
-    note=(
-        "the Recordings list groups footage under one collapsible button per "
-        "camera, and only auto-expands when exactly ONE camera has footage. "
-        "With two or more, every Play button is out of the DOM until this is "
-        "clicked -- so this must be clicked by name, never guessed at"
-    ),
-)
-PLAY_RECORDING = Selector(
-    name="Play button",
-    title="Play recording",
-    role=("button", "Play"),
-    note=(
-        "the title is 'Playback unavailable - Media Server offline' when the "
-        "day has no playback_url, so a miss here can mean MediaMTX is down "
-        "rather than that the selector is wrong"
-    ),
-)
-PLAYBACK_CLOSE = Selector(name="close playback console", role=("button", "Close"))
+PLAYBACK_HEADING = Selector(name="Recordings page heading", role=("heading", "Playback"))
 TIMELINE_TRACK = Selector(
-    name="timeline scrub track",
-    testid="playback-timeline-track",
-    note="bare divs with no role; found by its testid (the old class-chain fallback broke on any restyle)",
+    name="multi-camera timeline track",
+    testid="sync-timeline-track",
+    note="the pointer overlay across every camera row; drag to seek, or to mark a range in export mode",
 )
 TIMELINE_FOOTAGE = Selector(
     name="footage block on the timeline",
-    testid="playback-footage-block",
-    note="one per contiguous run of recorded footage (red)",
+    testid="sync-footage-block",
+    note="one per contiguous run of recorded footage, per camera row",
 )
 TIMELINE_PLAYHEAD = Selector(
     name="playhead readout",
-    testid="playback-timeline-playhead",
+    testid="sync-timeline-playhead",
+    note="hidden while the pointer hovers the timeline (a hover chip replaces it)",
 )
-CLIP_MODE = Selector(name="clip/export toggle", title="Clip / export")
-EXPORT_CLIP = Selector(name="Export clip button", role=("button", "Export clip"))
+EXPORT_TOGGLE = Selector(name="Export toggle", role=("button", "Export"))
+EXPORT_DOWNLOAD = Selector(name="export Download button", role=("button", "Download"))
 PLAYBACK_EMPTY = Selector(name="no recordings", text="No recordings found")
 
 # ===========================================================================
