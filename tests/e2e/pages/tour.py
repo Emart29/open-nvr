@@ -24,3 +24,17 @@ class TourPage(BasePage):
 
     def step_label(self) -> str:
         return self.find(S.TOUR_STEP).first.inner_text().strip()
+
+    def press(self, selector) -> None:
+        """Click a button on the wall's bar.
+
+        The bar fades a few seconds after the mouse last moved and takes no
+        clicks while hidden, as on a real board, and Playwright checks what
+        is under the pointer before it moves the mouse, so a bare click on a
+        faded bar lands on a tile every retry. Move the mouse over the wall
+        first, as a person would."""
+        box = self.find(S.TOUR_WALL).bounding_box()
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        self.page.mouse.move(x, y)
+        self.page.mouse.move(x + 8, y + 8)
+        self.find(selector).first.click()

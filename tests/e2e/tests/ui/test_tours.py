@@ -89,11 +89,11 @@ def test_pause_holds_the_wall_and_next_moves_it_on(authed_page, two_step_tour):
     eventually(lambda: wall.tile_names() == [c["name"] for c in north],
                budget=BUDGETS.QUICK, describe="the North cameras on the wall")
 
-    wall.find(S.TOUR_PAUSE).first.click()
+    wall.press(S.TOUR_PAUSE)
     expect(wall.find(S.TOUR_RESUME).first).to_be_visible()
     time.sleep(STEP_S + 3)  # longer than the step: a running wall would have turned
     assert wall.tile_names() == [c["name"] for c in north]
 
-    wall.find(S.TOUR_NEXT).first.click()
+    wall.press(S.TOUR_NEXT)
     eventually(lambda: wall.tile_names() == [c["name"] for c in south],
                budget=BUDGETS.QUICK, describe="Next moving the wall to the South cameras")
