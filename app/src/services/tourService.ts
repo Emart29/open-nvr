@@ -21,11 +21,17 @@ export interface TourAlertSettings {
 
 export interface TourSettings {
   fit: 'fit' | 'fill'
+  /** How one page gives way to the next. */
+  transition: 'cut' | 'fade'
+  /** Play the next page hidden for its last seconds, so it starts at once. */
+  preload: boolean
   alerts: TourAlertSettings
 }
 
 export const DEFAULT_TOUR_SETTINGS: TourSettings = {
   fit: 'fit',
+  transition: 'fade',
+  preload: true,
   alerts: { enabled: false, sources: ['app_alert', 'camera_event'], min_severity: 'medium', scope: 'tour', hold_s: 30, cooldown_s: 60 },
 }
 

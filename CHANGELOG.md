@@ -20,7 +20,11 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   alerts, which cameras, how long, a cool-down); a chip always shows what
   comes next and when. The editor is a page of its own with camera
   pictures, drag-to-reorder and a page preview, and opens from a running
-  wall. Every viewer sees only their own cameras. Tiles play the
+  wall; **Arrange** on a running wall (in the app) removes, swaps and
+  replaces cameras on the page on screen. The next page starts early,
+  hidden, so it is playing when it shows, with a crossfade or a cut (per
+  tour), and a tile waiting for its video shows the camera's last frame.
+  Every viewer sees only their own cameras. Tiles play the
   substream and fall back to the main stream per camera. New table
   `camera_tours` and its `settings` column (two additive Alembic
   revisions); `GET /tours/thumbnails/{id}` serves small cached stills for

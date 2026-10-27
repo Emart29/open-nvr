@@ -94,6 +94,11 @@ class TourAlerts(BaseModel):
 class TourSettings(BaseModel):
     #: "fit" letterboxes each camera; "fill" crops it to fill its tile.
     fit: Literal["fit", "fill"] = "fit"
+    #: How one page gives way to the next: a straight cut or a short crossfade.
+    transition: Literal["cut", "fade"] = "fade"
+    #: Play the next page's cameras, hidden, for the last seconds of a page,
+    #: so they are already playing when it shows.
+    preload: bool = True
     alerts: TourAlerts = Field(default_factory=TourAlerts)
 
 

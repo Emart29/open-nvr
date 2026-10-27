@@ -387,7 +387,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
 
         <div className={clsx('xl:col-start-1 xl:row-start-2', rail && 'xl:hidden')}>
           <TourSettingsPanel settings={draft.settings} open={settingsOpen} onToggle={() => setSettingsOpen(!settingsOpen)}
-            onFit={(fit) => setSettings({ fit })} onAlerts={setAlerts} />
+            onSettings={setSettings} onAlerts={setAlerts} />
         </div>
       </div>
     </div>
@@ -432,11 +432,11 @@ function StepRow({ step, index, selected, layout, invalid, onSelect }: {
   )
 }
 
-function TourSettingsPanel({ settings, open, onToggle, onFit, onAlerts }: {
+function TourSettingsPanel({ settings, open, onToggle, onSettings, onAlerts }: {
   settings: TourSettings
   open: boolean
   onToggle: () => void
-  onFit: (fit: TourSettings['fit']) => void
+  onSettings: (patch: Partial<TourSettings>) => void
   onAlerts: (patch: Partial<TourSettings['alerts']>) => void
 }) {
   const { t } = useTranslation()
@@ -462,11 +462,25 @@ function TourSettingsPanel({ settings, open, onToggle, onFit, onAlerts }: {
       </header>
       {open && <div className="p-3 space-y-4">
         <Field label={t('tours.fitLabel')} hint={t('tours.fitHint')}>
-          <Select value={settings.fit} onChange={(e) => onFit(e.target.value as TourSettings['fit'])}>
+          <Select value={settings.fit} onChange={(e) => onSettings({ fit: e.target.value as TourSettings['fit'] })}>
             <option value="fit">{t('tours.fitFit')}</option>
             <option value="fill">{t('tours.fitFill')}</option>
           </Select>
         </Field>
+
+        <Field label={t('tours.transitionLabel')}>
+          <Select value={settings.transition} onChange={(e) => onSettings({ transition: e.target.value as TourSettings['transition'] })}>
+            <option value="fade">{t('tours.transitionFade')}</option>
+            <option value="cut">{t('tours.transitionCut')}</option>
+          </Select>
+        </Field>
+        <label className="flex items-start gap-2">
+          <Switch checked={settings.preload} onChange={(v) => onSettings({ preload: v })} label={t('tours.preload')} />
+          <span>
+            <span className="block text-sm font-medium">{t('tours.preload')}</span>
+            <span className="block text-xs text-[var(--text-dim)]">{t('tours.preloadHint')}</span>
+          </span>
+        </label>
 
         <div className="space-y-3">
           <label className="flex items-start gap-2">

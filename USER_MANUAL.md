@@ -103,6 +103,12 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   is what makes this quick.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
   crops it to fill its tile, which suits portrait and fisheye cameras.
+- **Page changes.** **Start the next page early** (on by default) plays the
+  next page's cameras, hidden, for the last 5 seconds of a page, so they are
+  already playing when it shows; the display PC plays two pages for those
+  seconds. **When the page changes** is a short **Crossfade** (default) or a
+  straight **Cut**. A tile whose video has not started yet shows that
+  camera's last frame from this wall rather than a black tile.
 - **Who sees what.** Every viewer sees only the cameras they are allowed
   to see; the bar says how many were left out. Changing or deleting a tour
   needs the right to manage every camera in it; anyone else can run it.
@@ -137,7 +143,13 @@ paused wall says so until it is resumed — moving the mouse never pauses
 it), **← / →** step, **F** toggles fullscreen, and clicking a tile shows
 that camera on its own until it is clicked again. Someone who may edit the
 tour can open the editor from the wall's bar (**Edit this tour**); saving
-brings them back to the running wall. Edits to a tour reach running walls within five
+brings them back to the running wall. For a quick fix on the page on
+screen, **Arrange** (in the app, not on the display link) holds the tour and
+shows that page from stills next to a camera search: ✕ removes a camera, a
+tile dragged onto another swaps the two, and a camera dragged onto a tile —
+or a tile clicked, then a camera — takes its place. **Save** stores it in the
+tour, so every screen running it changes too. On a step with several pages,
+removing a camera moves the later ones up, so its next pages change as well. Edits to a tour reach running walls within five
 minutes; a turned-off tour shows a notice and starts again by itself when
 it is turned back on. A running board keeps itself signed in; one left
 switched off for more than 30 days has to sign in again.

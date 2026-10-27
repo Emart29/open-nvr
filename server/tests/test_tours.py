@@ -279,20 +279,22 @@ def test_settings_default_validate_and_survive_a_save_without_them(env):  # noqa
     A = env.jwt("admin")
     t = _create(env)
     assert t["settings"]["fit"] == "fit"
+    assert (t["settings"]["transition"], t["settings"]["preload"]) == ("fade", True)
     assert t["settings"]["alerts"] == {"enabled": False, "sources": ["app_alert", "camera_event"],
                                        "min_severity": "medium", "scope": "tour",
                                        "hold_s": 30, "cooldown_s": 60}
-    wanted = {"fit": "fill", "alerts": {"enabled": True, "sources": ["app_alert", "app_alert"],
+    wanted = {"fit": "fill", "transition": "cut", "preload": False, "alerts": {"enabled": True, "sources": ["app_alert", "app_alert"],
                                         "min_severity": "high", "scope": "visible",
                                         "hold_s": 20, "cooldown_s": 0}}
     r = env.client.put(f"{URL}/{t['id']}", headers=A, json=_body(settings=wanted))
     assert r.status_code == 200, r.text
     assert r.json()["settings"]["fit"] == "fill"
+    assert (r.json()["settings"]["transition"], r.json()["settings"]["preload"]) == ("cut", False)
     assert r.json()["settings"]["alerts"]["sources"] == ["app_alert"]
     # An update that does not send settings keeps them.
     r = env.client.put(f"{URL}/{t['id']}", headers=A, json=_body(name="Renamed"))
     assert r.json()["settings"]["alerts"]["scope"] == "visible"
-    for bad in ({"fit": "stretch"}, {"alerts": {"hold_s": 1}}, {"alerts": {"sources": []}},
+    for bad in ({"fit": "stretch"}, {"transition": "spin"}, {"alerts": {"hold_s": 1}}, {"alerts": {"sources": []}},
                 {"alerts": {"min_severity": "urgent"}}):
         assert env.client.put(f"{URL}/{t['id']}", headers=A,
                               json=_body(settings=bad)).status_code == 422
