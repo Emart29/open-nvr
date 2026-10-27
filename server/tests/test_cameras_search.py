@@ -11,6 +11,11 @@ here:
 * LIKE wildcards in ``q`` are literal: "cam_1" does not match "camX1";
 * it never widens what a non-superuser can see.
 
+And the Location filter beside it: ``location`` picks one location (trimmed,
+any case), ``no_location`` the cameras without one, ``q`` matches a
+location too, and GET /cameras/locations lists the locations the caller can
+see, with counts, for the filter's menu.
+
 Run with:
 
     cd server && pytest tests/test_cameras_search.py -v
@@ -113,21 +118,23 @@ def env(monkeypatch):
     make_user("admin", True)
     stranger = make_user("stranger", False)
 
-    def make_camera(name: str, ip: str, owner_id: int = owner.id) -> Camera:
+    def make_camera(name: str, ip: str, owner_id: int = owner.id, location: str | None = None,
+                    active: bool = True) -> Camera:
         cam = Camera(
             name=name, ip_address=ip, port=554, owner_id=owner_id,
-            is_active=True, status="provisioned",
+            is_active=active, status="provisioned", location=location,
         )
         db.add(cam)
         db.commit()
         db.refresh(cam)
         return cam
 
-    make_camera("Front Gate", "192.168.1.10")
-    make_camera("Back Door", "192.168.1.20")
-    make_camera("cam_1", "10.0.0.5")
-    make_camera("camX1", "10.0.0.6")
-    make_camera("Stranger Garage", "172.16.0.9", owner_id=stranger.id)
+    make_camera("Front Gate", "192.168.1.10", location="North Zone")
+    make_camera("Back Door", "192.168.1.20", location=" north zone ")
+    make_camera("cam_1", "10.0.0.5", location="South")
+    make_camera("camX1", "10.0.0.6", location="")
+    make_camera("Stranger Garage", "172.16.0.9", owner_id=stranger.id, location="West")
+    make_camera("Old Shed", "10.9.9.9", location="South", active=False)
 
     client = TestClient(app)
     try:
@@ -184,4 +191,50 @@ def test_search_never_widens_a_users_view(env):
     # that would match it.
     assert "Stranger Garage" not in _names(_list(env, "owner"))
     assert _names(_list(env, "owner", q="garage")) == set()
-    assert _names(_list(env, "owner", q="door")) == {"Back Door"}
+    assert _names(_list(env, "owner", q="door")) == {"Back Door"}
+
+
+# ── Location ──────────────────────────────────────────────────────────
+
+
+def test_location_picks_one_location_trimmed_any_case(env):
+    body = _list(env, "admin", location="NORTH ZONE")
+    assert _names(body) == {"Front Gate", "Back Door"}
+    assert body["total"] == 2
+    assert _names(_list(env, "admin", location="south")) == {"cam_1"}
+    assert _names(_list(env, "admin", location="south", active_only=False)) == {"cam_1", "Old Shed"}
+
+
+def test_no_location_is_the_cameras_without_one(env):
+    assert _names(_list(env, "admin", no_location=True)) == {"camX1"}
+
+
+def test_a_blank_location_is_no_filter(env):
+    assert _names(_list(env, "admin", location="  ")) == _names(_list(env, "admin"))
+
+
+def test_search_matches_a_location_too(env):
+    assert _names(_list(env, "admin", q="zone")) == {"Front Gate", "Back Door"}
+    assert _names(_list(env, "admin", q="zone", location="south")) == set()
+
+
+def test_location_never_widens_a_users_view(env):
+    assert _names(_list(env, "owner", location="west")) == set()
+
+
+def _locations(env, user: str, **params) -> dict:
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': user})}"}
+    resp = env.client.get("/api/v1/cameras/locations", params=params, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_locations_lists_what_the_caller_sees_with_counts(env):
+    body = _locations(env, "admin")
+    # "North Zone" and " north zone " are one place, as the filter has it.
+    assert [(r["location"], r["count"]) for r in body["locations"]] == [
+        ("North Zone", 2), ("South", 1), ("West", 1)]
+    assert body["none"] == 1
+    assert _locations(env, "admin", active_only=False)["locations"][1] == {"location": "South", "count": 2}
+    assert [r["location"] for r in _locations(env, "owner")["locations"]] == ["North Zone", "South"]
+

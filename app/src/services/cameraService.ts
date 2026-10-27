@@ -90,6 +90,32 @@ export const cameraService = {
   deleteCamera: (cameraId: number) => api.delete(`/api/v1/cameras/${cameraId}`),
   // Bin (irreversibly soft-deleted cameras)
   getDeletedCameras: () => api.get('/api/v1/cameras/deleted'),
+  // The locations among the cameras the caller can see, with counts, for the
+  // Cameras page's Location filter; `none` counts cameras without one.
+  getCameraLocations: (params: { active_only?: boolean } = {}) =>
+    api.get('/api/v1/cameras/locations', { params }),
+  // Import and export: a spreadsheet of cameras (CSV or Excel) in and out.
+  exportCameras: (params: Record<string, unknown>, mfaCode?: string) =>
+    api.get('/api/v1/cameras/export', {
+      params,
+      responseType: 'blob',
+      ...(mfaCode ? { headers: { 'X-MFA-Code': mfaCode } } : {}),
+    }),
+  getCameraImportTemplate: (format: 'csv' | 'xlsx') =>
+    api.get('/api/v1/cameras/import/template', { params: { format }, responseType: 'blob' }),
+  previewCameraImport: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/api/v1/cameras/import/preview', form)
+  },
+  startCameraImport: (file: File, mode: 'add' | 'add_update', probe: boolean) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('mode', mode)
+    form.append('probe', String(probe))
+    return api.post('/api/v1/cameras/import', form)
+  },
+  getCameraImportJob: (jobId: string) => api.get(`/api/v1/cameras/import/jobs/${jobId}`),
   hardDeleteCamera: (cameraId: number, confirmationPhrase: string, mfaCode: string) =>
     api.post(
       `/api/v1/cameras/${cameraId}/hard-delete`,

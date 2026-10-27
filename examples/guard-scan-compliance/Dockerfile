@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 COPY examples/guard-scan-compliance/guard_scan_compliance.py ./guard_scan_compliance.py
 COPY examples/guard-scan-compliance/guard_scan               ./guard_scan
 COPY examples/guard-scan-compliance/config.example.yml       ./config.example.yml
+COPY examples/guard-scan-compliance/config.docker.yml  ./config.docker.yml
 
 # Where the per-frame keypoint logs go — the training set this collects
 # as it runs. A volume in compose, pruned by age.

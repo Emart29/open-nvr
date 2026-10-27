@@ -22,7 +22,7 @@ Handles camera creation, updates, and management.
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -36,7 +36,8 @@ from utils.url_redaction import redact_url_credentials
 
 
 def camera_search_filter(q: str | None):
-    """Case-insensitive substring match on a camera's name or IP address.
+    """Case-insensitive substring match on a camera's name, IP address or
+    location.
 
     None for an empty or missing query, so callers can apply it
     unconditionally and an unfiltered list stays exactly what it was. LIKE
@@ -51,7 +52,22 @@ def camera_search_filter(q: str | None):
     return or_(
         Camera.name.ilike(pattern, escape="\\"),
         Camera.ip_address.ilike(pattern, escape="\\"),
+        Camera.location.ilike(pattern, escape="\\"),
     )
+
+
+def camera_location_filter(location: str | None, no_location: bool = False):
+    """Cameras at one location (trimmed, any case), or with none at all.
+
+    None when neither is asked for, so the list stays unfiltered. A blank
+    ``location`` counts as not asked for, like a blank search.
+    """
+    if no_location:
+        return or_(Camera.location.is_(None), func.trim(Camera.location) == "")
+    term = (location or "").strip()
+    if not term:
+        return None
+    return func.lower(func.trim(Camera.location)) == term.lower()
 
 
 class CameraService:

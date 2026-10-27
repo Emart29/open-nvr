@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 
 COPY examples/ppe-check/ppe_check.py          ./
 COPY examples/ppe-check/config.example.yml     ./config.example.yml
+COPY examples/ppe-check/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "ppe_check.py"]

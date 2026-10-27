@@ -31,6 +31,27 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the editor without holding a stream open; `GET /streams/{id}/info`
   takes an opt-in `include_sub=true` and is unchanged without it. Live
   View's own grid and the dashboard wall are untouched.
+- **Camera import and export.** Cameras → Import takes a CSV or Excel
+  file: one row per camera, or one row per NVR/DVR with `channels` and a
+  `vendor` (Hikvision, Uniview, Dahua, CP Plus, or an RTSP URL with `{ch}`)
+  that becomes a camera per channel. A preview shows what every row would
+  do (new, update, unchanged, duplicate, error and why) before anything is
+  saved; the import then runs in the background through the same create
+  and update code as the Cameras page, a few cameras at a time, and is
+  audited. Re-importing a file changes nothing and nothing is ever deleted.
+  Cameras → Export writes the cameras the operator manages, filtered as
+  the list is, in the same columns; passwords and RTSP logins only with
+  the operator's MFA code. Template in both formats. New endpoints under
+  `/cameras/export` and `/cameras/import`; `openpyxl` added to the server.
+
+- **The Look eval.** `examples/camera-agent/tools/look_eval.py` runs a
+  site's labelled pictures through the workflow's Look step (the SDK's
+  `run_ai_step`, two templates in `tools/look_templates.yml`: who is at
+  the gate, and what is in the yard at night) and gates each template on
+  the Wilson lower bound of its pass rate and its p95 seconds. The labels
+  are a CSV kept in a spreadsheet, checked before any model runs. No
+  accuracy until the site pictures arrive; a 4-frame plumbing check on
+  CPU put a vision Look step at 13-53 s (MODELS_AND_LATENCY.md).
 - **Workflow runs are recorded.** Three tables, one Alembic revision:
   `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
   #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:

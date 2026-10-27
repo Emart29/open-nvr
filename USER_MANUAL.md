@@ -54,6 +54,36 @@ from.
    and reports back whether it can decode it.
 5. Click **Save**.
 
+**Adding many cameras at once (import):**
+
+**Cameras → Import** takes a CSV or Excel file. Download the template from
+the same dialog: its second sheet explains every column.
+
+- **One row per camera:** name, location, address, login, and the RTSP URL
+  (or leave the URL blank and OpenNVR finds it by ONVIF).
+- **One row per NVR or DVR:** fill in `channels` (`1-16`, `1,3,5-8`) and
+  `vendor` (`hikvision`, `uniview`, `dahua` or `cpplus`) and the row becomes
+  one camera per channel, named "<name> Ch 1", "Ch 2"…, each with that
+  channel's main stream and substream. For any other recorder, give an
+  `rtsp_url` with `{ch}` where the channel number goes.
+
+Before anything is saved, the import shows every row as New, Update
+(matches a camera already here), Unchanged, Duplicate (twice in the file)
+or Error, with the reason. Choose whether matched cameras are updated, then
+import: cameras are added a few at a time in the background, and the
+results can be downloaded at the end. Rows with errors are skipped, never
+the whole file. Importing the same file again changes nothing, a blank cell
+never changes a camera, and a camera left out of the file is not deleted.
+A camera you may not manage is refused. **Read each camera's details and
+set its clock** makes the import slower (seconds per camera) but fills in
+make and model straight away.
+
+**Cameras → Export** writes the cameras you manage, filtered as the list is
+(search, location, Active only), in the import file's columns, so an export
+can be edited and imported back. Passwords, and the logins inside RTSP URLs,
+are left out unless you tick **Include passwords**, which asks for your MFA
+code; every export is recorded in the audit log.
+
 **Per-camera settings worth visiting:**
 
 - **Recording → Retention** — days to keep recorded segments before

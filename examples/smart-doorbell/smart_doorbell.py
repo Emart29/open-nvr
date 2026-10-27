@@ -568,6 +568,18 @@ def _shrink_jpeg(frame: bytes, bbox: tuple[int, int, int, int] | None,
 _CROP_MAX_PX = 320
 
 
+def _adapter_detail(exc: "httpx.HTTPStatusError") -> str:
+    """The adapter's own reason for a refusal, for the operator's eyes."""
+    try:
+        body = exc.response.json()
+        detail = body.get("detail") if isinstance(body, dict) else None
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+    except ValueError:
+        pass
+    return f"HTTP {exc.response.status_code}"
+
+
 def _face_crop_jpeg(frame: bytes, bbox: tuple[int, int, int, int] | None) -> bytes | None:
     """The face with generous margin, at most 320 px, as JPEG bytes — what
     the People page shows behind a stranger thumbnail and what enrolment
@@ -1538,14 +1550,22 @@ page. Threshold and re-fire window are edited in the config form and apply live.
             thumb = _thumbnail_data_uri(image_bytes)
             if thumb is not None:
                 metadata["thumbnail"] = thumb
-        result = self._face_admin().register(
-            image_bytes=image_bytes,
-            person_id=person_id,
-            name=display,
-            category=category,
-            metadata=metadata,
-            append=append,
-        )
+        try:
+            result = self._face_admin().register(
+                image_bytes=image_bytes,
+                person_id=person_id,
+                name=display,
+                category=category,
+                metadata=metadata,
+                append=append,
+            )
+        except httpx.HTTPStatusError as exc:
+            # The adapter refused the photo (no face in it, too large, a bad
+            # id): that is the operator's to fix, so say what it said rather
+            # than a 500. A 5xx from the adapter stays an internal error.
+            if 400 <= exc.response.status_code < 500:
+                raise ValueError(f"the face adapter refused the photo: {_adapter_detail(exc)}") from None
+            raise
         face = result.get("face") if isinstance(result, dict) else None
         return {
             "enrolled": {
@@ -1639,6 +1659,7 @@ page. Threshold and re-fire window are edited in the config form and apply live.
 
         return Alert(
             severity=severity,
+            alert_type=kind,
             title=title,
             description=description,
             camera_id=cam.camera_id,

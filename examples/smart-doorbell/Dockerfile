@@ -48,6 +48,7 @@ RUN pip install --no-cache-dir /opt/opennvr-app-sdk
 # `*.py` matches this directory only, so tests/ stays out of the image.
 COPY examples/smart-doorbell/*.py               ./
 COPY examples/smart-doorbell/config.example.yml ./config.example.yml
+COPY examples/smart-doorbell/config.docker.yml  ./config.docker.yml
 
 ENV PYTHONUNBUFFERED=1
 
