@@ -27,13 +27,14 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { Camera as CameraIcon, CameraOff, Pencil, Plus, Search as SearchIcon, Trash2, Unplug, Video } from 'lucide-react'
+import { Camera as CameraIcon, CameraOff, Download, Pencil, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
 import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
 import { Pagination } from '../components/ui/Pagination'
 import type { BadgeVariant } from '../components/ui'
 import { AddCameraDialog } from '../components/AddCameraDialog'
+import { CameraExportDialog, CameraImportDialog } from '../components/cameras/CameraImportExport'
 import { QrScanner } from '../components/QrScanner'
 import { parseCameraQr } from '../lib/cameraQr'
 import { ASPECT_OPTIONS, isCustomAspect } from '../lib/aspect'
@@ -198,6 +199,9 @@ export function Cameras() {
   useEffect(() => {
     setSelected(new Set())
   }, [skip, limit, activeOnly, debouncedQuery, location])
+
+  const [showImport, setShowImport] = useState(false)
+  const [showExport, setShowExport] = useState(false)
 
   // Bulk assign state
   const [showBulkAssign, setShowBulkAssign] = useState(false)
@@ -547,14 +551,24 @@ export function Cameras() {
                 </span>
               )}
               {canManageCameras && (
-                <button
-                  type="button"
-                  onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm() }}
-                  className={TITLE_ACTION_CLASS}
-                >
-                  <Plus size={13} aria-hidden="true" />
-                  {t('camera.add')}
-                </button>
+                <>
+                  <button type="button" onClick={() => setShowImport(true)} className={TITLE_ACTION_CLASS} data-testid="cameras-import">
+                    <Upload size={13} aria-hidden="true" />
+                    {t('cameraIo.import')}
+                  </button>
+                  <button type="button" onClick={() => setShowExport(true)} className={TITLE_ACTION_CLASS} data-testid="cameras-export">
+                    <Download size={13} aria-hidden="true" />
+                    {t('cameraIo.export')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCreateDialog(true); setEditing(null); resetForm() }}
+                    className={TITLE_ACTION_CLASS}
+                  >
+                    <Plus size={13} aria-hidden="true" />
+                    {t('camera.add')}
+                  </button>
+                </>
               )}
             </>
           ) : undefined}
@@ -679,6 +693,20 @@ export function Cameras() {
           </div>
         )}
       </div>
+
+      {canManageCameras && showImport && (
+        <CameraImportDialog onClose={() => setShowImport(false)} onImported={() => { void refreshCameras() }} />
+      )}
+      {canManageCameras && showExport && (
+        <CameraExportDialog
+          onClose={() => setShowExport(false)}
+          filters={{
+            active_only: activeOnly,
+            ...(debouncedQuery ? { q: debouncedQuery } : {}),
+            ...(location === NO_LOCATION ? { no_location: true } : location ? { location } : {}),
+          }}
+        />
+      )}
 
       {/* Create Camera Dialog — shared with Live View (discover / manual) */}
       {canManageCameras && showCreateDialog && (
