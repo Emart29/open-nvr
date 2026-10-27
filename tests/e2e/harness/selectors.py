@@ -322,6 +322,21 @@ LIVE_TILE = Selector(
 NO_CAMERA_CHIP = Selector(name="empty tile chip", text="NO CAMERA")
 
 # ===========================================================================
+# Camera tours (/live/tour/:id) -- a display board cycling camera sets
+# ===========================================================================
+TOUR_WALL = Selector(name="tour wall", testid="tour-wall")
+TOUR_NAME = Selector(name="tour name in the bar", testid="tour-name")
+TOUR_STEP = Selector(name="tour step label in the bar", testid="tour-step")
+TOUR_TILE_NAME = Selector(
+    name="tour tile camera name",
+    testid="tour-tile-name",
+    note="one per tile on the current page; text is the camera name",
+)
+TOUR_PAUSE = Selector(name="tour pause button", role=("button", "Pause (Space)"))
+TOUR_RESUME = Selector(name="tour resume button", role=("button", "Resume (Space)"))
+TOUR_NEXT = Selector(name="tour next button", role=("button", "Next (→)"))
+
+# ===========================================================================
 # Playback (the Recordings page, /playback/sync)
 # ===========================================================================
 PLAYBACK_HEADING = Selector(name="Recordings page heading", role=("heading", "Playback"))

@@ -62,7 +62,6 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
 
 import core.auth as core_auth  # noqa: E402
 import core.database as core_database  # noqa: E402
@@ -237,10 +236,13 @@ def test_an_export_reads_back_as_an_unchanged_import():
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     monkeypatch.setattr(core_auth, "auth_logger", _L(), raising=False)
     monkeypatch.setattr(cameras_router, "camera_logger", _L(), raising=False)
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    # A file, not sqlite:// on one shared connection: the import job writes
+    # from the event loop while the test polls from its own thread, and on a
+    # single connection one session's rollback lands in the other's commit.
+    eng = create_engine(f"sqlite:///{tmp_path / 'cams.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(eng)
     Session = sessionmaker(bind=eng, expire_on_commit=False)
     # The import job opens its own sessions: point them at this database.

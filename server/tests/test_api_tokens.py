@@ -160,7 +160,7 @@ def env(monkeypatch, tmp_path):
         "routers.recordings", "routers.audit_logs", "routers.events",
         "routers.timeline_events", "routers.zones", "routers.live_state", "routers.media",
         "routers.alerts_inbox", "routers.site_mode", "routers.entities",
-        "routers.search")]
+        "routers.search", "routers.tours")]
     for mod in routers:
         app.include_router(mod.router, prefix="/api/v1")
     # Override EVERY get_db these routers depend on, not just the one in

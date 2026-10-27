@@ -343,3 +343,16 @@ select optgroup {
 @media (prefers-reduced-motion: reduce) {
   .dash-tour-progress { animation: none; width: 0; }
 }
+
+/* A camera tour's crossfade: the page that is leaving fades out over the
+   one that is already playing underneath (views/TourView.tsx). */
+@keyframes tour-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.tour-fade-out {
+  animation: tour-fade-out 600ms ease-in-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-fade-out { animation-duration: 1ms; }
+}

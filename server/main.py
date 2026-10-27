@@ -99,6 +99,7 @@ from routers import (
     suricata_logs,
     suricata_stream,
     system,
+    tours,
     users,
     webrtc,
     window_settings,
@@ -1082,6 +1083,7 @@ app.include_router(password_policy.router, prefix=settings.api_prefix)
 app.include_router(security.router, prefix=settings.api_prefix)
 app.include_router(webrtc.router, prefix=settings.api_prefix)
 app.include_router(window_settings.router, prefix=settings.api_prefix)
+app.include_router(tours.router, prefix=settings.api_prefix)
 app.include_router(device_firewall.router, prefix=settings.api_prefix)
 app.include_router(media_source.router, prefix=settings.api_prefix)
 app.include_router(mediamtx_admin.router, prefix=settings.api_prefix)

@@ -25,6 +25,7 @@ import { queryClient } from './lib/queries'
 import { AppShell } from './shell/AppShell'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { PermissionsProvider } from './hooks/usePermissions'
+import { CameraStatusProvider } from './hooks/useCameraStatus'
 import { SnackbarProvider } from './components/Snackbar'
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -79,6 +80,8 @@ const importSyncPlayback = reloadOnStale(() => import('./views/SyncPlayback'))
 const Dashboard = lazy(() => importDashboard().then((m) => ({ default: m.Dashboard })))
 const LiveView = lazy(() => importLiveView().then((m) => ({ default: m.LiveView })))
 const SyncPlayback = lazy(() => importSyncPlayback().then((m) => ({ default: m.SyncPlayback })))
+const TourView = lazy(reloadOnStale(() => import('./views/TourView').then((m) => ({ default: m.TourView }))))
+const TourEditor = lazy(reloadOnStale(() => import('./views/TourEditor').then((m) => ({ default: m.TourEditor }))))
 const Cameras = lazy(reloadOnStale(() => import('./views/Cameras').then((m) => ({ default: m.Cameras }))))
 const Vehicles = lazy(reloadOnStale(() => import('./views/Vehicles').then((m) => ({ default: m.Vehicles }))))
 const Occupancy = lazy(reloadOnStale(() => import('./views/Occupancy').then((m) => ({ default: m.Occupancy }))))
@@ -142,12 +145,14 @@ function lazyRoute(element: React.ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
 }
 
-function ProtectedShell() {
+// The same sign-in and MFA gate for every protected page; `children` stand in
+// for the app shell (the bare display route below).
+function ProtectedShell({ children }: { children?: React.ReactNode }) {
   const { user, loading } = useAuth()
   if (loading) return <div className="p-4 text-sm">Loading…</div>
   if (!user) return <Login />
   if (!user.mfa_enabled && user.auth_provider !== 'oidc') return <MFASetup />   // the provider owns MFA for SSO accounts
-  return <AppShell />
+  return children ?? <AppShell />
 }
 
 function SuspenseOutlet() {
@@ -168,6 +173,9 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Dashboard /> },
           { path: 'live', element: <LiveView /> },
+          { path: 'live/tour/:tourId', element: <TourView /> },
+          { path: 'tours/new', element: <TourEditor /> },
+          { path: 'tours/:tourId/edit', element: <TourEditor /> },
           // The old per-camera list; recordings live on the multi-camera page.
           { path: 'playback', element: <Navigate to="/playback/sync" replace /> },
           { path: 'playback/sync', element: <SyncPlayback /> },
@@ -214,6 +222,17 @@ const router = createBrowserRouter([
         ],
       },
     ],
+  },
+  // A tour on a display board: the whole window, no app shell, so a kiosk
+  // browser shows nothing but the wall. AppShell normally provides the
+  // camera-status socket, so it is provided here.
+  {
+    path: '/display/tour/:tourId',
+    element: (
+      <ProtectedShell>
+        <CameraStatusProvider>{lazyRoute(<TourView display />)}</CameraStatusProvider>
+      </ProtectedShell>
+    ),
   },
   { path: '/login', element: <Login /> },
   { path: '/first-time-setup', element: lazyRoute(<FirstTimeSetup />) },

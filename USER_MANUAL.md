@@ -108,6 +108,89 @@ WebRTC is the default transport. If the browser can't establish a WebRTC
 connection (corporate networks, restrictive firewalls), the player falls
 back to HLS — same content, ~3 second latency penalty.
 
+### Camera tours (display boards)
+
+A tour cycles a screen through sets of cameras, for example 20 North-zone
+cameras for a minute, then 20 South-zone cameras, then back to the start.
+Build tours under **Settings → More Settings → Camera Tours** (needs the
+`cameras.manage` permission); anyone with `live.view` can run one from the
+**Tours** button in Live View.
+
+- **Steps.** Each step is a layout, a list of cameras and how long to show
+  them (10 seconds to 1 hour). Plain grids such as 5×4 are offered next to
+  the Live View layouts, so a 20-camera wall needs no custom layout.
+- **More cameras than tiles.** A step pages through them, a full duration
+  per page: "North, all 60 cameras, 5×4" shows three pages of 20.
+- **Picking cameras.** The editor is a page of its own: steps on the left
+  (drag to reorder; the panel and its sections fold away), the selected step
+  on the right, split in two. On its left, pick cameras: search by name or
+  IP, filter by the camera's **Location** field, or add a whole location at
+  once. On its right, **Preview** lays each page out exactly as the wall
+  does, from still pictures: the layout you chose, every tile in its place,
+  and tiles without a camera left empty (numbered here, dark on the wall).
+  Drag a tile to reorder, ✕ to remove it, or sort A to Z or by location. Pictures are stills; **▶** on any camera opens it live, only
+  when asked. Filling in each camera's Location (North, South, Branch 12…)
+  is what makes this quick.
+- **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
+  crops it to fill its tile, which suits portrait and fisheye cameras.
+- **Page changes.** **Start the next page early** (on by default) plays the
+  next page's cameras, hidden, for the last 5 seconds of a page, so they are
+  already playing when it shows; the display PC plays two pages for those
+  seconds. **When the page changes** is a short **Crossfade** (default) or a
+  straight **Cut**. A tile whose video has not started yet shows that
+  camera's last frame from this wall rather than a black tile.
+- **Who sees what.** Every viewer sees only the cameras they are allowed
+  to see; the bar says how many were left out. Changing or deleting a tour
+  needs the right to manage every camera in it; anyone else can run it.
+
+**Alarms on the wall.** Turn on **Bring alarms to the front** in a tour's
+settings and an alert on one of its cameras takes over the wall: the
+camera fills the screen with a red frame and a banner saying what happened
+and when, and up to four alarming cameras share the wall. After **Show
+for** (30 s by default) the tour carries on exactly where it was; **Back to
+tour** or **Esc** returns at once. Choose what counts — alerts from apps and
+camera analytics (with a lowest severity), the camera's own alarms
+(motion, tamper, line crossing), or both — and whether only the tour's
+cameras or any camera the screen can see may take over. **Cool-down per
+camera** stops one busy camera from holding the wall.
+
+Running a tour on a display board:
+
+1. Copy the tour's **display link** from the Camera Tours page
+   (`https://<host>/display/tour/<id>`). It shows the wall alone, with no
+   sidebar or header. (Live View's **Tours** button opens the same tour
+   inside the app instead.)
+2. On the display PC, sign in with an account that only has `live.view`
+   and the cameras that board should show.
+3. Start the browser in kiosk mode, e.g.
+   `chrome --kiosk https://<host>/display/tour/<id>`. Kiosk mode makes the
+   browser window fill the screen with no address bar, and the display
+   link fills that window. Turn off the operating system's screen sleep.
+
+On the wall: a chip in the bottom corner always says what is on screen and
+what comes next ("North → South in 18 s"). **Space** pauses and resumes (a
+paused wall says so until it is resumed — moving the mouse never pauses
+it), **← / →** step, **F** toggles fullscreen, and clicking a tile shows
+that camera on its own until it is clicked again. Someone who may edit the
+tour can open the editor from the wall's bar (**Edit this tour**); saving
+brings them back to the running wall. For a quick fix on the page on
+screen, **Arrange** (in the app, not on the display link) holds the tour and
+shows that page from stills next to a camera search: ✕ removes a camera, a
+tile dragged onto another swaps the two, and a camera dragged onto a tile —
+or a tile clicked, then a camera — takes its place. **Save** stores it in the
+tour, so every screen running it changes too. On a step with several pages,
+removing a camera moves the later ones up, so its next pages change as well. Edits to a tour reach running walls within five
+minutes; a turned-off tour shows a notice and starts again by itself when
+it is turned back on. A running board keeps itself signed in; one left
+switched off for more than 30 days has to sign in again.
+
+Tiles play each camera's low-resolution substream to keep a large wall
+light on the display PC, and switch to the main stream for any camera
+whose substream does not work. Each tile on screen opens one extra
+connection from OpenNVR to that camera's recorder; with many recorders
+this is negligible, but a single NVR with a low connection limit may
+need fewer tiles per page.
+
 ### Playback
 
 The playback page lists recorded segments for a date range you pick, with filters by camera (single or all), by event type (all recordings, motion-triggered, AI-triggered), and by time range (calendar picker or quick presets — last hour, today, yesterday, last seven days).

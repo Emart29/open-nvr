@@ -68,6 +68,30 @@ def _check_camera_permission(
     return camera
 
 
+def _has_substream_source(db: Session | None, camera: Camera) -> bool:
+    """Whether provisioning gives this camera a ``-sub`` path: a stored
+    substream URL, or one derivable from its main URL (the rule in
+    MediaMtxAdminService._provision_substream). Offering ``webrtc_sub`` for a
+    camera without one sends the player to a path MediaMTX answers with 400
+    "not configured" — which the player reads as an expired token."""
+    from services.camera_source_resolver import derive_substream_url
+
+    if getattr(camera, "substream_url", None):
+        return True
+    sources = [getattr(camera, "rtsp_url", None)]
+    if db is not None:
+        try:
+            from models import CameraConfig
+
+            cfg = db.query(CameraConfig.source_url).filter(
+                CameraConfig.camera_id == camera.id).first()
+            if cfg:
+                sources.append(cfg[0])
+        except Exception:
+            pass
+    return any(derive_substream_url(s) for s in sources if s)
+
+
 @router.get("/token/{camera_id}")
 async def get_stream_token(
     camera_id: int,
@@ -281,13 +305,19 @@ async def get_stream_info(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     request: Request = None,
+    include_sub: bool = False,
 ):
     """
     Get comprehensive stream information and JWT token for a camera.
 
     Returns all stream URLs and a single token valid for all protocols.
+    ``include_sub=true`` also returns the low-res ``webrtc_sub`` URL (the
+    Live View tour plays it to keep a 20-tile wall cheap) when the camera has
+    a substream; without it the response is exactly what it was.
     """
     camera = _check_camera_permission(db, camera_id, current_user)
+    with_sub = settings.agent_live_use_substream or (
+        include_sub and _has_substream_source(db, camera))
 
     # Every WHEP attempt is preceded by this call, so it is where we learn the
     # address the browser actually reached us on and make sure MediaMTX
@@ -304,7 +334,7 @@ async def get_stream_info(
     # main path and its "-sub" sibling so the same token authorizes either WHEP
     # (the camera-agent's live view uses the sub; the main UI uses the main).
     # Off → an exact-match scope on the main path, unchanged.
-    if settings.agent_live_use_substream:
+    if with_sub:
         import re
 
         token_path = f"~^{re.escape(stream_name)}(-sub)?$"
@@ -375,7 +405,7 @@ async def get_stream_info(
             # UI ignores it and keeps using the full-res "webrtc" above.
             **(
                 {"webrtc_sub": f"{webrtc_base.rstrip('/')}/{substream_name(stream_name)}/whep"}
-                if settings.agent_live_use_substream else {}
+                if with_sub else {}
             ),
             "hls": f"{hls_base.rstrip('/')}/{stream_name}/index.m3u8",
             "rtsps": f"{rtsps_base.rstrip('/')}/{stream_name}",

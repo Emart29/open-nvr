@@ -69,6 +69,7 @@ ROUTES: list[str] = [
     "/settings/api-tokens",
     "/settings/more-settings/webrtc",
     "/settings/more-settings/window-settings",
+    "/settings/more-settings/camera-tours",
     "/settings/more-settings/uplink",
     "/settings/more-settings/system-health",
 ]
