@@ -29,6 +29,7 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.routing import APIRoute
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -43,12 +44,35 @@ from services.camera_scope import can_view_camera, manageable_camera_ids, visibl
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tours", tags=["tours"])
+#: A tour has no page limit: a wall only ever plays the page on screen (and
+#: the next, for its last seconds), so how many pages it has costs the
+#: display and the recorder nothing. This only stops a runaway request
+#: (nginx takes bodies up to 256 MB, for uploads) from making core parse
+#: it: at ~100 bytes a page it is some 50,000 pages, far past any tour.
+MAX_BODY_BYTES = 5 * 1024 * 1024
+
+
+class _CappedRoute(APIRoute):
+    """Refuses a body over MAX_BODY_BYTES on its declared length, before
+    FastAPI reads and parses it (a dependency would run too late)."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def capped(request: Request) -> Response:
+            declared = request.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="This tour is too large to save.")
+            return await handler(request)
+
+        return capped
+
+
+router = APIRouter(prefix="/tours", tags=["tours"], route_class=_CappedRoute)
 
 _view = RequirePermission("live.view")
 _manage = RequirePermission("cameras.manage")
 
-MAX_PAGES = 200
 #: More than any layout has tiles (8x8): a longer list is split into pages.
 MAX_CAMERAS_PER_PAGE = 256
 # A plain C×R grid needs no Window Settings entry: "grid:5x4" is the
@@ -150,7 +174,7 @@ class TourIn(BaseModel):
     enabled: bool = True
     # ``steps`` is what the app sent before pages; a wall may still be
     # running that app when the server is updated.
-    pages: list[TourPageIn] = Field(..., min_length=1, max_length=MAX_PAGES,
+    pages: list[TourPageIn] = Field(..., min_length=1,
                                     validation_alias=AliasChoices("pages", "steps"))
     #: None on an update keeps what the tour has; on create, the defaults.
     settings: TourSettings | None = None
@@ -314,11 +338,7 @@ def _validate(payload: TourIn, scope: _Scope) -> list[dict]:
     if bad:
         raise HTTPException(status_code=422, detail={
             "message": "Unknown cameras, or cameras you cannot manage", "camera_ids": bad})
-    pages = [q for p in payload.pages for q in _split(p.model_dump(), scope.layouts)]
-    if len(pages) > MAX_PAGES:
-        raise HTTPException(status_code=422, detail={
-            "message": f"A tour holds at most {MAX_PAGES} pages", "pages": len(pages)})
-    return pages
+    return [q for p in payload.pages for q in _split(p.model_dump(), scope.layouts)]
 
 
 def _tour_or_404(db: Session, tour_id: int) -> CameraTour:

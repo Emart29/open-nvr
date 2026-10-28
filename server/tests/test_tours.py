@@ -171,10 +171,20 @@ def test_a_client_sending_steps_is_still_understood(env):  # noqa: F811
     assert [p["camera_ids"] for p in r.json()["pages"]] == [[1, 2], [3]]
 
 
-def test_too_many_pages_once_split_is_422(env):  # noqa: F811
-    r = env.client.post(URL, headers=env.jwt("admin"), json=_body(
-        pages=[{"layout_id": "1x1", "camera_ids": [1, 2, 3]}] * 67))  # 201 pages of one
-    assert r.status_code == 422 and r.json()["detail"]["pages"] == 201
+def test_a_tour_has_no_page_limit(env):  # noqa: F811
+    t = _create(env, pages=[{"layout_id": "1x1", "camera_ids": [1, 2, 3]}] * 400)
+    assert len(t["pages"]) == 1200
+
+
+def test_a_runaway_body_is_refused_before_it_is_read(env, monkeypatch):  # noqa: F811
+    from routers import tours
+
+    monkeypatch.setattr(tours, "MAX_BODY_BYTES", 2000)
+    A = env.jwt("admin")
+    r = env.client.post(URL, headers=A, json=_body(pages=[{"layout_id": "1x1", "camera_ids": [1]}] * 100))
+    assert r.status_code == 413
+    assert env.client.get(URL, headers=A).json()["tours"] == []
+    assert env.client.post(URL, headers=A, json=_body()).status_code == 201
 
 
 def test_a_page_of_only_empty_tiles_is_422(env):  # noqa: F811
