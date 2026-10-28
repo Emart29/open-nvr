@@ -1,0 +1,190 @@
+# Implementation plan: OpenNVR updates (check, one-click, automatic, air-gapped)
+
+| | |
+|---|---|
+| **Status** | In progress (see [Progress](#10-progress)) |
+| **Revision** | r2 (2026-10-29): review fixes folded in; the updater runs inside the core image; manifests are signed with a project Ed25519 key so online and air-gapped verification are the same code. r1 (2026-10-28): first plan |
+| **Branch** | `feat/auto-update` (one commit per issue) |
+| **Audience** | Whoever implements or reviews this work |
+
+## 1. Goal and non-goals
+
+**Goal.** An operator updates an OpenNVR site to a newer **release** safely, online or fully air-gapped:
+
+1. **See** that an update exists (UI banner, Home Assistant's update entity).
+2. **Apply** it with one command on the host or one click in the UI.
+3. **Optionally** let it update itself in a maintenance window.
+4. **Air-gapped:** carry one signed file in (USB, data diode) and apply it with the same command, the same checks and the same rollback.
+
+Every update is verified, backed up first, health-checked afterwards and rolled back automatically if anything fails.
+
+**Non-goals (v1):** applying builds from `main` automatically (edge is notify/CLI only), Postgres major upgrades, host OS updates (`routers/firmware.py`, a different page), Watchtower-style blind refreshes.
+
+## 2. Facts this plan builds on
+
+| # | Fact | Where | Consequence |
+|---|---|---|---|
+| F1 | Opt-in check of the latest GitHub release (`UPDATE_CHECK=true`), shown as `latest_version` in system info; the HA update entity reads it. | `server/services/update_check.py`, `routers/system.py:61-76` | "Notify" exists in the backend; the UI does not show it. |
+| F2 | Installs are `git clone`s pinning `CORE_TAG`/`ADAPTER_TAG` in `.env`. Releases change compose files too. | `README.md:37`, `.env.example:536-600` | An update moves the checkout **and** the pins. |
+| F3 | The README's upgrade line re-pulls the pinned tag: it updates nothing. | `README.md:58` | Fixed in UPD-002. |
+| F4 | `:latest` moves on every main push, not only releases. | `publish-images.yml:119,:319`, `publish-detect-pipeline.yml:93`, `build-catalog-app.yml:139` | Fixed in UPD-001. |
+| F5 | Core runs Alembic on boot (`init_db`). | `core/database.py:303-330` | The updater never runs migrations; rollback restores the DB dump. |
+| F6 | The README says to clone without a tag, so a client checkout can be any `main` commit while its images are pinned to 0.1.8. | `README.md:37` | Preflight detects a checkout that is not at a release commit and refuses with guidance (UPD-206). |
+| F7 | `__version__` is a hard-coded string (main, 151 commits past v0.1.8, still says 0.1.8) and `/health` returns only that. | `server/main.py:114,1040` | Images carry their build commit (UPD-003); verification compares image IDs, not version strings. |
+| F8 | `start.sh up` runs `compose up -d --remove-orphans`, which removes the fakecams/apps-profile containers it does not know. | `start.sh:1381` | The updater brings the stack up the same way but never with `--remove-orphans`. |
+| F9 | Mediamtx (the recorder) is its own container; compose recreates only services whose image or config changed. | `docker-compose.yml:99,:545` | A core-only update does not stop recording. |
+| F10 | State outside Postgres: volumes `opennvr_jwt_keys`, `opennvr_kai_c_state` (both small), and recording-tree identity markers. | `docker-compose.yml:946-966`, `services/camera_identity.py` | Rollback restores the two volumes too; a release that changes an on-disk format sets `state_migrations` and is never rolled back automatically. |
+| F11 | `cryptography` and `httpx` are direct dependencies of core. | `server/pyproject.toml` | Signature checks and downloads need no new package. |
+| F12 | nginx takes bodies up to 256 MB. | `nginx/opennvr.conf:62` | A multi-GB offline bundle is applied from the host, not uploaded in the browser. |
+
+## 3. How to read this
+- Milestones **M0–M5** of issues **UPD-xxx**, in execution order. M0 ships on its own. M1+M2 give a working, safe `start.sh update` (online and from a bundle). M3 adds the UI, M4 automatic updates, M5 delta bundles, edge and the local mirror.
+- Sizes: S ≤ 1 session, M = 2–3, L = 4+.
+
+## 4. Key decisions
+
+| # | Decision | Why |
+|---|---|---|
+| D1 | **A signed release manifest is the only thing the updater trusts**: version, git commit, every image's registry digest **and** image ID, Alembic head, `min_upgrade_from`, `manual_steps`, `state_migrations`, `urgent`. Signed with the project's **Ed25519 release key** (CI secret); the public keys ship in the core image. | Digests pin content, the signature says who pinned them. Ed25519 verifies with `cryptography`, fully offline: online and air-gapped are one code path. Cosign image signatures (UPD-004) stay as defence in depth, not as the trust root. |
+| D2 | **The updater lives in the core image** (`server/updater/`) and runs as `docker compose run --rm --no-deps opennvr-core python -m updater …`. The **installed** release's image runs preflight; the **target** release's image runs verification. The host does only what must happen on the host: git, `docker pull/tag/load/inspect`, `compose up`, dump/restore, file copies — a small verb set in `start.sh` and `start.ps1`. | No second image to publish and sign; the logic is Python with unit tests, written once; compose runs where it always runs, so bind paths are right on Windows too. |
+| D3 | **Download first, swap second**: pull or load every image and fetch the commit before anything stops. | Most failures (network, disk, a bad bundle) happen with zero downtime. |
+| D4 | **Back up before switching**: `pg_dump -Fc` run in the `db` container as `POSTGRES_USER` and copied out (never redirected through a PowerShell pipe), plus a tar of `opennvr_jwt_keys` and `opennvr_kai_c_state`. Kept in `backups/` (git-ignored, mode 600), last 3. | Restore is deterministic; Alembic downgrades on client data are not. |
+| D5 | **Channels**: `stable` (release tags, the default) and `edge` (main builds pinned by commit, never applied automatically). | Client sites run releases. |
+| D6 | **Levels, off by default**: off → notify → manual → auto (window, patch releases only unless widened, random delay, `urgent` skips the delay). | Offline-first: nothing calls out unless asked. |
+| D7 | **`.env`**: backed up, and only the pin keys the manifest lists are edited. A pin that differs from the installed release's manifest value was set by the operator on purpose: left alone, with a warning. | `.env` belongs to the operator. |
+| D8 | **Run state lives on the host** (`data/updates/state.json`); the DB table that the UI reads (M3) is a copy, rewritten after any restore. | A DB restore must not erase the record of the run doing it; status must be writable while core is down. |
+| D9 | **Images are pulled by digest and then tagged locally** with the pinned tag; compose keeps using tags. Verification compares the running containers' image IDs with the manifest. From a bundle, `docker load` brings the tags and the IDs are checked the same way. | One mechanism for online and offline; a tag cannot be swapped under us. |
+| D10 | **Checkout**: `git checkout -B opennvr-release <commit>` after checking the commit is the manifest's; a tracked file changed by the operator refuses the update and lists the files. | No detached HEAD; never overwrite an operator's edits. |
+| D11 | **Air-gapped**: one file per release (`opennvr-<ver>-offline.tar`: signed manifest, `git bundle`, `docker save` of every image), applied with `update --bundle <file>`; delta bundles carry only changed images; a site with many NVRs can run a local mirror that the updater points at instead of GitHub. Verification is never switched off. | The most security-sensitive sites get offline verification, not no verification. |
+
+**Rejected:** core holding the Docker socket; a separate updater image (r1 D2); Sigstore keyless as the trust root (needs Rekor/Fulcio trust material offline, a second code path); Watchtower; skipping verification air-gapped.
+
+## 5. Update flow
+
+```
+host (start.sh / start.ps1 update)                 updater (python -m updater, in a core image)
+───────────────────────────────────                 ─────────────────────────────────────────────
+1 lock data/updates/.lock
+2 run INSTALLED core image: check ───────────────▶  fetch manifest (GitHub, mirror, or bundle),
+                                                     verify signature, compare versions, policy,
+                                                     min_upgrade_from, manual_steps, pins vs .env,
+                                                     checkout state ─▶ data/updates/plan.json + plan.env
+3 git fetch <commit> (or from the bundle); docker pull @digest + tag (or docker load); check IDs
+4 pg_dump + volume tars ─▶ backups/; state.json "switching"
+5 git checkout -B opennvr-release <commit>; .env pins (backup first); compose up -d (no --remove-orphans)
+6 run TARGET core image: verify ─────────────────▶  core /health = target version + commit,
+                                                     alembic head = manifest, (host passes the
+                                                     running image IDs), cameras recording again
+7a ok: state "succeeded", prune backups
+7b fail: checkout old commit, restore .env, compose up -d; if the Alembic head moved (and the
+   release has no state_migrations): stop core, pg_restore, restore volumes, start core;
+   run INSTALLED image: verify again; state "rolled_back" (or "failed", stack on old images)
+```
+
+An interrupted run (power cut) is found by the next `start.sh up` or `update`: it resumes at step 6, then finishes or rolls back.
+
+## 6. Engineering rules
+- One issue, one commit on `feat/auto-update` (`feat(update): … (UPD-xxx)`), no Co-Authored-By trailer; not pushed without the owner's go-ahead.
+- **Test as a migration**: live tests upgrade an existing stack with its data.
+- Never `--remove-orphans`; never edit `.env` outside the pin keys; never log secrets.
+- Schema changes: model + Alembic migration with `downgrade()`; nullable or defaulted columns.
+- New permission `system.update`, superuser only, backfilled without changing anyone's abilities.
+- Every state-changing endpoint is audited.
+
+## 7. Milestones and issues
+
+### M0: Release hygiene
+| ID | Size | Issue |
+|---|---|---|
+| UPD-001 | S | `:latest` moves only on release tags (all image workflows); comments match. |
+| UPD-002 | S | README/quickstart upgrade steps that work (checkout the tag, set pins, back up, up), until the updater exists. |
+| UPD-003 | S | **Build identity**: `VERSION` and `GIT_COMMIT` build args → image labels and env; `/health` and system info report `version` and `commit`. |
+| UPD-004 | M | Cosign-sign core and detect-pipeline images as app images already are (defence in depth). |
+
+### M1: Signed release manifest
+| ID | Size | Issue |
+|---|---|---|
+| UPD-101 | M | `server/updater/manifest.py`: schema, canonical bytes, Ed25519 sign/verify (key rotation: several trusted public keys), version ordering. Unit tests. |
+| UPD-102 | M | `scripts/release/make_manifest.py`: collect pins and images from compose + `.env.example`, resolve digests and image IDs from GHCR, sign with `RELEASE_SIGNING_KEY`. Release workflow attaches `release-manifest.json` (+ `.sig`). |
+| UPD-103 | S | Backfill a signed manifest for v0.1.8 (`workflow_dispatch`), so today's sites have a starting point. |
+
+### M2: The updater (CLI, online and bundle)
+| ID | Size | Issue |
+|---|---|---|
+| UPD-201 | L | `python -m updater check|verify|finish`: manifest sources (GitHub, mirror URL, bundle dir), preflight, plan output (`plan.json`, `plan.env` for bash), verification. Unit tests. |
+| UPD-202 | M | `start.sh update [--to X] [--bundle F] [--dry-run] [--yes]` host verbs; `start.sh up` without `--remove-orphans` for the updater; lock; resume. |
+| UPD-203 | M | `start.ps1 update` with the same verbs. |
+| UPD-204 | M | Backups (DB + volumes), rollback and restore paths; `update --restore <backup>` escape hatch. |
+| UPD-205 | S | `.gitignore` for `backups/` and `data/updates/`; files mode 600. |
+| UPD-206 | S | Unmanaged checkout (not at a release commit) and operator-edited files: refuse with exact guidance. |
+| UPD-207 | L | E2E upgrade test: previous release with data → candidate; forced failure → rollback restores old version and data. |
+
+### M3: In the product
+| ID | Size | Issue |
+|---|---|---|
+| UPD-301 | M | `system_update_runs` table (copy of host state), policy in `SecuritySetting` `opennvr_update_policy`, `system.update` permission. |
+| UPD-302 | M | API: status, policy, request an update (target must equal the verified available version), cancel while queued. Audited. |
+| UPD-303 | M | Host runner: `start.sh auto-update enable|disable|status` installs a systemd timer / launchd job / Scheduled Task running `update --from-queue` each minute; heartbeat. |
+| UPD-304 | M | UI: Settings → OpenNVR updates (version, notes, Update now, policy, history), banner, progress that survives the core restart. |
+| UPD-305 | S | HA update entity install, behind a separate token scope that is off by default. |
+
+### M4: Automatic
+| ID | Size | Issue |
+|---|---|---|
+| UPD-401 | M | Auto policy: window (site-local), patch-only by default, 0–72 h random delay, `urgent` skips the delay, never with `manual_steps`/`state_migrations`. |
+| UPD-402 | S | Signed revocation list: a revoked release is never offered. |
+| UPD-403 | S | Success/rollback/failure through the alert routes and HA. |
+
+### M5: Air-gapped and edge
+| ID | Size | Issue |
+|---|---|---|
+| UPD-501 | M | Offline bundle: release workflow builds `opennvr-<ver>-offline.tar` (manifest + sig, `git bundle`, `docker save`); `update --bundle` applies it. |
+| UPD-502 | S | Delta bundle against a base version (only changed images). |
+| UPD-503 | S | Local mirror: `UPDATE_SOURCE_URL` (manifest location) + registry override, so many sites update from one internal mirror. |
+| UPD-504 | S | Edge channel: manifests for main builds, notify/CLI only. |
+
+## 8. Risks
+| Risk | Mitigation |
+|---|---|
+| A bad release reaches every site | Patch-only auto, random delay, revocation, the upgrade test blocks the release, rollback. |
+| Rollback loses data written during the update window (alerts, events, recordings index) | Minutes long; stated in the UI before *Update now*. |
+| Release signing key leaks | Several trusted keys in the image so a key can be rotated by a release; the key lives only in the CI secret store. |
+| Operator edited tracked files | Refuse and list them; never stash or overwrite. |
+| Windows hosts (WinNAT port reservations, stale D: share) | The updater reuses `start.ps1`'s port preflight; a failed verify rolls back. |
+| A release needs a new required `.env` secret | `manual_steps`: auto skips it, manual shows the command. |
+
+## 9. Open questions
+1. Client host OSes (decides how much Windows testing the first release needs).
+2. Default maintenance window (suggested Sunday 02:00–04:00 site time).
+3. Air-gapped clients: one NVR per site or many (decides UPD-503's priority).
+4. Who creates and holds the release signing key (needed before UPD-102 can run in CI).
+
+## 10. Progress
+| Issue | Status | Commit | Notes |
+|---|---|---|---|
+| UPD-001 | Not started | | |
+| UPD-002 | Not started | | |
+| UPD-003 | Not started | | |
+| UPD-004 | Not started | | |
+| UPD-101 | Not started | | |
+| UPD-102 | Not started | | |
+| UPD-103 | Not started | | |
+| UPD-201 | Not started | | |
+| UPD-202 | Not started | | |
+| UPD-203 | Not started | | |
+| UPD-204 | Not started | | |
+| UPD-205 | Not started | | |
+| UPD-206 | Not started | | |
+| UPD-207 | Not started | | |
+| UPD-301 | Not started | | |
+| UPD-302 | Not started | | |
+| UPD-303 | Not started | | |
+| UPD-304 | Not started | | |
+| UPD-305 | Not started | | |
+| UPD-401 | Not started | | |
+| UPD-402 | Not started | | |
+| UPD-403 | Not started | | |
+| UPD-501 | Not started | | |
+| UPD-502 | Not started | | |
+| UPD-503 | Not started | | |
+| UPD-504 | Not started | | |
