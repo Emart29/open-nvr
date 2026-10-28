@@ -142,6 +142,9 @@ jobs:
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
+          # Reported by /health and system info (Dockerfile, last lines).
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
           tags: |
             ${{ steps.meta.outputs.tags }}
             ${{ github.event_name == 'pull_request' && 'ghcr.io/open-nvr/core:local-smoke' || '' }}

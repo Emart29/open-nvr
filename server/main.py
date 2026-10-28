@@ -1039,11 +1039,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    ``commit`` is the git commit the image was built from (Dockerfile
+    GIT_COMMIT; null for a local build without it): the updater checks it,
+    since every build between two releases carries the same ``version``.
+    """
     return {
         "status": "healthy",
         "service": "OpenNVR Surveillance System API",
         "version": __version__,
+        "commit": os.environ.get("OPENNVR_BUILD_COMMIT") or None,
     }
 
 
