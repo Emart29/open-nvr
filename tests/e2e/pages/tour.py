@@ -22,8 +22,8 @@ class TourPage(BasePage):
         """Camera names on the page now showing, in tile order."""
         return [n.strip() for n in self.find(S.TOUR_TILE_NAME).all_inner_texts()]
 
-    def step_label(self) -> str:
-        return self.find(S.TOUR_STEP).first.inner_text().strip()
+    def page_label(self) -> str:
+        return self.find(S.TOUR_PAGE_LABEL).first.inner_text().strip()
 
     def press(self, selector) -> None:
         """Click a button on the wall's bar.

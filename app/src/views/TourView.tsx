@@ -144,12 +144,12 @@ export function TourView({ display = false }: { display?: boolean }) {
   const cams = useCameras({ active_only: false })
   const camById = useMemo(() => new Map((cams.data?.cameras ?? []).map((c) => [c.id, c])), [cams.data])
 
-  // Arrange mode: each step's camera list as being edited, null otherwise.
+  // Arrange mode: each page's camera list as being edited, null otherwise.
   // The wall then plays nothing and lays out this draft instead of the tour.
   const [draft, setDraft] = useState<Slot[][] | null>(null)
   const arranging = draft != null
-  const steps = useMemo(
-    () => (tour.data ? tour.data.steps.map((s, i) => (draft?.[i] ? { ...s, camera_ids: draft[i] } : s)) : []),
+  const specs = useMemo(
+    () => (tour.data ? tour.data.pages.map((s, i) => (draft?.[i] ? { ...s, camera_ids: draft[i] } : s)) : []),
     [tour.data, draft],
   )
 
@@ -157,20 +157,14 @@ export function TourView({ display = false }: { display?: boolean }) {
   const pages = useMemo(
     // While arranging, a page whose cameras were all taken out stays, so the
     // board does not jump away from it; the running wall skips such a page.
-    () => (tour.data && layoutsReady ? buildPages(steps, (lid) => resolveLayout(lid, windowSettings.data), { keepEmptyPages: arranging }) : []),
-    [tour.data, steps, layoutsReady, windowSettings.data, arranging],
+    () => (tour.data && layoutsReady ? buildPages(specs, (lid) => resolveLayout(lid, windowSettings.data), { keepEmptyPages: arranging }) : []),
+    [tour.data, specs, layoutsReady, windowSettings.data, arranging],
   )
-  // "Step 2 of 4" counts only the steps that have something to show.
-  const stepOrdinal = useMemo(() => {
-    const m = new Map<number, number>()
-    for (const p of pages) if (!m.has(p.stepIndex)) m.set(p.stepIndex, m.size + 1)
-    return m
-  }, [pages])
 
   const settings = tour.data?.settings ?? DEFAULT_TOUR_SETTINGS
   const warmStart = settings.preload !== false
   const fade = settings.transition !== 'cut'
-  const tourCameras = useMemo(() => new Set((tour.data?.steps ?? []).flatMap((s) => camerasOf(s.camera_ids))), [tour.data])
+  const tourCameras = useMemo(() => new Set((tour.data?.pages ?? []).flatMap((s) => camerasOf(s.camera_ids))), [tour.data])
   // Alarm takeover: an alert on a camera brings it to the front; the tour
   // waits underneath and carries on where it was (lib/tourAlerts.ts).
   // Not while arranging: an alarm would swap the page being edited for another.
@@ -182,15 +176,13 @@ export function TourView({ display = false }: { display?: boolean }) {
   const [spot, setSpot] = useState<number | null>(null)
   // The page started early, hidden under the one showing (its page key).
   const [preloadKey, setPreloadKey] = useState<string | null>(null)
-  // While arranging, the wall stays on the same step and page however the
-  // edits reshape the list: removals can empty the step's last page.
-  const [anchor, setAnchor] = useState<{ step: number; page: number } | null>(null)
-  const anchored = useMemo(() => {
-    if (!arranging || !anchor) return -1
-    let best = -1
-    pages.forEach((p, i) => { if (p.stepIndex === anchor.step && p.page <= anchor.page) best = i })
-    return best
-  }, [arranging, anchor, pages])
+  // While arranging, the wall stays on the page being arranged (its index
+  // in the tour) however the edits change it, even taking every camera off.
+  const [anchor, setAnchor] = useState<number | null>(null)
+  const anchored = useMemo(
+    () => (arranging && anchor != null ? pages.findIndex((p) => p.index === anchor) : -1),
+    [arranging, anchor, pages],
+  )
   const current = anchored >= 0 ? anchored : pages.length ? Math.min(index, pages.length - 1) : 0
   const page: TourPage | undefined = pages[current]
   const pageKey = page?.key
@@ -199,7 +191,7 @@ export function TourView({ display = false }: { display?: boolean }) {
     setSpot(null)
     if (arranging) {
       const to = pages[wrapIndex(current, delta, pages.length)]
-      if (to) setAnchor({ step: to.stepIndex, page: to.page })
+      if (to) setAnchor(to.index)
       return
     }
     setIndex((i) => wrapIndex(Math.min(i, Math.max(0, pages.length - 1)), delta, pages.length))
@@ -285,15 +277,15 @@ export function TourView({ display = false }: { display?: boolean }) {
   const [target, setTarget] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [arrangeError, setArrangeError] = useState<{ text: string; conflict?: boolean } | null>(null)
-  const dirty = !!draft && !!tour.data && draft.some((ids, i) => ids.join(',') !== (tour.data!.steps[i]?.camera_ids ?? []).join(','))
+  const dirty = !!draft && !!tour.data && draft.some((ids, i) => ids.join(',') !== (tour.data!.pages[i]?.camera_ids ?? []).join(','))
 
   const startArrange = useCallback(() => {
     if (!tour.data || !page) return
     setSpot(null)
     setTarget(null)
     setArrangeError(null)
-    setAnchor({ step: page.stepIndex, page: page.page })
-    setDraft(tour.data.steps.map((s) => [...s.camera_ids]))
+    setAnchor(page.index)
+    setDraft(tour.data.pages.map((s) => [...s.camera_ids]))
   }, [tour.data, page])
   const endArrange = useCallback(() => {
     // The tour carries on from the page that was being arranged.
@@ -307,9 +299,9 @@ export function TourView({ display = false }: { display?: boolean }) {
     if (dirty && !(await confirm({ title: t('tours.discardTitle'), message: t('tours.discardMessage'), confirmLabel: t('tours.discard'), danger: true }))) return
     endArrange()
   }, [dirty, confirm, t, endArrange])
-  const editStep = useCallback((edit: (ids: Slot[]) => Slot[]) => {
+  const editPage = useCallback((edit: (ids: Slot[]) => Slot[]) => {
     if (!page) return
-    setDraft((d) => d && d.map((ids, i) => (i === page.stepIndex ? edit(ids) : ids)))
+    setDraft((d) => d && d.map((ids, i) => (i === page.index ? edit(ids) : ids)))
   }, [page])
   const saveArrange = useCallback(async () => {
     if (!tour.data || !draft) return
@@ -322,7 +314,7 @@ export function TourView({ display = false }: { display?: boolean }) {
         name: tourNow.name,
         description: tourNow.description ?? null,
         enabled: tourNow.enabled,
-        steps: tourNow.steps.map((s, i) => ({ label: s.label, layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: draft[i] ?? s.camera_ids })),
+        pages: tourNow.pages.map((s, i) => ({ label: s.label, layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: draft[i] ?? s.camera_ids })),
         expected_revision: tourNow.revision,
       })
       qc.setQueryData(['tour', id], data as Tour)
@@ -341,7 +333,7 @@ export function TourView({ display = false }: { display?: boolean }) {
   }, [tour.data, draft, qc, id, showSuccess, t, endArrange, camById])
   const reloadArrange = useCallback(async () => {
     const fresh = await tour.refetch()
-    if (fresh.data) setDraft(fresh.data.steps.map((s) => [...s.camera_ids]))
+    if (fresh.data) setDraft(fresh.data.pages.map((s) => [...s.camera_ids]))
     setArrangeError(null)
   }, [tour])
 
@@ -416,9 +408,9 @@ export function TourView({ display = false }: { display?: boolean }) {
   const openDisplay = () => window.open(`/display/tour/${id}`, '_blank', 'noopener')
   const cover = settings.fit === 'fill'
 
-  const step = page && tour.data ? tour.data.steps[page.stepIndex] : undefined
-  const hidden = step?.hidden_count ?? 0
-  const pausedIds = useMemo(() => new Set(step?.paused_camera_ids ?? []), [step])
+  const spec = page && tour.data ? tour.data.pages[page.index] : undefined
+  const hidden = spec?.hidden_count ?? 0
+  const pausedIds = useMemo(() => new Set(spec?.paused_camera_ids ?? []), [spec])
 
   let body: React.ReactNode
   if (!validId || (tour.isError && (tour.error as any)?.status === 404)) {
@@ -440,22 +432,20 @@ export function TourView({ display = false }: { display?: boolean }) {
   } else if (!page && !alerting) {
     body = <WallMessage icon={<CameraOff size={22} />} title={t('tours.nothingToShow')} detail={t('tours.nothingToShowHint')} />
   } else if (arranging && page) {
-    const per = page.layout.tiles.length
+    const tiles = page.layout.tiles.length
     body = (
       <ArrangeBoard
         layout={page.layout}
         pageIds={page.cameraIds}
-        stepIds={steps[page.stepIndex].camera_ids}
-        base={page.page * per}
         cameras={cams.data?.cameras ?? []}
         camById={camById}
         cover={cover}
         labelClass={labelSize(page.layout.gridRows, false)}
         target={target}
         onTarget={setTarget}
-        onRemove={(at) => editStep((ids) => removeAt(ids, at))}
-        onMove={(from, to) => editStep((ids) => moveTo(ids, from, to))}
-        onPlace={(cam, at) => editStep((ids) => placeAt(ids, cam, at))}
+        onRemove={(at) => editPage((ids) => removeAt(ids, at))}
+        onMove={(from, to) => editPage((ids) => moveTo(ids, from, to, tiles))}
+        onPlace={(cam, at) => editPage((ids) => placeAt(ids, cam, at, tiles))}
       />
     )
   } else {
@@ -478,7 +468,7 @@ export function TourView({ display = false }: { display?: boolean }) {
     const pageTiles = (p: TourPage, shown: boolean) => p.layout.tiles.map((tile, i) => {
       const cid = p.cameraIds[i]
       const area = { gridRow: `${tile.row + 1} / span ${tile.rowSpan}`, gridColumn: `${tile.col + 1} / span ${tile.colSpan}` }
-      const pausedHere = new Set(tour.data!.steps[p.stepIndex]?.paused_camera_ids ?? [])
+      const pausedHere = new Set(tour.data!.pages[p.index]?.paused_camera_ids ?? [])
       return cid != null ? (
         <div key={`cam-${cid}`} style={area} className="relative min-w-0 min-h-0">
           <TourTile cameraId={cid} cam={camById.get(cid)} pausedCamera={pausedHere.has(cid)} playing={visible} spotlit={false}
@@ -536,7 +526,9 @@ export function TourView({ display = false }: { display?: boolean }) {
     )
   }
 
-  const pageLabel = page ? (step?.label || t('tours.stepN', { n: stepOrdinal.get(page.stepIndex) ?? 1 })) : ''
+  // "Page 2/5" counts only the pages that have something to show.
+  const pageOrdinal = t('tours.pageOf', { n: current + 1, total: pages.length })
+  const pageLabel = page ? (spec?.label || t('tours.pageN', { n: current + 1 })) : ''
 
   return (
     <section className={clsx(
@@ -553,10 +545,7 @@ export function TourView({ display = false }: { display?: boolean }) {
             {pages.length > 1 && (
               <span className="flex items-center gap-1">
                 <IconAction label={t('tours.previous')} onClick={() => go(-1)}><ChevronLeft size={15} /></IconAction>
-                <span className="text-xs font-mono tabular-nums text-[var(--text-dim)] whitespace-nowrap">
-                  {t('tours.stepOf', { n: stepOrdinal.get(page.stepIndex) ?? 1, total: stepOrdinal.size })}
-                  {page.pages > 1 && ` · ${t('tours.pageOf', { n: page.page + 1, total: page.pages })}`}
-                </span>
+                <span className="text-xs font-mono tabular-nums text-[var(--text-dim)] whitespace-nowrap">{pageOrdinal}</span>
                 <IconAction label={t('tours.next')} onClick={() => go(1)}><ChevronRight size={15} /></IconAction>
               </span>
             )}
@@ -610,11 +599,10 @@ export function TourView({ display = false }: { display?: boolean }) {
           {page && (
             <span className="flex-1 flex items-center gap-2 min-w-0 overflow-hidden text-xs text-white/75">
               <span aria-hidden="true">·</span>
-              <span className="truncate font-medium text-white" data-testid="tour-step">{pageLabel}</span>
+              <span className="truncate font-medium text-white" data-testid="tour-page-label">{pageLabel}</span>
               <span className="hidden sm:inline font-mono tabular-nums whitespace-nowrap">
-                {t('tours.stepOf', { n: stepOrdinal.get(page.stepIndex) ?? 1, total: stepOrdinal.size })}
-                {page.pages > 1 && ` · ${t('tours.pageOf', { n: page.page + 1, total: page.pages })}`}
-                {` · ${formatDuration(page.durationMs / 1000)}`}
+                {pages.length > 1 && `${pageOrdinal} · `}
+                {formatDuration(page.durationMs / 1000)}
               </span>
               {page.layoutFallback && (
                 <span className="flex items-center gap-1 text-[var(--on-video-warn)]" title={t('tours.layoutMissingHint')}>
@@ -677,11 +665,12 @@ export function TourView({ display = false }: { display?: boolean }) {
             deadline={deadline}
             heldLeftMs={heldLeftMs}
             held={!running}
-            current={`${pageLabel}${page.pages > 1 ? ` ${page.page + 1}/${page.pages}` : ''}`}
+            current={pageLabel}
             next={(() => {
-              const nx = pages[wrapIndex(current, 1, pages.length)]
-              if (nx.stepIndex === page.stepIndex) return t('tours.pageOf', { n: nx.page + 1, total: nx.pages })
-              return tour.data?.steps[nx.stepIndex]?.label || t('tours.stepN', { n: stepOrdinal.get(nx.stepIndex) ?? 1 })
+              const at = wrapIndex(current, 1, pages.length)
+              const label = tour.data?.pages[pages[at].index]?.label || t('tours.pageN', { n: at + 1 })
+              // Pages sharing a label ("North" over three pages) say which one.
+              return label === pageLabel ? `${label} · ${t('tours.pageOf', { n: at + 1, total: pages.length })}` : label
             })()}
             large={display}
           />

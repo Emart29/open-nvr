@@ -16,7 +16,7 @@ import { clsx } from 'clsx'
 import { useTranslation } from '../../../i18n'
 import { apiService } from '../../../lib/apiService'
 import { resolveLayout, type WindowLayoutSettings } from '../../../lib/liveLayouts'
-import { buildPages, camerasOf, cycleSeconds, formatDuration } from '../../../lib/tourPlan'
+import { buildPages, camerasOf, cycleSeconds, formatDuration, pageGroups } from '../../../lib/tourPlan'
 import type { Tour } from '../../../services/tourService'
 import { usePermissions } from '../../../hooks/usePermissions'
 import { useConfirm } from '../../../components/ui/ConfirmDialog'
@@ -112,7 +112,7 @@ export function CameraTours() {
     const all = tours.data ?? []
     const q = query.trim().toLowerCase()
     if (!q) return all
-    return all.filter((x) => [x.name, x.description ?? '', ...x.steps.map((s) => s.label ?? '')].join(' ').toLowerCase().includes(q))
+    return all.filter((x) => [x.name, x.description ?? '', ...x.pages.map((s) => s.label ?? '')].join(' ').toLowerCase().includes(q))
   }, [tours.data, query])
 
   // Only the list scrolls: the heading, search and view switch stay put.
@@ -152,12 +152,12 @@ export function CameraTours() {
     />
   )
 
-  const stepChips = (tour: Tour) => (
+  const pageChips = (tour: Tour) => (
     <>
-      {tour.steps.map((s, i) => (
-        <span key={i} className={clsx('text-[10px] px-1.5 py-0.5 border whitespace-nowrap', s.layout_missing ? 'border-[var(--warn)] text-[var(--warn)]' : 'border-[var(--border)] text-[var(--text-dim)]')}
-          title={s.layout_missing ? t('tours.layoutMissingHint') : undefined}>
-          {(s.label || t('tours.stepN', { n: i + 1 }))} · {camerasOf(s.camera_ids).length}
+      {pageGroups(tour.pages).map((g) => (
+        <span key={g.first} className={clsx('text-[10px] px-1.5 py-0.5 border whitespace-nowrap', g.layoutMissing ? 'border-[var(--warn)] text-[var(--warn)]' : 'border-[var(--border)] text-[var(--text-dim)]')}
+          title={g.layoutMissing ? t('tours.layoutMissingHint') : undefined}>
+          {g.label || t('tours.pageN', { n: g.first + 1 })}{g.count > 1 && ` ×${g.count}`} · {g.cameras}
         </span>
       ))}
       {tour.settings?.alerts.enabled && (
@@ -248,7 +248,7 @@ export function CameraTours() {
             // Cards at least 22rem wide, so the action row fits on one line.
             <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))]">
               {shown.map((tour) => {
-                const pages = buildPages(tour.steps, resolve)
+                const pages = buildPages(tour.pages, resolve)
                 return (
                   <div
                     key={tour.id}
@@ -259,12 +259,12 @@ export function CameraTours() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold truncate">{tour.name}</div>
                         <div className="text-[11px] text-[var(--text-dim)] font-mono tabular-nums">
-                          {t('tours.summary', { steps: tour.steps.length, cycle: formatDuration(cycleSeconds(pages)) })}
+                          {t('tours.summary', { pages: tour.pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
                         </div>
                       </div>
                       {enabledSwitch(tour)}
                     </div>
-                    <div className="flex flex-wrap gap-1">{stepChips(tour)}</div>
+                    <div className="flex flex-wrap gap-1">{pageChips(tour)}</div>
                     {!tour.editable && (
                       <div className="flex items-center gap-1 text-[11px] text-[var(--text-dim)]"><Lock size={11} /> {t('tours.readOnly')}</div>
                     )}
@@ -280,7 +280,7 @@ export function CameraTours() {
               <thead className="sticky top-0 z-10 text-[var(--text-dim)] text-left text-xs [&_th]:bg-[var(--bg-2)] [&_th]:border-b [&_th]:border-[var(--border)]">
                 <tr>
                   <th scope="col" className="px-3 py-2 font-medium">{t('tours.colName')}</th>
-                  <th scope="col" className="px-3 py-2 font-medium">{t('tours.colSteps')}</th>
+                  <th scope="col" className="px-3 py-2 font-medium">{t('tours.colPages')}</th>
                   <th scope="col" className="px-3 py-2 font-medium text-right">{t('tours.colCameras')}</th>
                   <th scope="col" className="px-3 py-2 font-medium text-right">{t('tours.colCycle')}</th>
                   {canManage && <th scope="col" className="px-3 py-2 font-medium">{t('tours.colOn')}</th>}
@@ -289,8 +289,8 @@ export function CameraTours() {
               </thead>
               <tbody className="bg-[var(--panel-2)] [&>tr+tr>td]:border-t [&>tr+tr>td]:border-[var(--border)]">
                 {shown.map((tour) => {
-                  const pages = buildPages(tour.steps, resolve)
-                  const cameras = new Set(tour.steps.flatMap((s) => camerasOf(s.camera_ids))).size
+                  const pages = buildPages(tour.pages, resolve)
+                  const cameras = new Set(tour.pages.flatMap((s) => camerasOf(s.camera_ids))).size
                   return (
                     <tr key={tour.id} data-testid="tour-row" className={clsx('hover:bg-[var(--panel)]', !tour.enabled && 'opacity-70')}>
                       <td className="px-3 py-1.5 max-w-[16rem]">
@@ -299,7 +299,7 @@ export function CameraTours() {
                           <span className="truncate">{tour.name}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-1.5"><div className="flex flex-wrap gap-1">{stepChips(tour)}</div></td>
+                      <td className="px-3 py-1.5"><div className="flex flex-wrap gap-1">{pageChips(tour)}</div></td>
                       <td className="px-3 py-1.5 text-right font-mono tabular-nums text-xs">{cameras}</td>
                       <td className="px-3 py-1.5 text-right font-mono tabular-nums text-xs whitespace-nowrap">{formatDuration(cycleSeconds(pages))}</td>
                       {canManage && <td className="px-3 py-1.5">{enabledSwitch(tour)}</td>}

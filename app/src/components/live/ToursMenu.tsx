@@ -106,8 +106,8 @@ export function ToursMenu({ dropUp = false }: { dropUp?: boolean }) {
               <div className="px-3 py-2 text-xs text-[var(--text-dim)]">{t('tours.noToursMatch')}</div>
             ) : (
               shown.map((tour) => {
-                const pages = buildPages(tour.steps, (lid) => resolveLayout(lid, windowSettings.data))
-                const steps = new Set(pages.map((p) => p.stepIndex)).size
+                // Only the pages this viewer has a camera on: what the wall will show.
+                const pages = buildPages(tour.pages, (lid) => resolveLayout(lid, windowSettings.data))
                 return (
                   <button
                     key={tour.id}
@@ -119,7 +119,7 @@ export function ToursMenu({ dropUp = false }: { dropUp?: boolean }) {
                   >
                     <div className="text-xs text-[var(--text)] truncate">{tour.name}</div>
                     <div className="text-[10px] text-[var(--text-dim)] font-mono tabular-nums">
-                      {t('tours.summary', { steps, cycle: formatDuration(cycleSeconds(pages)) })}
+                      {t('tours.summary', { pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
                     </div>
                   </button>
                 )

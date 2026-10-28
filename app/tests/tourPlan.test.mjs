@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { autoGrid, buildPages, cycleSeconds, formatDuration, wrapIndex } from '../src/lib/tourPlan.ts'
+import { autoGrid, buildPages, cycleSeconds, formatDuration, pageGroups, wrapIndex } from '../src/lib/tourPlan.ts'
 
 const grid = (cols, rows) => ({
   name: `${cols}x${rows}`,
@@ -12,17 +12,13 @@ const LAYOUTS = { wall: grid(5, 4), '2x2': grid(2, 2) }
 const resolve = (id) => LAYOUTS[id] ?? null
 const ids = (n, from = 1) => Array.from({ length: n }, (_, i) => from + i)
 
-test('a step with more cameras than tiles pages through them in order', () => {
-  const pages = buildPages([{ label: 'North', layout_id: 'wall', duration_s: 60, camera_ids: ids(60) }], resolve)
-  assert.equal(pages.length, 3)
-  assert.deepEqual(pages.map((p) => [p.page, p.pages, p.cameraIds.length]), [[0, 3, 20], [1, 3, 20], [2, 3, 20]])
-  assert.deepEqual(pages[1].cameraIds, ids(20, 21))
+test('each page is one screenful, in order', () => {
+  const pages = buildPages([
+    { label: 'North', layout_id: 'wall', duration_s: 60, camera_ids: ids(20) },
+    { label: 'South', layout_id: '2x2', duration_s: 30, camera_ids: ids(3, 21) },
+  ], resolve)
+  assert.deepEqual(pages.map((p) => [p.index, p.label, p.cameraIds.length]), [[0, 'North', 20], [1, 'South', 3]])
   assert.equal(pages[0].durationMs, 60_000)
-})
-
-test('the last page holds the remainder', () => {
-  const pages = buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: ids(5) }], resolve)
-  assert.deepEqual(pages.map((p) => p.cameraIds), [[1, 2, 3, 4], [5]])
 })
 
 test('a page with fewer cameras than tiles keeps the chosen layout (the preview draws the same)', () => {
@@ -35,28 +31,40 @@ test('a page with fewer cameras than tiles keeps the chosen layout (the preview 
   assert.equal(short.cameraIds.length, 6)
 })
 
-test('a step with no visible camera is skipped', () => {
+test('a page never shows more cameras than its layout has tiles', () => {
+  // The server splits such a page; a layout changed since is cut, not overflowed.
+  const [page] = buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: ids(6) }], resolve)
+  assert.deepEqual(page.cameraIds, [1, 2, 3, 4])
+})
+
+test('a page with no visible camera is skipped, but keeps its index', () => {
   const pages = buildPages([
     { label: 'North', layout_id: '2x2', duration_s: 30, camera_ids: [] },
     { label: 'South', layout_id: '2x2', duration_s: 30, camera_ids: [7] },
   ], resolve)
-  assert.deepEqual(pages.map((p) => [p.stepIndex, p.label]), [[1, 'South']])
+  assert.deepEqual(pages.map((p) => [p.index, p.label]), [[1, 'South']])
 })
 
-test('a tour with every step empty has no pages', () => {
+test('a tour with every page empty has no pages', () => {
   assert.deepEqual(buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: [] }], resolve), [])
   assert.deepEqual(buildPages([], resolve), [])
 })
 
+test('Arrange keeps a page of empty tiles only, so the wall stays on it', () => {
+  const spec = [{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: [null, null] }, { label: '', layout_id: '2x2', duration_s: 30, camera_ids: [9] }]
+  assert.deepEqual(buildPages(spec, resolve).map((p) => p.index), [1])
+  assert.deepEqual(buildPages(spec, resolve, { keepEmptyPages: true }).map((p) => p.index), [0, 1])
+})
+
 test('a missing layout falls back to an automatic grid', () => {
-  for (const step of [
+  for (const page of [
     { label: '', layout_id: 'gone', duration_s: 30, camera_ids: ids(6) },
     { label: '', layout_id: 'wall', duration_s: 30, camera_ids: ids(6), layout_missing: true },
   ]) {
-    const [page] = buildPages([step], resolve)
-    assert.equal(page.layoutFallback, true)
-    assert.equal(page.layout.tiles.length >= 6, true)
-    assert.equal(page.cameraIds.length, 6)
+    const [shown] = buildPages([page], resolve)
+    assert.equal(shown.layoutFallback, true)
+    assert.equal(shown.layout.tiles.length >= 6, true)
+    assert.equal(shown.cameraIds.length, 6)
   }
 })
 
@@ -65,17 +73,15 @@ test('the automatic grid is near-square and capped at 5x5', () => {
   assert.deepEqual([autoGrid(6).gridCols, autoGrid(6).gridRows], [3, 2])
   assert.deepEqual([autoGrid(20).gridCols, autoGrid(20).gridRows], [5, 4])
   assert.equal(autoGrid(400).tiles.length, 25)
-  const pages = buildPages([{ label: '', layout_id: 'gone', duration_s: 30, camera_ids: ids(60) }], resolve)
-  assert.equal(pages.length, 3)
 })
 
 test('page keys stay the same for an unchanged tour and change when cameras change', () => {
-  const step = { label: 'North', layout_id: '2x2', duration_s: 30, camera_ids: [1, 2] }
-  assert.equal(buildPages([step], resolve)[0].key, buildPages([{ ...step }], resolve)[0].key)
-  assert.notEqual(buildPages([step], resolve)[0].key, buildPages([{ ...step, camera_ids: [1, 3] }], resolve)[0].key)
+  const page = { label: 'North', layout_id: '2x2', duration_s: 30, camera_ids: [1, 2] }
+  assert.equal(buildPages([page], resolve)[0].key, buildPages([{ ...page }], resolve)[0].key)
+  assert.notEqual(buildPages([page], resolve)[0].key, buildPages([{ ...page, camera_ids: [1, 3] }], resolve)[0].key)
 })
 
-test('stepping wraps around in both directions', () => {
+test('moving through the pages wraps around in both directions', () => {
   assert.equal(wrapIndex(2, 1, 3), 0)
   assert.equal(wrapIndex(0, -1, 3), 2)
   assert.equal(wrapIndex(1, 1, 3), 2)
@@ -84,7 +90,8 @@ test('stepping wraps around in both directions', () => {
 
 test('cycle length and durations read like a person says them', () => {
   const pages = buildPages([
-    { label: '', layout_id: '2x2', duration_s: 60, camera_ids: ids(8) },
+    { label: '', layout_id: '2x2', duration_s: 60, camera_ids: ids(4) },
+    { label: '', layout_id: '2x2', duration_s: 60, camera_ids: ids(4, 5) },
     { label: '', layout_id: 'wall', duration_s: 30, camera_ids: ids(3) },
   ], resolve)
   assert.equal(cycleSeconds(pages), 150)
@@ -99,12 +106,17 @@ test('an empty tile stays empty: the cameras after it keep their tiles', () => {
   assert.deepEqual(page.cameraIds, [1, null, 3])
 })
 
-test('a page of empty tiles only is skipped on the wall but kept in the editor', () => {
-  const step = { label: '', layout_id: '2x2', duration_s: 30, camera_ids: [1, 2, 3, 4, null, null, null, null, 9] }
-  assert.deepEqual(buildPages([step], resolve).map((p) => p.page), [0, 2])
-  assert.deepEqual(buildPages([step], resolve, { keepEmptyPages: true }).map((p) => p.page), [0, 1, 2])
-})
-
-test('a step of empty tiles only is skipped', () => {
-  assert.deepEqual(buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: [null, null] }], resolve), [])
+test('consecutive pages under one label are listed as one group', () => {
+  const p = (label, camera_ids, extra = {}) => ({ label, layout_id: '2x2', duration_s: 30, camera_ids, ...extra })
+  assert.deepEqual(pageGroups([
+    p('North', [1, 2, 3, 4]), p('North', [5, null, 6]), p('North', [1]),
+    p('', [7]), p('', [8]),
+    p('South', [9], { layout_missing: true }), p('North', [2]),
+  ]), [
+    { first: 0, count: 3, label: 'North', cameras: 6, layoutMissing: false },
+    { first: 3, count: 1, label: '', cameras: 1, layoutMissing: false },
+    { first: 4, count: 1, label: '', cameras: 1, layoutMissing: false },
+    { first: 5, count: 1, label: 'South', cameras: 1, layoutMissing: true },
+    { first: 6, count: 1, label: 'North', cameras: 1, layoutMissing: false },
+  ])
 })
