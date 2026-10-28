@@ -49,3 +49,50 @@ export function placeAt(ids: readonly number[], cam: number, at: number): number
   out[at] = cam
   return out
 }
+
+/**
+ * What `placeAt(ids, cam, at)` will do, so the screen can say so: above
+ * all when the camera is already in the step and moves instead of being
+ * added a second time. Positions are within the step.
+ */
+export type PlaceOutcome =
+  | { kind: 'added'; at: number }
+  | { kind: 'replaced'; at: number; replaced: number }
+  | { kind: 'moved'; from: number; at: number }
+  | { kind: 'swapped'; from: number; at: number; other: number }
+  | { kind: 'unchanged'; at: number }
+  | { kind: 'full' }
+
+export function placeOutcome(ids: readonly number[], cam: number, at: number): PlaceOutcome {
+  const from = ids.indexOf(cam)
+  if (from >= 0) {
+    if (from === at) return { kind: 'unchanged', at }
+    // Onto an empty tile it goes to the end; already last, nothing moves.
+    if (at >= ids.length) return from === ids.length - 1 ? { kind: 'unchanged', at: from } : { kind: 'moved', from, at: ids.length - 1 }
+    return { kind: 'swapped', from, at, other: ids[at] }
+  }
+  if (at >= ids.length) return ids.length >= MAX_STEP_CAMERAS ? { kind: 'full' } : { kind: 'added', at: ids.length }
+  return { kind: 'replaced', at, replaced: ids[at] }
+}
+
+/** The app's t(): a key and its values, in the operator's language. */
+type Translate = (key: string, values?: Record<string, string | number>) => string
+
+/**
+ * What putting `cam` at step position `at` did, in words, or null when
+ * there is nothing to say (a plain add). Above all, a camera already in
+ * the step moves instead of showing twice, and the operator is told so.
+ * Tile numbers count across the step's pages, as the tiles are labelled.
+ */
+export function placeMessage(t: Translate, ids: readonly number[], cam: number, at: number, nameOf: (id: number) => string): string | null {
+  const o = placeOutcome(ids, cam, at)
+  const name = nameOf(cam)
+  switch (o.kind) {
+    case 'unchanged': return t('tours.placeSame', { name, n: o.at + 1 })
+    case 'moved': return t('tours.placeMoved', { name, from: o.from + 1, to: o.at + 1 })
+    case 'swapped': return t('tours.placeSwapped', { name, from: o.from + 1, to: o.at + 1, other: nameOf(o.other) })
+    case 'replaced': return t('tours.placeReplaced', { name, other: nameOf(o.replaced), n: o.at + 1 })
+    case 'full': return t('tours.placeFull', { max: MAX_STEP_CAMERAS })
+    default: return null
+  }
+}

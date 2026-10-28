@@ -19,6 +19,7 @@ import { clsx } from 'clsx'
 import { useTranslation } from '../../i18n'
 import type { CameraItem } from '../../lib/queries'
 import type { LayoutDefinition } from '../../lib/liveLayouts'
+import { placeMessage } from '../../lib/tourArrange'
 import { Input, Select } from '../ui/form'
 import { CameraThumb } from './CameraThumb'
 
@@ -49,6 +50,13 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
   const { t } = useTranslation()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [dragging, setDragging] = useState<number | null>(null)
+  // What the last placement did ("was already on tile 2…"), until the next action.
+  const [notice, setNotice] = useState<string | null>(null)
+  const nameOf = (id: number) => camById.get(id)?.name ?? t('tours.cameraN', { id })
+  const place = (cam: number, at: number) => {
+    setNotice(placeMessage(t, stepIds, cam, at, nameOf))
+    onPlace(cam, at)
+  }
   const lastCamera = stepIds.length <= 1
   const firstFree = pageIds.length < layout.tiles.length ? pageIds.length : null
 
@@ -61,8 +69,8 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
     if (!over) return
     const to = Number(String(over.id).split(':')[1])
     const [kind, n] = String(active.id).split(':')
-    if (kind === 'pick') onPlace(Number(n), base + to)
-    else onMove(base + Number(n), base + to)
+    if (kind === 'pick') place(Number(n), base + to)
+    else { setNotice(null); onMove(base + Number(n), base + to) }
     onTarget(null)
   }
 
@@ -71,15 +79,15 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
   const [nudge, setNudge] = useState(false)
   const pick = (cam: number) => {
     const slot = target ?? firstFree
-    if (slot == null) { setNudge(true); return }
-    onPlace(cam, base + slot)
+    if (slot == null) { setNudge(true); setNotice(null); return }
+    place(cam, base + slot)
     onTarget(null)
     setNudge(false)
   }
 
   const hint = target != null
     ? t('tours.arrangeTarget', { n: base + target + 1 })
-    : nudge ? t('tours.arrangeChooseTile') : t('tours.arrangeHint')
+    : nudge ? t('tours.arrangeChooseTile') : notice ?? t('tours.arrangeHint')
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
@@ -96,13 +104,13 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
                 <ArrangeTile key={cid != null ? `cam-${cid}` : `empty-${i}`} slot={i} order={base + i + 1} area={area}
                   cameraId={cid} cam={cid != null ? camById.get(cid) : undefined} cover={cover} labelClass={labelClass}
                   selected={target === i} canRemove={!lastCamera}
-                  onSelect={() => { onTarget(target === i ? null : i); setNudge(false) }}
-                  onRemove={() => { onRemove(base + i); onTarget(null) }} />
+                  onSelect={() => { onTarget(target === i ? null : i); setNudge(false); setNotice(null) }}
+                  onRemove={() => { onRemove(base + i); onTarget(null); setNotice(null) }} />
               )
             })}
           </div>
         </div>
-        <ArrangePicker cameras={cameras} stepIds={stepIds} pageIds={pageIds} base={base} hint={hint} urgent={nudge || target != null} onPick={pick} />
+        <ArrangePicker cameras={cameras} stepIds={stepIds} pageIds={pageIds} base={base} hint={hint} urgent={nudge || target != null || notice != null} onPick={pick} />
       </div>
       <DragOverlay dropAnimation={null}>
         {dragging != null && (

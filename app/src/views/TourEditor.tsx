@@ -17,7 +17,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent,
+  DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, pointerWithin, useDraggable, useDroppable, useSensor, useSensors,
+  type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
@@ -41,6 +42,7 @@ import { Field, Input, Select } from '../components/ui/form'
 import { Switch } from '../components/ui/Switch'
 import { CameraThumb } from '../components/live/CameraThumb'
 import { IconAction } from '../components/live/IconAction'
+import { moveTo, placeAt, placeMessage } from '../lib/tourArrange'
 
 export const TOURS_LIST_PATH = '/settings/more-settings/camera-tours'
 
@@ -578,15 +580,50 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
   const shownPage = pages[Math.min(previewPage, Math.max(0, pages.length - 1))]
   // Live video only when asked for: one camera at a time, in a dialog.
   const [live, setLive] = useState<number | null>(null)
+  // As on a running wall's Arrange: a chosen tile (a step position) that
+  // the next camera clicked in the list goes to, and what the last
+  // placement did, e.g. that the camera was already on another tile.
+  const [target, setTarget] = useState<number | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<number | null>(null)
+  const pageLayout = shownPage?.layout ?? layout
+  const perPage = pageLayout?.tiles.length ?? 0
+  const base = shownPage ? Math.min(previewPage, pages.length - 1) * perPage : 0
+  const nameOf = (id: number) => camById.get(id)?.name ?? `#${id}`
+
+  const place = (cam: number, at: number) => {
+    setNotice(placeMessage(t, step.camera_ids, cam, at, nameOf))
+    onChange({ camera_ids: placeAt(step.camera_ids, cam, at) })
+    setTarget(null)
+  }
+  const choose = (at: number) => { setTarget(target === at ? null : at); setNotice(null) }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  // A camera from the list lands where the pointer is, or nowhere (let go
+  // over the list and nothing changes); a tile being reordered snaps to
+  // the nearest one.
+  const collide: CollisionDetection = (args) =>
+    String(args.active.id).startsWith('pick:') ? pointerWithin(args) : closestCenter(args)
+  const onDragStart = ({ active }: DragStartEvent) => {
+    const id = String(active.id)
+    // Only a camera from the list needs an overlay: a tile moves itself.
+    setDragging(id.startsWith('pick:') ? Number(id.slice(5)) : null)
+  }
   const onCameraDrag = ({ active, over }: DragEndEvent) => {
+    setDragging(null)
     if (!over || active.id === over.id) return
     const ids = step.camera_ids
-    onChange({ camera_ids: arrayMove(ids, ids.indexOf(Number(active.id)), ids.indexOf(Number(over.id))) })
+    const overId = String(over.id)
+    const at = overId.startsWith('slot:') ? base + Number(overId.slice(5)) : ids.indexOf(Number(over.id))
+    if (at < 0) return
+    const activeId = String(active.id)
+    if (activeId.startsWith('pick:')) { place(Number(activeId.slice(5)), at); return }
+    setNotice(null)
+    const from = ids.indexOf(Number(active.id))
+    onChange({ camera_ids: at >= ids.length ? moveTo(ids, from, at) : arrayMove(ids, from, at) })
   }
   const sortBy = (key: 'name' | 'location') => {
     const name = (id: number) => (camById.get(id)?.name ?? '').toLowerCase()
@@ -606,7 +643,8 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
   }, [step.camera_ids, camById, t])
 
   return (
-    <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}>
+    <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}
+      onKeyDown={(e) => { if (e.key === 'Escape' && target != null) { e.stopPropagation(); setTarget(null) } }}>
       {/* One row: the step's number, label, layout and time, then its actions.
           The controls carry their own names (placeholder, tooltip, aria). */}
       <header className="flex flex-wrap items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
@@ -616,7 +654,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
             aria-label={t('tours.stepLabel')} title={t('tours.stepLabel')} onChange={(e) => onChange({ label: e.target.value })} />
         </div>
         <div className="w-44 shrink-0">
-          <Select value={step.layout_id} onChange={(e) => { onChange({ layout_id: e.target.value }); setPreviewPage(0) }}
+          <Select value={step.layout_id} onChange={(e) => { onChange({ layout_id: e.target.value }); setPreviewPage(0); setTarget(null) }}
             aria-label={t('tours.layout')} title={t('tours.layout')}
             className={clsx((badLayout || !known) && '!border-[var(--danger)]')}>
             {!known && <option value={step.layout_id}>{t('tours.layoutGone', { id: step.layout_id })}</option>}
@@ -667,10 +705,14 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
         {/* Two panes: pick cameras on the left, arrange them on the right in
             the preview itself (drag tiles to reorder, x to remove). They stack
             when the panel is too narrow for both. */}
+        <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onDragStart} onDragEnd={onCameraDrag} onDragCancel={() => setDragging(null)}>
         <div className="grid gap-3 @3xl:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] items-start">
           <CameraPicker
             cameras={cameras}
             selected={step.camera_ids}
+            target={target}
+            onPick={(cam) => target != null && place(cam, target)}
+            onStopChoosing={() => setTarget(null)}
             onLive={setLive}
             onChange={(ids) => {
               // An unnamed step whose cameras share one location is named after it.
@@ -686,7 +728,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                 <span className="flex items-center gap-1" role="tablist" aria-label={t('tours.preview')}>
                   {pages.map((p, i) => (
                     <button key={p.key} type="button" role="tab" aria-selected={p === shownPage}
-                      onClick={() => setPreviewPage(i)}
+                      onClick={() => { setPreviewPage(i); setTarget(null) }}
                       className={clsx('text-[11px] px-1.5 py-0.5 border font-mono', p === shownPage ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--text-dim)]')}>
                       {i + 1}
                     </button>
@@ -709,25 +751,28 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                 <span className="ml-auto flex items-center gap-1">
                   <Button size="sm" variant="ghost" onClick={() => sortBy('name')}><ArrowDownAZ size={12} /> {t('tours.sortName')}</Button>
                   <Button size="sm" variant="ghost" onClick={() => sortBy('location')}><MapPin size={12} /> {t('tours.sortLocation')}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => onChange({ camera_ids: [] })}>{t('tours.clearCameras')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { onChange({ camera_ids: [] }); setTarget(null); setNotice(null) }}>{t('tours.clearCameras')}</Button>
                 </span>
               )}
             </div>
-            {shownPage ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onCameraDrag}>
-                <SortableContext items={shownPage.cameraIds} strategy={rectSortingStrategy}>
-                  <PagePreview
-                    layout={shownPage.layout}
-                    cameraIds={shownPage.cameraIds}
-                    firstOrder={step.camera_ids.indexOf(shownPage.cameraIds[0]) + 1}
-                    camById={camById}
-                    cover={cover}
-                    bad={badCameras}
-                    onLive={setLive}
-                    onRemove={(cid) => onChange({ camera_ids: step.camera_ids.filter((x) => x !== cid) })}
-                  />
-                </SortableContext>
-              </DndContext>
+            <p className={clsx('text-[11px]', notice || target != null ? 'text-[var(--accent)] font-medium' : 'text-[var(--text-dim)]')} role="status" data-testid="tour-step-notice">
+              {target != null ? t('tours.editorTarget', { n: target + 1 }) : notice ?? t('tours.editorHint')}
+            </p>
+            {pageLayout ? (
+              <SortableContext items={shownPage?.cameraIds ?? []} strategy={rectSortingStrategy}>
+                <PagePreview
+                  layout={pageLayout}
+                  cameraIds={shownPage?.cameraIds ?? []}
+                  firstOrder={base + 1}
+                  camById={camById}
+                  cover={cover}
+                  bad={badCameras}
+                  target={target == null ? null : target - base}
+                  onSelect={(slot) => choose(base + slot)}
+                  onLive={setLive}
+                  onRemove={(cid) => { onChange({ camera_ids: step.camera_ids.filter((x) => x !== cid) }); setTarget(null); setNotice(null) }}
+                />
+              </SortableContext>
             ) : (
               <div className="aspect-video w-full flex items-center justify-center border border-dashed border-[var(--border)] text-sm text-[var(--text-dim)] px-4 text-center">
                 {t('tours.previewEmpty')}
@@ -736,6 +781,15 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
             {pages.length > 1 && <p className="text-[11px] text-[var(--text-dim)]">{t('tours.reorderAcrossPages')}</p>}
           </div>
         </div>
+        <DragOverlay dropAnimation={null}>
+          {dragging != null && (
+            <div className="flex items-center gap-2 w-56 p-1 pr-2 text-xs text-white bg-black/85 border border-[var(--accent)] shadow-lg">
+              <CameraThumb cameraId={dragging} alt="" className="w-14 aspect-video shrink-0" />
+              <span className="truncate">{nameOf(dragging)}</span>
+            </div>
+          )}
+        </DragOverlay>
+        </DndContext>
       </div>
       {live != null && <LivePeek cameraId={live} cam={camById.get(live)} onClose={() => setLive(null)} />}
     </section>
@@ -744,14 +798,17 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
 
 /** The step's page as the wall will show it, from stills; each tile can be
  *  dragged to reorder, removed, or opened live. */
-function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLive, onRemove }: {
+function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, target, onSelect, onLive, onRemove }: {
   layout: LayoutDefinition
   cameraIds: number[]
-  /** The 1-based position of this page's first camera in the step. */
+  /** The 1-based position of this page's first tile in the step. */
   firstOrder: number
   camById: Map<number, CameraItem>
   cover: boolean
   bad: Set<number>
+  /** The chosen tile on this page (0-based), if any. */
+  target: number | null
+  onSelect: (slot: number) => void
   onLive: (cameraId: number) => void
   onRemove: (cameraId: number) => void
 }) {
@@ -766,29 +823,59 @@ function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLiv
         const area = { gridRow: `${tile.row + 1} / span ${tile.rowSpan}`, gridColumn: `${tile.col + 1} / span ${tile.colSpan}` }
         return cid != null ? (
           <PreviewTile key={cid} cameraId={cid} order={firstOrder + i} area={area} cam={camById.get(cid)} cover={cover}
-            bad={bad.has(cid)} onLive={() => onLive(cid)} onRemove={() => onRemove(cid)} />
+            bad={bad.has(cid)} selected={target === i} onSelect={() => onSelect(i)} onLive={() => onLive(cid)} onRemove={() => onRemove(cid)} />
         ) : (
-          <div key={`e${i}`} style={area} className="flex items-center justify-center border border-dashed border-white/10 bg-[#0b0f16] text-[10px] font-mono text-white/25" aria-hidden="true">
-            {firstOrder + i}
-          </div>
+          <EmptyTile key={`e${i}`} slot={i} order={firstOrder + i} area={area} selected={target === i} onSelect={() => onSelect(i)} />
         )
       })}
     </div>
   )
 }
 
-function PreviewTile({ cameraId, order, area, cam, cover, bad, onLive, onRemove }: {
+/** An empty tile: a camera can be dropped on it, or it can be chosen. */
+function EmptyTile({ slot, order, area, selected, onSelect }: {
+  slot: number
+  order: number
+  area: React.CSSProperties
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const drop = useDroppable({ id: `slot:${slot}` })
+  return (
+    <button
+      ref={drop.setNodeRef}
+      type="button"
+      style={area}
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={t('tours.arrangeEmptyTile', { n: order })}
+      title={t('tours.arrangeEmptyTile', { n: order })}
+      data-testid="tour-preview-empty"
+      className={clsx('flex items-center justify-center border border-dashed bg-[#0b0f16] text-[10px] font-mono text-white/30 hover:bg-white/5',
+        selected ? 'border-transparent ring-2 ring-inset ring-[var(--accent)]' : drop.isOver ? 'border-transparent ring-2 ring-inset ring-[var(--accent)] bg-[var(--accent)]/15' : 'border-white/10')}
+    >
+      {order}
+    </button>
+  )
+}
+
+function PreviewTile({ cameraId, order, area, cam, cover, bad, selected, onSelect, onLive, onRemove }: {
   cameraId: number
   order: number
   area: React.CSSProperties
   cam: CameraItem | undefined
   cover: boolean
   bad: boolean
+  selected: boolean
+  onSelect: () => void
   onLive: () => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cameraId })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({ id: cameraId })
+  // A camera from the list held over this tile would replace it.
+  const pickOver = isOver && String(active?.id ?? '').startsWith('pick:')
   const name = cam?.name ?? `#${cameraId}`
   return (
     <div
@@ -796,10 +883,14 @@ function PreviewTile({ cameraId, order, area, cam, cover, bad, onLive, onRemove 
       style={{ ...area, transform: CSS.Transform.toString(transform), transition }}
       className={clsx('group/tile relative min-w-0 min-h-0 overflow-hidden bg-[#0b0f16]', isDragging && 'z-10 opacity-80 ring-2 ring-[var(--accent)]', bad && 'ring-2 ring-inset ring-[var(--danger)]')}
       data-testid="tour-preview-tile"
+      data-camera-id={cameraId}
     >
-      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" {...attributes} {...listeners} aria-label={t('tours.dragCamera', { name })}>
+      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" {...attributes} {...listeners}
+        onClick={onSelect} aria-pressed={selected} aria-label={t('tours.arrangeTile', { n: order, name })} title={t('tours.arrangeTile', { n: order, name })}>
         <CameraThumb cameraId={cameraId} alt={name} className={clsx('absolute inset-0', !cover && '[&_img]:object-contain')} />
       </div>
+      <div className={clsx('pointer-events-none absolute inset-0',
+        selected ? 'ring-4 ring-inset ring-[var(--accent)]' : pickOver && 'ring-2 ring-inset ring-[var(--accent)] bg-[var(--accent)]/15')} />
       <span className="pointer-events-none absolute left-1 top-1 px-1 text-[10px] font-mono text-white bg-black/60">{order}</span>
       <span className="pointer-events-none absolute left-1 right-1 bottom-0.5 text-[10px] text-white truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{name}</span>
       {/* Shown on hover or keyboard focus; always reachable by Tab. */}
@@ -872,13 +963,18 @@ function LayoutPreview({ layout, small }: { layout: LayoutDefinition; small?: bo
 
 const NO_LOCATION = '\u0000none'
 
-function CameraPicker({ cameras, selected, onChange, onLive }: {
+function CameraPicker({ cameras, selected, target, onPick, onStopChoosing, onChange, onLive }: {
   cameras: CameraItem[]
   selected: number[]
+  /** A chosen tile (step position): a click then puts the camera there. */
+  target: number | null
+  onPick: (cameraId: number) => void
+  onStopChoosing: () => void
   onChange: (ids: number[]) => void
   onLive: (cameraId: number) => void
 }) {
   const { t } = useTranslation()
+  const position = useMemo(() => new Map(selected.map((id, i) => [id, i])), [selected])
   const [q, setQ] = useState('')
   const [location, setLocation] = useState('')
   const chosen = useMemo(() => new Set(selected), [selected])
@@ -908,6 +1004,12 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
     <div className="@container border border-[var(--border)] bg-[var(--panel)] min-w-0" data-testid="tour-camera-picker" role="group" aria-label={t('tours.addCameras')}>
       {/* Search on its own line (the pane is narrow); location and "add all" share the next. */}
       <div className="space-y-2 p-2 border-b border-[var(--border)]">
+        {target != null && (
+          <div className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--accent)] border border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]">
+            <span className="flex-1">{t('tours.editorTarget', { n: target + 1 })}</span>
+            <IconAction label={t('tours.stopChoosing')} onClick={onStopChoosing}><X size={12} /></IconAction>
+          </div>
+        )}
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" aria-hidden="true" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tours.searchCameras')} className="pl-7" aria-label={t('tours.searchCameras')} />
@@ -933,23 +1035,48 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
       ) : (
         <ul className="max-h-[calc(100vh-18rem)] min-h-48 overflow-auto divide-y divide-[var(--border)]">
           {shown.map((c) => (
-            <li key={c.id} className={clsx('flex items-center gap-2 pr-1 hover:bg-[var(--panel-2)]', chosen.has(c.id) && 'bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]')}>
-              <label className="flex flex-1 min-w-0 items-center gap-2 pl-2 py-1.5 text-xs cursor-pointer">
-                <input type="checkbox" checked={chosen.has(c.id)} onChange={() => toggle(c.id)} />
-                <CameraThumb cameraId={c.id} alt={c.name} className="w-16 aspect-video shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{c.name}</span>
-                  <span className="block truncate text-[10px] text-[var(--text-dim)]">
-                    {[c.location, c.ip_address].filter(Boolean).join(' · ')}
-                    {!c.is_active && ` · ${t('tours.cameraPaused')}`}
-                  </span>
-                </span>
-              </label>
-              <IconAction label={t('tours.watchLive', { name: c.name })} onClick={() => onLive(c.id)}><Play size={12} /></IconAction>
-            </li>
+            <PickerRow key={c.id} cam={c} at={position.get(c.id)} choosing={target != null}
+              onToggle={() => toggle(c.id)} onPick={() => onPick(c.id)} onLive={() => onLive(c.id)} />
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/** A camera in the picker: tick to add or remove it, drag it onto a tile,
+ *  or, with a tile chosen, click to put it there. */
+function PickerRow({ cam, at, choosing, onToggle, onPick, onLive }: {
+  cam: CameraItem
+  /** Its position in the step, when it is in it. */
+  at: number | undefined
+  choosing: boolean
+  onToggle: () => void
+  onPick: () => void
+  onLive: () => void
+}) {
+  const { t } = useTranslation()
+  const drag = useDraggable({ id: `pick:${cam.id}` })
+  const inStep = at != null
+  return (
+    <li ref={drag.setNodeRef} {...drag.listeners} {...drag.attributes} role={undefined} tabIndex={-1}
+      className={clsx('flex items-center gap-2 pr-1 hover:bg-[var(--panel-2)] cursor-grab active:cursor-grabbing', inStep && 'bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]', drag.isDragging && 'opacity-40')}
+      data-testid="tour-picker-row">
+      <label className="flex flex-1 min-w-0 items-center gap-2 pl-2 py-1.5 text-xs cursor-pointer"
+        title={choosing ? t('tours.arrangePick', { name: cam.name }) : undefined}
+        onClick={(e) => { if (choosing) { e.preventDefault(); onPick() } }}>
+        <input type="checkbox" checked={inStep} onChange={onToggle} />
+        <CameraThumb cameraId={cam.id} alt={cam.name} className="w-16 aspect-video shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{cam.name}</span>
+          <span className="block truncate text-[10px] text-[var(--text-dim)]">
+            {inStep && <span className="text-[var(--accent)]">{t('tours.arrangeOnTile', { n: at + 1 })} · </span>}
+            {[cam.location, cam.ip_address].filter(Boolean).join(' · ')}
+            {!cam.is_active && ` · ${t('tours.cameraPaused')}`}
+          </span>
+        </span>
+      </label>
+      <IconAction label={t('tours.watchLive', { name: cam.name })} onClick={onLive}><Play size={12} /></IconAction>
+    </li>
   )
 }
