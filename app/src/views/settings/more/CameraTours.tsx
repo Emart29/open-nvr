@@ -16,7 +16,7 @@ import { clsx } from 'clsx'
 import { useTranslation } from '../../../i18n'
 import { apiService } from '../../../lib/apiService'
 import { resolveLayout, type WindowLayoutSettings } from '../../../lib/liveLayouts'
-import { buildPages, cycleSeconds, formatDuration } from '../../../lib/tourPlan'
+import { buildPages, camerasOf, cycleSeconds, formatDuration } from '../../../lib/tourPlan'
 import type { Tour } from '../../../services/tourService'
 import { usePermissions } from '../../../hooks/usePermissions'
 import { useConfirm } from '../../../components/ui/ConfirmDialog'
@@ -157,7 +157,7 @@ export function CameraTours() {
       {tour.steps.map((s, i) => (
         <span key={i} className={clsx('text-[10px] px-1.5 py-0.5 border whitespace-nowrap', s.layout_missing ? 'border-[var(--warn)] text-[var(--warn)]' : 'border-[var(--border)] text-[var(--text-dim)]')}
           title={s.layout_missing ? t('tours.layoutMissingHint') : undefined}>
-          {(s.label || t('tours.stepN', { n: i + 1 }))} · {s.camera_ids.length}
+          {(s.label || t('tours.stepN', { n: i + 1 }))} · {camerasOf(s.camera_ids).length}
         </span>
       ))}
       {tour.settings?.alerts.enabled && (
@@ -290,7 +290,7 @@ export function CameraTours() {
               <tbody className="bg-[var(--panel-2)] [&>tr+tr>td]:border-t [&>tr+tr>td]:border-[var(--border)]">
                 {shown.map((tour) => {
                   const pages = buildPages(tour.steps, resolve)
-                  const cameras = new Set(tour.steps.flatMap((s) => s.camera_ids)).size
+                  const cameras = new Set(tour.steps.flatMap((s) => camerasOf(s.camera_ids))).size
                   return (
                     <tr key={tour.id} data-testid="tour-row" className={clsx('hover:bg-[var(--panel)]', !tour.enabled && 'opacity-70')}>
                       <td className="px-3 py-1.5 max-w-[16rem]">

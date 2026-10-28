@@ -24,7 +24,7 @@ import {
   SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, ArrowLeft, BellRing, ChevronDown, ChevronRight, CopyPlus, GripVertical, MapPin, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Search, Trash2, X } from 'lucide-react'
+import { ArrowDownAZ, ArrowLeft, BellRing, ChevronDown, ChevronRight, CopyPlus, GripVertical, MapPin, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Rows3, Search, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
@@ -33,7 +33,7 @@ import { Modal } from '../components/Modal'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { PLAIN_GRIDS, PREDEFINED_LAYOUTS, parseGridId, resolveLayout, type LayoutDefinition, type WindowLayoutSettings } from '../lib/liveLayouts'
-import { buildPages, cycleSeconds, formatDuration } from '../lib/tourPlan'
+import { buildPages, camerasOf, cycleSeconds, formatDuration, type Slot } from '../lib/tourPlan'
 import { DEFAULT_TOUR_SETTINGS, type AlertSeverity, type AlertSource, type Tour, type TourInput, type TourSettings } from '../services/tourService'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useSnackbar } from '../components/Snackbar'
@@ -42,7 +42,7 @@ import { Field, Input, Select } from '../components/ui/form'
 import { Switch } from '../components/ui/Switch'
 import { CameraThumb } from '../components/live/CameraThumb'
 import { IconAction } from '../components/live/IconAction'
-import { moveTo, placeAt, placeMessage } from '../lib/tourArrange'
+import { addCamera, closeGaps, moveTo, placeAt, placeMessage, removeAt, tidy } from '../lib/tourArrange'
 
 export const TOURS_LIST_PATH = '/settings/more-settings/camera-tours'
 
@@ -50,7 +50,8 @@ const DURATION_PRESETS = [30, 60, 120, 300]
 const MIN_DURATION = 10
 const MAX_DURATION = 3600
 
-type DraftStep = { uid: string; label: string; layout_id: string; duration_s: number; camera_ids: number[] }
+/** camera_ids in tile order; null is a tile left empty. */
+type DraftStep = { uid: string; label: string; layout_id: string; duration_s: number; camera_ids: Slot[] }
 // `description` has no field in the editor; it rides along so a save keeps it.
 type Draft = {
   id: number | null
@@ -73,7 +74,7 @@ function toInput(d: Draft): TourInput {
     description: d.description ?? null,
     enabled: d.enabled,
     settings: d.settings,
-    steps: d.steps.map((s) => ({ label: s.label.trim(), layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: s.camera_ids })),
+    steps: d.steps.map((s) => ({ label: s.label.trim(), layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: tidy(s.camera_ids) })),
     ...(d.id != null && d.revision != null ? { expected_revision: d.revision } : {}),
   }
 }
@@ -177,7 +178,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   const resolve = (lid: string) => resolveLayout(lid, windowSettings)
   const pages = buildPages(draft.steps, resolve)
   const step = draft.steps.find((s) => s.uid === selected) ?? draft.steps[0]
-  const emptySteps = draft.steps.filter((s) => s.camera_ids.length === 0).length
+  const emptySteps = draft.steps.filter((s) => camerasOf(s.camera_ids).length === 0).length
   const canSave = !readOnly && !!draft.name.trim() && draft.steps.length > 0 && emptySteps === 0 && !saving
   const nameError = touched && !draft.name.trim()
 
@@ -316,7 +317,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
                 title={s.label || t('tours.stepN', { n: i + 1 })} aria-label={s.label || t('tours.stepN', { n: i + 1 })} aria-current={s.uid === step?.uid || undefined}
                 className={clsx('w-8 h-8 text-xs font-mono border',
                   s.uid === step?.uid ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)]',
-                  touched && s.camera_ids.length === 0 && 'border-[var(--danger)]')}>
+                  touched && camerasOf(s.camera_ids).length === 0 && 'border-[var(--danger)]')}>
                 {i + 1}
               </button>
             ))}
@@ -350,7 +351,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
                         index={i}
                         selected={s.uid === step?.uid}
                         layout={resolve(s.layout_id)}
-                        invalid={touched && s.camera_ids.length === 0}
+                        invalid={touched && camerasOf(s.camera_ids).length === 0}
                         onSelect={() => setSelected(s.uid)}
                       />
                     ))}
@@ -408,6 +409,7 @@ function StepRow({ step, index, selected, layout, invalid, onSelect }: {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.uid })
   const tiles = layout?.tiles.length ?? 0
   const pages = tiles ? Math.ceil(step.camera_ids.length / tiles) : 0
+  const count = camerasOf(step.camera_ids).length
   return (
     <li
       ref={setNodeRef}
@@ -424,9 +426,9 @@ function StepRow({ step, index, selected, layout, invalid, onSelect }: {
         <span className="min-w-0 flex-1">
           <span className={clsx('block text-sm truncate', selected && 'font-semibold')}>{step.label || t('tours.stepN', { n: index + 1 })}</span>
           <span className={clsx('block text-[11px] font-mono tabular-nums', invalid ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')}>
-            {step.camera_ids.length === 0
+            {count === 0
               ? t('tours.noCamerasYet')
-              : `${t('tours.camerasCount', { count: step.camera_ids.length })}${pages > 1 ? ` · ${t('tours.pagesCount', { count: pages })}` : ''} · ${formatDuration(step.duration_s)}`}
+              : `${t('tours.camerasCount', { count })}${pages > 1 ? ` · ${t('tours.pagesCount', { count: pages })}` : ''} · ${formatDuration(step.duration_s)}`}
           </span>
         </span>
       </button>
@@ -575,7 +577,10 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
     : null
   const known = !!plain || [...options.builtIn, ...options.custom].some((o) => o.id === step.layout_id)
   const custom = !DURATION_PRESETS.includes(step.duration_s)
-  const pages = buildPages([step], (lid) => resolveLayout(lid, windowSettings))
+  // Every page, even one whose tiles are all empty: cameras can still be put on it.
+  const pages = buildPages([step], (lid) => resolveLayout(lid, windowSettings), { keepEmptyPages: true })
+  const cameraCount = camerasOf(step.camera_ids).length
+  const hasGaps = step.camera_ids.includes(null)
   const [previewPage, setPreviewPage] = useState(0)
   const shownPage = pages[Math.min(previewPage, Math.max(0, pages.length - 1))]
   // Live video only when asked for: one camera at a time, in a dialog.
@@ -622,20 +627,20 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
     const activeId = String(active.id)
     if (activeId.startsWith('pick:')) { place(Number(activeId.slice(5)), at); return }
     setNotice(null)
-    const from = ids.indexOf(Number(active.id))
-    onChange({ camera_ids: at >= ids.length ? moveTo(ids, from, at) : arrayMove(ids, from, at) })
+    // Swapped, as on a running wall: the cameras between the two stay put.
+    onChange({ camera_ids: moveTo(ids, ids.indexOf(Number(active.id)), at) })
   }
   const sortBy = (key: 'name' | 'location') => {
     const name = (id: number) => (camById.get(id)?.name ?? '').toLowerCase()
     const loc = (id: number) => (camById.get(id)?.location ?? '').toLowerCase()
     onChange({
-      camera_ids: [...step.camera_ids].sort((a, b) =>
+      camera_ids: camerasOf(step.camera_ids).sort((a, b) =>
         key === 'location' ? loc(a).localeCompare(loc(b)) || name(a).localeCompare(name(b)) : name(a).localeCompare(name(b))),
     })
   }
   const byLocation = useMemo(() => {
     const m = new Map<string, number>()
-    for (const id of step.camera_ids) {
+    for (const id of camerasOf(step.camera_ids)) {
       const loc = camById.get(id)?.location?.trim() || t('tours.noLocation')
       m.set(loc, (m.get(loc) ?? 0) + 1)
     }
@@ -716,7 +721,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
             onLive={setLive}
             onChange={(ids) => {
               // An unnamed step whose cameras share one location is named after it.
-              const locs = new Set(ids.map((id) => camById.get(id)?.location?.trim()).filter(Boolean))
+              const locs = new Set(camerasOf(ids).map((id) => camById.get(id)?.location?.trim()).filter(Boolean))
               onChange(!step.label && locs.size === 1 ? { camera_ids: ids, label: [...locs][0] as string } : { camera_ids: ids })
             }}
           />
@@ -735,20 +740,26 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                   ))}
                 </span>
               )}
-              <span className={clsx('text-xs font-mono tabular-nums', step.camera_ids.length === 0 && showErrors ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')} data-testid="tour-step-capacity">
-                {step.camera_ids.length === 0
+              <span className={clsx('text-xs font-mono tabular-nums', cameraCount === 0 && showErrors ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')} data-testid="tour-step-capacity">
+                {cameraCount === 0
                   ? t('tours.noCamerasYet')
                   : pages.length > 1
-                    ? t('tours.pagesOf', { count: step.camera_ids.length, pages: pages.length, per: layout?.tiles.length ?? 0 })
-                    : t('tours.tilesUsed', { count: step.camera_ids.length, tiles: layout?.tiles.length ?? 0 })}
+                    ? t('tours.pagesOf', { count: cameraCount, pages: pages.length, per: layout?.tiles.length ?? 0 })
+                    : t('tours.tilesUsed', { count: cameraCount, tiles: layout?.tiles.length ?? 0 })}
               </span>
               {byLocation.map(([loc, n]) => (
                 <span key={loc} className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 border border-[var(--border)] text-[var(--text-dim)]" title={t('tours.byLocation')}>
                   <MapPin size={10} aria-hidden="true" /> {loc} · {n}
                 </span>
               ))}
-              {step.camera_ids.length > 1 && (
+              {(cameraCount > 1 || hasGaps) && (
                 <span className="ml-auto flex items-center gap-1">
+                  {hasGaps && (
+                    <Button size="sm" variant="ghost" onClick={() => { onChange({ camera_ids: closeGaps(step.camera_ids) }); setTarget(null); setNotice(null) }}
+                      title={t('tours.closeGapsHint')} data-testid="tour-close-gaps">
+                      <Rows3 size={12} /> {t('tours.closeGaps')}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" onClick={() => sortBy('name')}><ArrowDownAZ size={12} /> {t('tours.sortName')}</Button>
                   <Button size="sm" variant="ghost" onClick={() => sortBy('location')}><MapPin size={12} /> {t('tours.sortLocation')}</Button>
                   <Button size="sm" variant="ghost" onClick={() => { onChange({ camera_ids: [] }); setTarget(null); setNotice(null) }}>{t('tours.clearCameras')}</Button>
@@ -759,7 +770,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
               {target != null ? t('tours.editorTarget', { n: target + 1 }) : notice ?? t('tours.editorHint')}
             </p>
             {pageLayout ? (
-              <SortableContext items={shownPage?.cameraIds ?? []} strategy={rectSortingStrategy}>
+              <SortableContext items={camerasOf(shownPage?.cameraIds ?? [])} strategy={rectSortingStrategy}>
                 <PagePreview
                   layout={pageLayout}
                   cameraIds={shownPage?.cameraIds ?? []}
@@ -770,7 +781,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
                   target={target == null ? null : target - base}
                   onSelect={(slot) => choose(base + slot)}
                   onLive={setLive}
-                  onRemove={(cid) => { onChange({ camera_ids: step.camera_ids.filter((x) => x !== cid) }); setTarget(null); setNotice(null) }}
+                  onRemove={(cid) => { onChange({ camera_ids: removeAt(step.camera_ids, step.camera_ids.indexOf(cid)) }); setTarget(null); setNotice(null) }}
                 />
               </SortableContext>
             ) : (
@@ -800,7 +811,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
  *  dragged to reorder, removed, or opened live. */
 function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, target, onSelect, onLive, onRemove }: {
   layout: LayoutDefinition
-  cameraIds: number[]
+  cameraIds: Slot[]
   /** The 1-based position of this page's first tile in the step. */
   firstOrder: number
   camById: Map<number, CameraItem>
@@ -965,16 +976,17 @@ const NO_LOCATION = '\u0000none'
 
 function CameraPicker({ cameras, selected, target, onPick, onStopChoosing, onChange, onLive }: {
   cameras: CameraItem[]
-  selected: number[]
+  /** The step's tiles; null is an empty one. */
+  selected: Slot[]
   /** A chosen tile (step position): a click then puts the camera there. */
   target: number | null
   onPick: (cameraId: number) => void
   onStopChoosing: () => void
-  onChange: (ids: number[]) => void
+  onChange: (ids: Slot[]) => void
   onLive: (cameraId: number) => void
 }) {
   const { t } = useTranslation()
-  const position = useMemo(() => new Map(selected.map((id, i) => [id, i])), [selected])
+  const position = useMemo(() => new Map(selected.flatMap((id, i) => (id == null ? [] : [[id, i] as const]))), [selected])
   const [q, setQ] = useState('')
   const [location, setLocation] = useState('')
   const chosen = useMemo(() => new Set(selected), [selected])
@@ -996,7 +1008,8 @@ function CameraPicker({ cameras, selected, target, onPick, onStopChoosing, onCha
       .sort((a, b) => (a.location ?? '').localeCompare(b.location ?? '') || a.name.localeCompare(b.name))
   }, [cameras, q, location])
 
-  const toggle = (id: number) => onChange(chosen.has(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  // Unticked, a camera leaves its tile empty; ticked, it fills the first empty tile.
+  const toggle = (id: number) => onChange(chosen.has(id) ? removeAt(selected, selected.indexOf(id)) : addCamera(selected, id))
   const notYet = shown.filter((c) => !chosen.has(c.id))
   const locationLabel = (loc: string) => (loc === NO_LOCATION ? t('tours.noLocation') : loc)
 
@@ -1022,7 +1035,7 @@ function CameraPicker({ cameras, selected, target, onPick, onStopChoosing, onCha
             </Select>
           </div>
           {notYet.length > 0 && (
-            <Button size="sm" variant="outline" className="shrink-0 whitespace-nowrap" onClick={() => onChange([...selected, ...notYet.map((c) => c.id)])}>
+            <Button size="sm" variant="outline" className="shrink-0 whitespace-nowrap" onClick={() => onChange(notYet.reduce((ids, c) => addCamera(ids, c.id), selected))}>
               {location
                 ? t('tours.addAllFrom', { count: notYet.length, location: locationLabel(location) })
                 : t('tours.addAllShown', { count: notYet.length })}

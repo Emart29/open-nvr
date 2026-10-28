@@ -2,52 +2,78 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The edits a running wall's Arrange mode makes to one step's camera list,
- * as pure functions (app/tests/tourArrange.test.mjs).
+ * The edits the tour editor and a running wall's Arrange mode make to one
+ * step's camera list, as pure functions (app/tests/tourArrange.test.mjs).
  *
- * A step's cameras are one list, paged by the layout: slot `i` of page `p`
- * is position `p * tiles + i`. Positions past the end of the list are the
- * empty tiles of the last page, so "an empty tile" always means "the end".
+ * A step's cameras are one list in tile order, paged by the layout: slot `i`
+ * of page `p` is position `p * tiles + i`. An empty tile is null, and the
+ * positions past the end are the empty tiles of the last page. Taking a
+ * camera out leaves its tile empty, so no other camera moves on the wall.
  * Every function returns a new list and never puts a camera in twice.
  */
 
-/** The server's limit on cameras in one step (routers/tours.py). */
+/** The server's limit on tiles in one step (routers/tours.py). */
 export const MAX_STEP_CAMERAS = 256
 
-/** The list without the camera at `at`; later cameras move up one. */
-export function removeAt(ids: readonly number[], at: number): number[] {
+type Slot = number | null
+
+/** Without the empty tiles at the end: they are simply where the step stops. */
+export function tidy(ids: readonly Slot[]): Slot[] {
+  let end = ids.length
+  while (end > 0 && ids[end - 1] == null) end--
+  return ids.slice(0, end)
+}
+
+/** Room up to position `at`: tiles past the end are empty. */
+function padTo(ids: readonly Slot[], at: number): Slot[] {
+  const out = [...ids]
+  while (out.length <= at) out.push(null)
+  return out
+}
+
+/** The camera at `at` taken out: its tile is left empty, no other moves. */
+export function removeAt(ids: readonly Slot[], at: number): Slot[] {
   if (at < 0 || at >= ids.length) return [...ids]
-  return ids.filter((_, i) => i !== at)
+  const out = [...ids]
+  out[at] = null
+  return tidy(out)
 }
 
 /**
  * The camera at `from` dropped on position `to`: swapped with the camera
- * there, or, dropped on an empty tile, moved to the end.
+ * there, or, on an empty tile, moved there and its old tile left empty.
  */
-export function moveTo(ids: readonly number[], from: number, to: number): number[] {
-  const out = [...ids]
-  if (from < 0 || from >= out.length || from === to) return out
-  if (to >= out.length) {
-    const [cam] = out.splice(from, 1)
-    out.push(cam)
-    return out
-  }
+export function moveTo(ids: readonly Slot[], from: number, to: number): Slot[] {
+  if (from < 0 || from >= ids.length || ids[from] == null || from === to || to < 0 || to >= MAX_STEP_CAMERAS) return [...ids]
+  const out = padTo(ids, to)
   ;[out[from], out[to]] = [out[to], out[from]]
-  return out
+  return tidy(out)
 }
 
 /**
- * Camera `cam` put at position `at`: it replaces the camera there, or,
- * on an empty tile, is added at the end. A camera already in the step is
- * moved instead (swapped into place), so it never shows twice.
+ * Camera `cam` put at position `at`: it replaces the camera there or fills
+ * that empty tile. A camera already in the step is moved instead (swapped
+ * into place), so it never shows twice.
  */
-export function placeAt(ids: readonly number[], cam: number, at: number): number[] {
+export function placeAt(ids: readonly Slot[], cam: number, at: number): Slot[] {
   const existing = ids.indexOf(cam)
   if (existing >= 0) return moveTo(ids, existing, at)
-  if (at >= ids.length) return ids.length >= MAX_STEP_CAMERAS ? [...ids] : [...ids, cam]
-  const out = [...ids]
+  if (at < 0 || at >= MAX_STEP_CAMERAS) return [...ids]
+  const out = padTo(ids, at)
   out[at] = cam
-  return out
+  return tidy(out)
+}
+
+/** Camera `cam` added to the step: into its first empty tile, else at the end. */
+export function addCamera(ids: readonly Slot[], cam: number): Slot[] {
+  if (ids.includes(cam)) return [...ids]
+  const gap = ids.indexOf(null)
+  return placeAt(ids, cam, gap >= 0 ? gap : ids.length)
+}
+
+/** The cameras packed together, every gap closed, in their order. */
+export function closeGaps(ids: readonly Slot[]): Slot[] {
+  return ids.filter((c) => c != null)
 }
 
 /**
@@ -63,16 +89,13 @@ export type PlaceOutcome =
   | { kind: 'unchanged'; at: number }
   | { kind: 'full' }
 
-export function placeOutcome(ids: readonly number[], cam: number, at: number): PlaceOutcome {
+export function placeOutcome(ids: readonly Slot[], cam: number, at: number): PlaceOutcome {
   const from = ids.indexOf(cam)
-  if (from >= 0) {
-    if (from === at) return { kind: 'unchanged', at }
-    // Onto an empty tile it goes to the end; already last, nothing moves.
-    if (at >= ids.length) return from === ids.length - 1 ? { kind: 'unchanged', at: from } : { kind: 'moved', from, at: ids.length - 1 }
-    return { kind: 'swapped', from, at, other: ids[at] }
-  }
-  if (at >= ids.length) return ids.length >= MAX_STEP_CAMERAS ? { kind: 'full' } : { kind: 'added', at: ids.length }
-  return { kind: 'replaced', at, replaced: ids[at] }
+  if (from >= 0 && from === at) return { kind: 'unchanged', at }
+  if (at < 0 || at >= MAX_STEP_CAMERAS) return from >= 0 ? { kind: 'unchanged', at: from } : { kind: 'full' }
+  const there = ids[at] ?? null
+  if (from >= 0) return there == null ? { kind: 'moved', from, at } : { kind: 'swapped', from, at, other: there }
+  return there == null ? { kind: 'added', at } : { kind: 'replaced', at, replaced: there }
 }
 
 /** The app's t(): a key and its values, in the operator's language. */
@@ -84,7 +107,7 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
  * the step moves instead of showing twice, and the operator is told so.
  * Tile numbers count across the step's pages, as the tiles are labelled.
  */
-export function placeMessage(t: Translate, ids: readonly number[], cam: number, at: number, nameOf: (id: number) => string): string | null {
+export function placeMessage(t: Translate, ids: readonly Slot[], cam: number, at: number, nameOf: (id: number) => string): string | null {
   const o = placeOutcome(ids, cam, at)
   const name = nameOf(cam)
   switch (o.kind) {

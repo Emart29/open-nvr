@@ -92,9 +92,23 @@ def test_tour_crud_is_audited(env):  # noqa: F811
 
 
 def test_step_keeps_order_and_drops_duplicates(env):  # noqa: F811
+    # The second copy leaves its tile empty: no later camera moves up.
     t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [3, 1, 3, 2]}])
-    assert t["steps"][0]["camera_ids"] == [3, 1, 2]
+    assert t["steps"][0]["camera_ids"] == [3, 1, None, 2]
     assert t["steps"][0]["duration_s"] == 60
+
+
+def test_empty_tiles_stay_where_they_are(env):  # noqa: F811
+    t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [None, 1, None, 2, None, None]}])
+    assert t["steps"][0]["camera_ids"] == [None, 1, None, 2]  # trailing gaps trimmed
+    got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()
+    assert got["steps"][0]["camera_ids"] == [None, 1, None, 2]
+
+
+def test_a_step_of_only_empty_tiles_is_422(env):  # noqa: F811
+    r = env.client.post(URL, headers=env.jwt("admin"),
+                        json=_body(steps=[{"layout_id": "2x2", "camera_ids": [None, None]}]))
+    assert r.status_code == 422
 
 
 def test_bad_bodies_are_422(env):  # noqa: F811
@@ -153,6 +167,17 @@ def test_a_binned_camera_drops_out_of_a_running_tour(env):  # noqa: F811
     step = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["steps"][0]
     assert step["camera_ids"] == [1]
     assert step["paused_camera_ids"] == [1]
+    assert step["hidden_count"] == 1
+
+
+def test_a_binned_camera_leaves_its_tile_empty(env):  # noqa: F811
+    t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [1, 2, 3]}])
+    s = env.Session()
+    s.get(env.models.Camera, 2).deleted_at = datetime.now(UTC)
+    s.commit()
+    s.close()
+    step = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["steps"][0]
+    assert step["camera_ids"] == [1, None, 3]
     assert step["hidden_count"] == 1
 
 

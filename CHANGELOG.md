@@ -8,6 +8,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Camera tours: empty tiles, placing on a tile, a tours table.** Taking a
+  camera out of a tour step (in the editor, in Arrange, or by binning it)
+  now leaves its tile empty instead of moving every later camera up, so a
+  wall keeps its arrangement; **Close gaps** packs the cameras again. A
+  step's `camera_ids` may hold `null` for an empty tile (trailing ones are
+  trimmed; a duplicate's second tile is left empty). The editor's preview
+  places cameras like Arrange: click a tile then a camera, or drag a camera
+  onto a tile; both say when the camera was already in the step and moved.
+  The tours settings page has a cards/table switch and a search, with only
+  the list scrolling, and Live View's Tours menu scrolls and searches.
 - **Camera tours for display boards.** A tour cycles a screen through
   sets of cameras: 20 North cameras for a minute, then 20 South, and
   round again. Build them under Settings → More Settings → Camera Tours

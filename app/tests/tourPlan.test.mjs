@@ -93,3 +93,18 @@ test('cycle length and durations read like a person says them', () => {
   assert.equal(formatDuration(120), '2 min')
   assert.equal(formatDuration(3900), '1 h 5 min')
 })
+
+test('an empty tile stays empty: the cameras after it keep their tiles', () => {
+  const [page] = buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: [1, null, 3] }], resolve)
+  assert.deepEqual(page.cameraIds, [1, null, 3])
+})
+
+test('a page of empty tiles only is skipped on the wall but kept in the editor', () => {
+  const step = { label: '', layout_id: '2x2', duration_s: 30, camera_ids: [1, 2, 3, 4, null, null, null, null, 9] }
+  assert.deepEqual(buildPages([step], resolve).map((p) => p.page), [0, 2])
+  assert.deepEqual(buildPages([step], resolve, { keepEmptyPages: true }).map((p) => p.page), [0, 1, 2])
+})
+
+test('a step of empty tiles only is skipped', () => {
+  assert.deepEqual(buildPages([{ label: '', layout_id: '2x2', duration_s: 30, camera_ids: [null, null] }], resolve), [])
+})

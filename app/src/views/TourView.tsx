@@ -33,7 +33,7 @@ import { apiService } from '../lib/apiService'
 import { rebaseToCurrentOrigin } from '../lib/streamUrl'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { resolveLayout, type LayoutDefinition, type WindowLayoutSettings } from '../lib/liveLayouts'
-import { autoGrid, buildPages, formatDuration, wrapIndex, type TourPage } from '../lib/tourPlan'
+import { autoGrid, buildPages, camerasOf, formatDuration, wrapIndex, type Slot, type TourPage } from '../lib/tourPlan'
 import { moveTo, placeAt, removeAt } from '../lib/tourArrange'
 import type { ActiveAlert } from '../lib/tourAlerts'
 import { DEFAULT_TOUR_SETTINGS, type Tour } from '../services/tourService'
@@ -146,7 +146,7 @@ export function TourView({ display = false }: { display?: boolean }) {
 
   // Arrange mode: each step's camera list as being edited, null otherwise.
   // The wall then plays nothing and lays out this draft instead of the tour.
-  const [draft, setDraft] = useState<number[][] | null>(null)
+  const [draft, setDraft] = useState<Slot[][] | null>(null)
   const arranging = draft != null
   const steps = useMemo(
     () => (tour.data ? tour.data.steps.map((s, i) => (draft?.[i] ? { ...s, camera_ids: draft[i] } : s)) : []),
@@ -155,8 +155,10 @@ export function TourView({ display = false }: { display?: boolean }) {
 
   const layoutsReady = !windowSettings.isPending
   const pages = useMemo(
-    () => (tour.data && layoutsReady ? buildPages(steps, (lid) => resolveLayout(lid, windowSettings.data)) : []),
-    [tour.data, steps, layoutsReady, windowSettings.data],
+    // While arranging, a page whose cameras were all taken out stays, so the
+    // board does not jump away from it; the running wall skips such a page.
+    () => (tour.data && layoutsReady ? buildPages(steps, (lid) => resolveLayout(lid, windowSettings.data), { keepEmptyPages: arranging }) : []),
+    [tour.data, steps, layoutsReady, windowSettings.data, arranging],
   )
   // "Step 2 of 4" counts only the steps that have something to show.
   const stepOrdinal = useMemo(() => {
@@ -168,7 +170,7 @@ export function TourView({ display = false }: { display?: boolean }) {
   const settings = tour.data?.settings ?? DEFAULT_TOUR_SETTINGS
   const warmStart = settings.preload !== false
   const fade = settings.transition !== 'cut'
-  const tourCameras = useMemo(() => new Set((tour.data?.steps ?? []).flatMap((s) => s.camera_ids)), [tour.data])
+  const tourCameras = useMemo(() => new Set((tour.data?.steps ?? []).flatMap((s) => camerasOf(s.camera_ids))), [tour.data])
   // Alarm takeover: an alert on a camera brings it to the front; the tour
   // waits underneath and carries on where it was (lib/tourAlerts.ts).
   // Not while arranging: an alarm would swap the page being edited for another.
@@ -227,7 +229,7 @@ export function TourView({ display = false }: { display?: boolean }) {
       // Early start: the next page's players mount hidden under this one and
       // fetch their own tokens, so the page is playing when it shows.
       if (warmStart) { setPreloadKey(next.key); return }
-      for (const cid of next.cameraIds) {
+      for (const cid of camerasOf(next.cameraIds)) {
         qc.prefetchQuery({ queryKey: streamKey(cid), queryFn: () => fetchStream(cid), staleTime: STREAM_STALE_MS })
       }
     }, Math.max(0, remaining - PREFETCH_LEAD_MS))
@@ -305,7 +307,7 @@ export function TourView({ display = false }: { display?: boolean }) {
     if (dirty && !(await confirm({ title: t('tours.discardTitle'), message: t('tours.discardMessage'), confirmLabel: t('tours.discard'), danger: true }))) return
     endArrange()
   }, [dirty, confirm, t, endArrange])
-  const editStep = useCallback((edit: (ids: number[]) => number[]) => {
+  const editStep = useCallback((edit: (ids: Slot[]) => Slot[]) => {
     if (!page) return
     setDraft((d) => d && d.map((ids, i) => (i === page.stepIndex ? edit(ids) : ids)))
   }, [page])
@@ -565,7 +567,6 @@ export function TourView({ display = false }: { display?: boolean }) {
           </div>
           <p className="px-3 pb-2 -mt-1 text-xs text-[var(--text-dim)]">
             {t('tours.arrangeScope')}
-            {page.pages > 1 && ` ${t('tours.arrangeShift')}`}
           </p>
           {arrangeError && (
             <div role="alert" className="flex items-center gap-3 mx-3 mb-2 p-2 text-sm text-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))]">

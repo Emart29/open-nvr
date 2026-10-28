@@ -19,6 +19,7 @@ import { clsx } from 'clsx'
 import { useTranslation } from '../../i18n'
 import type { CameraItem } from '../../lib/queries'
 import type { LayoutDefinition } from '../../lib/liveLayouts'
+import { camerasOf, type Slot } from '../../lib/tourPlan'
 import { placeMessage } from '../../lib/tourArrange'
 import { Input, Select } from '../ui/form'
 import { CameraThumb } from './CameraThumb'
@@ -29,10 +30,10 @@ const pickId = (cam: number) => `pick:${cam}`
 
 export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById, cover, labelClass, target, onTarget, onRemove, onMove, onPlace }: {
   layout: LayoutDefinition
-  /** The cameras on this page, in tile order. */
-  pageIds: number[]
-  /** Every camera of the page's step, to mark those already in it. */
-  stepIds: number[]
+  /** The cameras on this page, in tile order; null is an empty tile. */
+  pageIds: Slot[]
+  /** Every tile of the page's step, to mark the cameras already in it. */
+  stepIds: Slot[]
   /** The step position of this page's first tile. */
   base: number
   cameras: CameraItem[]
@@ -57,8 +58,10 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
     setNotice(placeMessage(t, stepIds, cam, at, nameOf))
     onPlace(cam, at)
   }
-  const lastCamera = stepIds.length <= 1
-  const firstFree = pageIds.length < layout.tiles.length ? pageIds.length : null
+  const lastCamera = camerasOf(stepIds).length <= 1
+  // The page's first empty tile: a gap, or past its last camera.
+  const gap = pageIds.indexOf(null)
+  const firstFree = gap >= 0 ? gap : pageIds.length < layout.tiles.length ? pageIds.length : null
 
   const onDragStart = ({ active }: DragStartEvent) => {
     const [kind, n] = String(active.id).split(':')
@@ -102,7 +105,7 @@ export function ArrangeBoard({ layout, pageIds, stepIds, base, cameras, camById,
               const cid = pageIds[i]
               return (
                 <ArrangeTile key={cid != null ? `cam-${cid}` : `empty-${i}`} slot={i} order={base + i + 1} area={area}
-                  cameraId={cid} cam={cid != null ? camById.get(cid) : undefined} cover={cover} labelClass={labelClass}
+                  cameraId={cid ?? undefined} cam={cid != null ? camById.get(cid) : undefined} cover={cover} labelClass={labelClass}
                   selected={target === i} canRemove={!lastCamera}
                   onSelect={() => { onTarget(target === i ? null : i); setNudge(false); setNotice(null) }}
                   onRemove={() => { onRemove(base + i); onTarget(null); setNotice(null) }} />
@@ -196,8 +199,8 @@ function ArrangeTile({ slot, order, area, cameraId, cam, cover, labelClass, sele
 
 function ArrangePicker({ cameras, stepIds, pageIds, base, hint, urgent, onPick }: {
   cameras: CameraItem[]
-  stepIds: number[]
-  pageIds: number[]
+  stepIds: Slot[]
+  pageIds: Slot[]
   base: number
   hint: string
   urgent: boolean
@@ -206,7 +209,7 @@ function ArrangePicker({ cameras, stepIds, pageIds, base, hint, urgent, onPick }
   const { t } = useTranslation()
   const [q, setQ] = useState('')
   const [location, setLocation] = useState('')
-  const inStep = useMemo(() => new Map(stepIds.map((id, i) => [id, i])), [stepIds])
+  const inStep = useMemo(() => new Map(stepIds.flatMap((id, i) => (id == null ? [] : [[id, i] as const]))), [stepIds])
   const onPage = useMemo(() => new Set(pageIds), [pageIds])
 
   const locations = useMemo(() => {

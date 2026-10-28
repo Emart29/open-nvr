@@ -50,11 +50,21 @@ MAX_CAMERAS_PER_STEP = 256
 _GRID_RE = re.compile(r"^grid:([1-8])x([1-8])$")
 
 
+def _trim(ids: list[int | None]) -> list[int | None]:
+    """Without the empty tiles at the end: they are simply where the step stops."""
+    end = len(ids)
+    while end and ids[end - 1] is None:
+        end -= 1
+    return ids[:end]
+
+
 class TourStepIn(BaseModel):
     label: str = Field("", max_length=60)
     layout_id: str = Field(..., min_length=1, max_length=50)
     duration_s: int = Field(60, ge=10, le=3600)
-    camera_ids: list[int] = Field(..., min_length=1, max_length=MAX_CAMERAS_PER_STEP)
+    #: In tile order across the step's pages; ``null`` is a tile left empty,
+    #: so taking a camera out of a wall moves no other camera.
+    camera_ids: list[int | None] = Field(..., min_length=1, max_length=MAX_CAMERAS_PER_STEP)
 
     @field_validator("label")
     @classmethod
@@ -63,9 +73,19 @@ class TourStepIn(BaseModel):
 
     @field_validator("camera_ids")
     @classmethod
-    def _dedupe(cls, v: list[int]) -> list[int]:
-        # Keep the admin's order; a camera twice in one step is a slip.
-        return list(dict.fromkeys(v))
+    def _dedupe(cls, v: list[int | None]) -> list[int | None]:
+        # Keep the admin's order and every camera's tile; a camera twice in
+        # one step is a slip, and its second tile is left empty.
+        seen: set[int] = set()
+        out: list[int | None] = []
+        for c in v:
+            out.append(None if c is None or c in seen else c)
+            if c is not None:
+                seen.add(c)
+        out = _trim(out)
+        if not out:
+            raise ValueError("a step needs at least one camera")
+        return out
 
 
 class TourAlerts(BaseModel):
@@ -180,22 +200,25 @@ class _Scope:
             return True
         return all(int(c) in self.manageable
                    for s in (tour.steps or []) for c in (s.get("camera_ids") or [])
-                   if int(c) in self.live)
+                   if c is not None and int(c) in self.live)
 
 
 def _serialize(tour: CameraTour, scope: _Scope) -> dict:
     out_steps = []
     for s in tour.steps or []:
-        ids = [int(c) for c in (s.get("camera_ids") or [])]
-        shown = [c for c in ids if c in scope.live
-                 and (scope.visible is None or c in scope.visible)]
+        ids = [None if c is None else int(c) for c in (s.get("camera_ids") or [])]
+        # A camera in the bin, or one this viewer may not see, leaves its
+        # tile empty rather than pulling the later cameras forward.
+        slots = [c if c is not None and c in scope.live
+                 and (scope.visible is None or c in scope.visible) else None for c in ids]
+        shown = [c for c in slots if c is not None]
         out_steps.append({
             "label": s.get("label") or "",
             "layout_id": s.get("layout_id"),
             "duration_s": int(s.get("duration_s") or 60),
-            "camera_ids": shown,
+            "camera_ids": _trim(slots),
             "paused_camera_ids": [c for c in shown if not scope.live[c]],
-            "hidden_count": len(ids) - len(shown),
+            "hidden_count": sum(c is not None for c in ids) - len(shown),
             "layout_missing": not _layout_ok(s.get("layout_id"), scope.layouts),
         })
     return {
@@ -219,7 +242,7 @@ def _validate(payload: TourIn, scope: _Scope) -> list[dict]:
     if bad_layouts:
         raise HTTPException(status_code=422, detail={
             "message": "Unknown or disabled layout", "layout_ids": bad_layouts})
-    wanted = {c for s in payload.steps for c in s.camera_ids}
+    wanted = {c for s in payload.steps for c in s.camera_ids if c is not None}
     bad = sorted(c for c in wanted if c not in scope.live
                  or (scope.manageable is not None and c not in scope.manageable))
     if bad:

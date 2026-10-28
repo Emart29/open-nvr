@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { api } from '../lib/api'
-import type { TourStep } from '../lib/tourPlan'
+import type { Slot, TourStep } from '../lib/tourPlan'
 
 export type AlertSource = 'app_alert' | 'camera_event'
 export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical'
@@ -54,7 +54,8 @@ export interface TourInput {
   name: string
   description?: string | null
   enabled: boolean
-  steps: Array<{ label: string; layout_id: string; duration_s: number; camera_ids: number[] }>
+  /** camera_ids in tile order; null leaves a tile empty. */
+  steps: Array<{ label: string; layout_id: string; duration_s: number; camera_ids: Slot[] }>
   settings?: TourSettings
   expected_revision?: number
 }
