@@ -24,7 +24,9 @@
 #   - push to main → :main, :sha-<short>, :latest
 #     (:latest tracks main for v0.x — the catalog index pins :latest, so
 #     the one-click promise depends on it existing; the reconciler's
-#     digest pinning is the reproducibility story, not the tag)
+#     digest pinning is the reproducibility story, not the tag). This is
+#     a deliberate exception: the stack's own images (core,
+#     detect-pipeline, camera-agent) move :latest on releases only.
 #   - tag v*       → :<version>, :<major>.<minor>, :sha-<short>, :latest
 #
 # Architecture: linux/amd64 + linux/arm64, same rationale as the core

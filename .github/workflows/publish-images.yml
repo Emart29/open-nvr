@@ -17,7 +17,9 @@
 #   - Push to main          → build + push :main and :sha-<short>.
 #     Tier 0 compose can pin :main for the bleeding-edge install path.
 #   - Tag matching ``v*``    → build + push :<version>, :latest,
-#     :sha-<short>. The release path.
+#     :sha-<short>. The release path, and the ONLY one that moves
+#     :latest: an install that pins nothing gets the last release,
+#     never an untested main build.
 #
 # Architecture: linux/amd64 + linux/arm64. Apple Silicon Macs and
 # Raspberry Pi 5 class hardware are a primary Tier 0 target, and an
@@ -113,14 +115,12 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            # :latest tracks the most recent build on the default branch
-            # (main) AND any subsequent release tag. Tier 0 compose pins
-            # :latest, so operators trying the project before the first
-            # ``v*`` tag still get a working image. Once we cross v1.0
-            # the policy may tighten to "release tags only" — for v0.1
-            # we keep this loose because the Tier 0 promise depends on
-            # :latest existing the moment the project is announced.
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
+            # :latest is the last release, nothing else. It used to follow
+            # main too, so that :latest existed before the first ``v*`` tag;
+            # releases exist now, and a site that pins nothing (compose
+            # defaults CORE_TAG to latest) must not pick up untested main
+            # builds on its next pull. Bleeding edge is :main.
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=OpenNVR Core
             org.opencontainers.image.description=OpenNVR backend + frontend + KAI-C connector. Tier 0 install ships this as a single container.
@@ -269,7 +269,7 @@ jobs:
   # ------------------------------------------------------------------
   # Example agent apps (work item C + PR #168): the camera-agent
   # image. Same trigger/tag policy as opennvr-core:
-  # every branch push publishes :<branch> + :sha-<short>; main/release
+  # every branch push publishes :<branch> + :sha-<short>; only release
   # tags publish :latest. PRs build without pushing.
   # ------------------------------------------------------------------
   build-and-push-agents:
@@ -315,8 +315,8 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            # Same :latest policy as opennvr-core — tracks main + release tags.
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
+            # Same :latest policy as opennvr-core: release tags only.
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=OpenNVR ${{ matrix.agent.image }}
             org.opencontainers.image.description=OpenNVR ${{ matrix.agent.image }} example app (built from ${{ matrix.agent.dir }})

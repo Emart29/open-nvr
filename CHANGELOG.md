@@ -98,6 +98,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`:latest` is the last release.** The core, detect-pipeline and
+  camera-agent images now move `:latest` only on a `v*` release tag; it
+  used to follow every merge to `main` as well, so an install with no
+  `CORE_TAG` pin could pick up untested builds on its next pull. Use
+  `:main` for the bleeding edge. Catalog app images keep their old policy,
+  because the app catalog advertises `:latest`.
 - **The Investigate cases answer like the real tools.** A failure analysis
   of granite4:micro's failing runs found fixtures that answered made-up event
   ids and a search default that hid visits; both now behave as the tools do,
