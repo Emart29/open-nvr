@@ -1,0 +1,4 @@
+{
+  "_comment": "Release keys this build trusts for update manifests (updater/manifest.py). Add the public half of the project's release key here; keep two during a rotation. Generate one with: python -m updater keygen --id opennvr-release-YYYY",
+  "keys": []
+}
