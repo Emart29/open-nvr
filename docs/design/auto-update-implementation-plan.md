@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | In progress (see [Progress](#10-progress)) |
+| **Status** | M0–M2 done except UPD-207 (see [Progress](#10-progress)) |
 | **Revision** | r2 (2026-10-29): review fixes folded in; the updater runs inside the core image; manifests are signed with a project Ed25519 key so online and air-gapped verification are the same code. r1 (2026-10-28): first plan |
 | **Branch** | `feat/auto-update` (one commit per issue) |
 | **Audience** | Whoever implements or reviews this work |
@@ -81,7 +81,14 @@ host (start.sh / start.ps1 update)                 updater (python -m updater, i
    run INSTALLED image: verify again; state "rolled_back" (or "failed", stack on old images)
 ```
 
-An interrupted run (power cut) is found by the next `start.sh up` or `update`: it resumes at step 6, then finishes or rolls back.
+An interrupted run (power cut) is found by the next `update`: it resumes at step 6, then finishes or rolls back.
+
+**Learned while building M1–M2 (r2.1):**
+- A release from before the updater (0.1.8) has neither `start.sh update` nor the updater in its image, so every site makes one move by hand (DOCKER_QUICKSTART.md) onto the first release that has it.
+- On Docker's containerd image store an image's ID **is** its registry digest; on the classic store it is the config digest. Verification accepts either (`check.accepted_ids`).
+- Platforms are named `linux/arm64` by Docker but `linux/arm64/v8` in some indexes; matched with and without the variant.
+- An offline bundle should carry the manifests of earlier releases (`history/vX.Y.Z/`), so a site with no record of its installed release can still be verified offline.
+- `--adopt` means the release's pins and images replace the site's (found on a live dry run).
 
 ## 6. Engineering rules
 - One issue, one commit on `feat/auto-update` (`feat(update): … (UPD-xxx)`), no Co-Authored-By trailer; not pushed without the owner's go-ahead.
@@ -162,19 +169,19 @@ An interrupted run (power cut) is found by the next `start.sh up` or `update`: i
 ## 10. Progress
 | Issue | Status | Commit | Notes |
 |---|---|---|---|
-| UPD-001 | Not started | | |
-| UPD-002 | Not started | | |
-| UPD-003 | Not started | | |
-| UPD-004 | Not started | | |
-| UPD-101 | Not started | | |
-| UPD-102 | Not started | | |
-| UPD-103 | Not started | | |
-| UPD-201 | Not started | | |
-| UPD-202 | Not started | | |
-| UPD-203 | Not started | | |
-| UPD-204 | Not started | | |
-| UPD-205 | Not started | | |
-| UPD-206 | Not started | | |
+| UPD-001 | Done | 82025f6b | core, detect-pipeline, camera-agent; catalog apps keep :latest on main on purpose |
+| UPD-002 | Done | cfd55ce0 | DOCKER_QUICKSTART.md "Upgrading to a new release" |
+| UPD-003 | Done | bc55573a | /health reports `commit`; system info untouched (HA contract) |
+| UPD-004 | Done | 43a160bb |  |
+| UPD-101 | Done | ed2c4466 | no release key in keys.json yet (open question 4) |
+| UPD-102 | Done | e03bb2f6 | real dry run resolved 23 images from GHCR + Docker Hub |
+| UPD-103 | Done | e03bb2f6 | workflow_dispatch + --source. Not needed for the first move: 0.1.8's image has no updater, so sites reach the first updater release by hand |
+| UPD-201 | Done | c277a3bd, 119ae87d | manifests also list alembic_revisions; image IDs accept registry digest (containerd store) or config digest (classic store) |
+| UPD-202 | Done | d44a0949 | shellcheck clean; not yet run against a stack (UPD-207) |
+| UPD-203 | Done | 449918f3 | dry runs against the live dev stack: refusals and an adopted plan correct, nothing changed |
+| UPD-204 | Done | d44a0949 | restore drops the public schema first |
+| UPD-205 | Done | d44a0949 |  |
+| UPD-206 | Done | c277a3bd | refusals in updater/check.py |
 | UPD-207 | Not started | | |
 | UPD-301 | Not started | | |
 | UPD-302 | Not started | | |
