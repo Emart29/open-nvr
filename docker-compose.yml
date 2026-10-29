@@ -527,7 +527,9 @@ services:
       start_period: 90s
       retries: 3
     # For VAAPI/QSV hardware decode, pass the render node through and set
-    # DETECT_HWACCEL=vaapi in .env (uncomment):
+    # DETECT_HWACCEL=vaapi in .env (uncomment) — or set OPENNVR_ACCEL=intel
+    # and let docker-compose.accel-intel.yml do this plus the OpenVINO
+    # detector on the NPU/iGPU (OpenNVR Accelerate, docs/HARDWARE.md):
     # devices:
     #   - /dev/dri:/dev/dri
     # Setting DETECT_HWACCEL without this mapping is the expensive mistake:

@@ -1,0 +1,7 @@
+# OpenNVR Accelerate — Intel NPU device (Core Ultra "AI Boost"). Added by
+# start.sh next to docker-compose.accel-intel.yml when /dev/accel/accel0
+# exists; kept separate because compose refuses a device the host lacks.
+services:
+  detect-pipeline:
+    devices:
+      - /dev/accel:/dev/accel

@@ -20,7 +20,10 @@ Env:
   DETECT_DETECTOR           onnx (YOLO) | rfdetr (DETR) | hog | blob | stub
   DETECT_ONNX_BACKEND       auto (default: cvdnn for onnx, ort for rfdetr)
                             | cvdnn | ort
-  DETECT_ONNX_PROVIDERS     ort execution providers, comma-separated, e.g.
+  DETECT_ONNX_PROVIDERS     ort execution providers, comma-separated, each with an
+                            optional ":device" (OpenVINOExecutionProvider:NPU,
+                            OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU,
+                            CUDAExecutionProvider:1), e.g.
                             "OpenVINOExecutionProvider" (Intel N100) or
                             "TensorrtExecutionProvider,CUDAExecutionProvider"
   DETECT_HWACCEL            cpu | vaapi | nvidia | qsv | rpi | rkmpp | jetson
@@ -329,6 +332,17 @@ def _stub_factory():
     return StubDetector
 
 
+def _export_detector_backend(det) -> None:
+    """``tier0_detector_backend``: the providers the ORT session really got."""
+    from .metrics import record_detector_backend
+    from .onnx_detector import describe_providers
+
+    backend = getattr(det, "_backend", None)
+    requested = describe_providers(getattr(backend, "requested", None) or [])
+    effective = ", ".join(getattr(backend, "effective", None) or [])
+    record_detector_backend(getattr(det, "backend_name", "unknown"), requested, effective)
+
+
 def _detector_factory(cfg: ServiceConfig):
     """Return a zero-arg factory that builds one detector per worker.
 
@@ -362,6 +376,7 @@ def _detector_factory(cfg: ServiceConfig):
                     "tier0 detector loaded: family=yolo model=%s backend=%s input=%d",
                     os.path.basename(cfg.onnx_model), det.backend_name, cfg.onnx_input,
                 )
+                _export_detector_backend(det)
                 return det
             except Exception:
                 log.warning(
