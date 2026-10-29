@@ -22,7 +22,20 @@ NPU=1.38.0.20260910-34487311128
 GH=https://github.com
 tmp=$(mktemp -d)
 cd "$tmp"
-get() { echo "  fetching $(basename "$2")"; curl -fsSL --retry 3 -o "$2" "$1"; }
+# python:*-slim ships neither curl nor wget; urllib is already there.
+get() {
+  echo "  fetching $(basename "$2")"
+  python3 - "$1" "$2" <<'PYEOF'
+import sys, urllib.request
+url, out = sys.argv[1], sys.argv[2]
+for attempt in range(3):
+    try:
+        urllib.request.urlretrieve(url, out); break
+    except Exception as exc:
+        if attempt == 2: raise
+        print(f"  retry {attempt + 1}: {exc}")
+PYEOF
+}
 
 get "$GH/oneapi-src/level-zero/releases/download/v$LEVEL_ZERO/libze1_${LEVEL_ZERO}%2Bu24.04_amd64.deb"      libze1.deb
 get "$GH/intel/compute-runtime/releases/download/$NEO/libigdgmm12_${GMM}_amd64.deb"                             gmm.deb
