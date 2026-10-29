@@ -590,6 +590,12 @@ async def lifespan(app: FastAPI):
 
     spawn_background(background_system_monitor(), name="system-monitor")
 
+    # OpenNVR updates: results and newly found versions become host-level
+    # alerts like the monitor's (services/update_notifier.py).
+    from services.update_notifier import run_forever as _update_notifier
+
+    spawn_background(_update_notifier(), name="update-notifier")
+
     # Recording-health watchdog: surfaces "camera silently stopped recording"
     # as a camera event within minutes instead of being discovered days later.
     async def background_recording_watchdog():
