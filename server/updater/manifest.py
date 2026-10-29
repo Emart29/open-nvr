@@ -121,6 +121,10 @@ class Manifest:
     git_commit: str
     git_tag: str
     alembic_head: str
+    #: Every migration this release knows (None in manifests made before the
+    #: field existed): a database on a revision outside it is newer than the
+    #: release, and the update is refused before anything changes.
+    alembic_revisions: frozenset[str] | None
     min_upgrade_from: str | None
     min_updater: int
     pins: dict[str, str]
@@ -196,6 +200,10 @@ def parse(doc: dict) -> Manifest:
     if not images:
         raise ManifestError("manifest lists no images")
 
+    revisions = doc.get("alembic_revisions")
+    if revisions is not None and (not isinstance(revisions, list) or not all(isinstance(r, str) for r in revisions)):
+        raise ManifestError("alembic_revisions has the wrong type")
+
     steps = []
     for s in doc.get("manual_steps") or []:
         if not isinstance(s, dict) or not isinstance(s.get("id"), str) or not isinstance(s.get("text"), str):
@@ -205,6 +213,7 @@ def parse(doc: dict) -> Manifest:
     return Manifest(
         version=version, channel=channel, git_commit=commit,
         git_tag=_need(doc, "git_tag", str), alembic_head=_need(doc, "alembic_head", str),
+        alembic_revisions=frozenset(revisions) if revisions is not None else None,
         min_upgrade_from=min_from, min_updater=min_updater, pins=dict(pins),
         images=tuple(images), manual_steps=tuple(steps),
         state_migrations=bool(doc.get("state_migrations", False)), urgent=bool(doc.get("urgent", False)),

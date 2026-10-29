@@ -131,9 +131,10 @@ def _module_values(path: Path) -> dict:
     return out
 
 
-def alembic_head(versions_dir: Path) -> str:
-    """The single head of the migration graph (fails if there are several).
-    Read with ``ast`` rather than imported, so CI needs no app dependencies."""
+def alembic_graph(versions_dir: Path) -> tuple[str, list[str]]:
+    """The single head of the migration graph (fails if there are several)
+    and every revision in it. Read with ``ast`` rather than imported, so CI
+    needs no app dependencies."""
     revs, downs = set(), set()
     for f in versions_dir.glob("*.py"):
         values = _module_values(f)
@@ -145,8 +146,12 @@ def alembic_head(versions_dir: Path) -> str:
     heads = sorted(revs - downs)
     if len(heads) != 1:
         raise SystemExit(f"expected one Alembic head, found {heads}: merge the heads before releasing")
-    return heads[0]
+    return heads[0], sorted(revs)
 
+
+
+def alembic_head(versions_dir: Path) -> str:
+    return alembic_graph(versions_dir)[0]
 
 def release_images(env_pins: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     """Every pulled image ref of the release (resolved), and the pins used."""
@@ -184,6 +189,7 @@ def build(version: str, commit: str, extra: dict, registry: Registry, *, channel
     refs, pins = release_images(env_pins)
     if channel == "stable" and pins.get("CORE_TAG") != version:
         raise SystemExit(f".env.example pins CORE_TAG={pins.get('CORE_TAG')!r}, but this is release {version}")
+    head, revisions = alembic_graph(SOURCE / "server" / "migrations" / "versions")
     images = []
     for ref in refs:
         digest, ids = registry.resolve(ref)
@@ -197,7 +203,8 @@ def build(version: str, commit: str, extra: dict, registry: Registry, *, channel
         "released_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "git_commit": commit,
         "git_tag": f"v{version}",
-        "alembic_head": alembic_head(SOURCE / "server" / "migrations" / "versions"),
+        "alembic_head": head,
+        "alembic_revisions": revisions,
         "min_upgrade_from": None,
         "min_updater": UPDATER_PROTOCOL,
         "urgent": False,
