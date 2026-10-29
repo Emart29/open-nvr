@@ -272,3 +272,55 @@ def test_probe_returns_the_request_when_nothing_fits():
     from detect_pipeline.detector import resolve_input_size
 
     assert resolve_input_size(_FixedShapeDetector(99, 640), 640) == 640
+
+
+# ── provider device shorthand (OpenNVR Accelerate) ─────────────────────────
+
+def test_parse_provider_specs_device_shorthand_and_multi_device_continuation():
+    from detect_pipeline.onnx_detector import parse_provider_specs
+    assert parse_provider_specs("OpenVINOExecutionProvider:NPU,CPUExecutionProvider") == [
+        ("OpenVINOExecutionProvider", "NPU"), ("CPUExecutionProvider", None)]
+    # AUTO:NPU,GPU survives the comma split: GPU is not a provider name
+    assert parse_provider_specs("OpenVINOExecutionProvider:AUTO:NPU,GPU,CPUExecutionProvider") == [
+        ("OpenVINOExecutionProvider", "AUTO:NPU,GPU"), ("CPUExecutionProvider", None)]
+    assert parse_provider_specs(["CUDAExecutionProvider:1"]) == [("CUDAExecutionProvider", "1")]
+    assert parse_provider_specs(None) == [] and parse_provider_specs("") == []
+
+
+def test_resolve_providers_carries_device_as_provider_options():
+    provs = resolve_providers(
+        "OpenVINOExecutionProvider:AUTO:NPU,GPU",
+        available=["OpenVINOExecutionProvider", "CPUExecutionProvider"],
+    )
+    assert provs == [("OpenVINOExecutionProvider", {"device_type": "AUTO:NPU,GPU"}),
+                     "CPUExecutionProvider"]
+    provs = resolve_providers("CUDAExecutionProvider:1", available=["CUDAExecutionProvider"])
+    assert provs == [("CUDAExecutionProvider", {"device_id": "1"}), "CPUExecutionProvider"]
+
+
+def test_resolve_providers_device_on_provider_without_option_is_dropped():
+    provs = resolve_providers("CPUExecutionProvider:0", available=["CPUExecutionProvider"])
+    assert provs == ["CPUExecutionProvider"]   # no device option for CPU: bare name, no duplicate
+
+
+def test_describe_providers_is_human_readable():
+    from detect_pipeline.onnx_detector import describe_providers
+    assert describe_providers([("OpenVINOExecutionProvider", {"device_type": "NPU"}),
+                               "CPUExecutionProvider"]) == \
+        "OpenVINOExecutionProvider(NPU), CPUExecutionProvider"
+
+
+def test_ort_backend_exposes_effective_providers_and_warns_on_fallback(caplog):
+    import logging
+
+    class _Sess(_FakeSession):
+        def get_providers(self):
+            return ["CPUExecutionProvider"]
+
+    b = OrtBackend(session=_Sess(_output([])))
+    assert b.effective == ["CPUExecutionProvider"]      # injected session: no request, no warning
+    b.requested = [("OpenVINOExecutionProvider", {"device_type": "NPU"}), "CPUExecutionProvider"]
+    with caplog.at_level(logging.WARNING):
+        eff = b._effective_providers()
+    assert eff == ["CPUExecutionProvider"]
+    assert "could not use OpenVINOExecutionProvider(NPU)" in caplog.text

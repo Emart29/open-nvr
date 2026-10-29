@@ -126,6 +126,8 @@ A new model, an adapter, an app, an alert, on the box you already have. The fall
 
 Detection using too much CPU is almost always video decode, not the model. Store the camera's substream URL, check `DETECT_FPS`, attach a hardware decoder with `DETECT_HWACCEL`. The full strategy is [`docs/DETECT_CPU.md`](docs/DETECT_CPU.md).
 
+**Runs on what you have.** The same images come in hardware flavours: plain CPU on x86-64 and arm64, and `-intel`, where the iGPU decodes the cameras and the Tier-0 detector runs on the NPU or iGPU through OpenVINO, with NVIDIA next. One line in `.env`, `OPENNVR_ACCEL=auto`, picks the flavour from the hardware it finds, and every fallback to CPU is logged and exported rather than silent. The support matrix and benchmark protocol are in [`docs/HARDWARE.md`](docs/HARDWARE.md).
+
 ## Built to scale, built to be built on
 
 **Every part is its own service.** Core, the media server, the message bus, the AI gateway, the detect pipeline, each adapter and each app run as separate containers that talk over NATS and HTTP. Compose is what ships; the service boundaries are what let you run the same images under any orchestrator and add replicas where the load is. Need more plate OCR throughput? Run more OCR adapters; the gateway registers each one and queues fairly per camera.

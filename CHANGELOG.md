@@ -8,6 +8,19 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OpenNVR Accelerate: hardware flavours.** The detect-pipeline image now
+  builds in flavours from one Dockerfile (`ACCEL=cpu|intel`); the `-intel`
+  tags carry `onnxruntime-openvino` plus Intel's VA-API, OpenCL and NPU
+  user-space, so an Intel iGPU decodes the cameras and the Tier-0 detector
+  runs on the NPU or iGPU through OpenVINO. One setting selects it:
+  `OPENNVR_ACCEL=auto|cpu|intel` in `.env` (auto finds an Intel render
+  node), which makes `start.sh` add `docker-compose.accel-intel.yml` (and
+  the NPU device overlay when `/dev/accel/accel0` exists) and fill the
+  decode/detector defaults. `DETECT_ONNX_PROVIDERS` takes a `:device` per
+  provider (`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`, `:NPU`, `:GPU`,
+  `CUDAExecutionProvider:1`). ORT's silent fallback to CPU is now logged
+  and exported as `tier0_detector_backend{backend,requested,effective}`.
+  Support matrix and benchmark protocol: `docs/HARDWARE.md`.
 - **OpenNVR updates itself, if you let it.** Each release now ships a
   signed manifest (`release-manifest.json`, Ed25519, keys in
   `server/updater/keys.json`) naming its commit, image digests, pins and

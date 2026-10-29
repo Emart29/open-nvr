@@ -157,28 +157,109 @@ class CvDnnBackend:
         return list(outs)
 
 
-def resolve_providers(requested, available) -> list[str]:
+# Device option each execution provider takes, keyed by provider name. The
+# ``Name:device`` shorthand in DETECT_ONNX_PROVIDERS maps onto it:
+#   OpenVINOExecutionProvider:NPU             -> {"device_type": "NPU"}
+#   OpenVINOExecutionProvider:AUTO:NPU,GPU    -> {"device_type": "AUTO:NPU,GPU"}
+#   CUDAExecutionProvider:1                   -> {"device_id": "1"}
+# Providers not listed here take no device and the shorthand is refused.
+_DEVICE_OPTION = {
+    "OpenVINOExecutionProvider": "device_type",
+    "CUDAExecutionProvider": "device_id",
+    "TensorrtExecutionProvider": "device_id",
+    "ROCMExecutionProvider": "device_id",
+    "MIGraphXExecutionProvider": "device_id",
+}
+
+
+def parse_provider_specs(requested) -> list[tuple[str, str | None]]:
+    """Split a provider setting into ``(name, device)`` pairs.
+
+    ``requested`` is a comma-separated string or a list. A token that is not
+    a provider name (does not end in ``ExecutionProvider``) continues the
+    previous token's device, so the OpenVINO multi-device forms survive the
+    comma split: ``OpenVINOExecutionProvider:AUTO:NPU,GPU,CPUExecutionProvider``
+    is ``[("OpenVINOExecutionProvider", "AUTO:NPU,GPU"), ("CPUExecutionProvider", None)]``.
+    """
+    if requested is None:
+        return []
+    if isinstance(requested, str):
+        tokens = [t.strip() for t in requested.split(",") if t.strip()]
+    else:
+        tokens = []
+        for item in requested:
+            if isinstance(item, tuple):
+                name, opts = item
+                dev = (opts or {}).get(_DEVICE_OPTION.get(name, ""), None) if isinstance(opts, dict) else None
+                tokens.append(f"{name}:{dev}" if dev else name)
+            else:
+                tokens.append(str(item).strip())
+    specs: list[tuple[str, str | None]] = []
+    for tok in tokens:
+        if not tok:
+            continue
+        name, _, device = tok.partition(":")
+        if name.endswith("ExecutionProvider") or not specs:
+            specs.append((name, device or None))
+        else:
+            prev_name, prev_dev = specs[-1]
+            specs[-1] = (prev_name, f"{prev_dev},{tok}" if prev_dev else tok)
+    return specs
+
+
+def provider_entry(name: str, device: str | None):
+    """What ``onnxruntime.InferenceSession(providers=...)`` takes for one spec:
+    the bare name, or ``(name, {option: device})`` when a device was asked for."""
+    if not device:
+        return name
+    option = _DEVICE_OPTION.get(name)
+    if option is None:
+        log.warning("ORT provider %s takes no device; ignoring %r", name, device)
+        return name
+    return (name, {option: device})
+
+
+def provider_name(entry) -> str:
+    return entry[0] if isinstance(entry, tuple) else entry
+
+
+def resolve_providers(requested, available) -> list:
     """Pick ORT execution providers: ``requested ∩ available``, CPU always last.
 
     Pure + testable. ``requested`` may be a list or a comma string; ``None`` means
     "let ORT use whatever it has, by its own priority order". CPU is always kept as
     a final fallback so a missing accelerator EP degrades instead of failing.
+
+    Entries carry their device when one was requested (``Name:device``, see
+    :func:`parse_provider_specs`), as the ``(name, options)`` tuples ORT takes.
     """
-    if isinstance(requested, str):
-        requested = [p.strip() for p in requested.split(",") if p.strip()]
     available = list(available) if available else []
-    if not requested:
-        provs = list(available) if available else [_CPU_EP]
+    specs = parse_provider_specs(requested)
+    if not specs:
+        provs: list = list(available) if available else [_CPU_EP]
     else:
         provs = []
-        for p in requested:
-            if available and p not in available:
-                log.warning("ORT provider %s not available; skipping", p)
+        for name, device in specs:
+            if available and name not in available:
+                log.warning("ORT provider %s not available; skipping", name)
                 continue
-            provs.append(p)
-    if _CPU_EP not in provs:
+            provs.append(provider_entry(name, device))
+    if _CPU_EP not in [provider_name(p) for p in provs]:
         provs.append(_CPU_EP)
     return provs
+
+
+def describe_providers(entries) -> str:
+    """``OpenVINOExecutionProvider(NPU), CPUExecutionProvider`` — for logs and the UI."""
+    parts = []
+    for e in entries:
+        if isinstance(e, tuple):
+            name, opts = e
+            dev = next(iter((opts or {}).values()), None)
+            parts.append(f"{name}({dev})" if dev else name)
+        else:
+            parts.append(str(e))
+    return ", ".join(parts)
 
 
 def _ort_session_options(ort):
@@ -238,11 +319,36 @@ class OrtBackend:
             import onnxruntime as ort  # lazy: optional dependency
 
             provs = resolve_providers(providers, ort.get_available_providers())
-            log.info("ONNX Runtime backend using providers: %s", provs)
+            log.info("ONNX Runtime backend requesting providers: %s", describe_providers(provs))
             self._sess = ort.InferenceSession(
                 model_path, sess_options=_ort_session_options(ort), providers=provs
             )
+            self.requested = provs
         self._input = self._sess.get_inputs()[0].name
+        self.effective = self._effective_providers()
+
+    def _effective_providers(self) -> list[str]:
+        """What the session actually runs on. ORT drops a provider it cannot
+        initialise (no OpenVINO device, no CUDA libs) and carries on with the
+        next one *silently* — the "declared an accelerator, running on CPU"
+        failure. Surface it: log once, and expose it for metrics and the UI."""
+        try:
+            effective = list(self._sess.get_providers())
+        except Exception:
+            return []
+        requested = getattr(self, "requested", None)
+        if requested:
+            wanted = provider_name(requested[0])
+            if wanted != _CPU_EP and (not effective or effective[0] != wanted):
+                log.warning(
+                    "ONNX Runtime could not use %s — running on %s. Check the "
+                    "accelerator's user-space driver is in the image and its "
+                    "device is passed through to the container.",
+                    describe_providers(requested[:1]), ", ".join(effective) or "nothing",
+                )
+            else:
+                log.info("ONNX Runtime backend running on %s", describe_providers(requested[:1]))
+        return effective
 
     def infer(self, blob: np.ndarray) -> np.ndarray:
         return self._sess.run(None, {self._input: blob})[0]

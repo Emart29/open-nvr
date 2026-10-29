@@ -2,7 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # OpenNVR Tier-0 detect-pipeline service.
-FROM python:3.11-slim
+#
+# One Dockerfile, several hardware flavours (OpenNVR Accelerate). ACCEL picks
+# the inference runtime wheel and the vendor user-space that goes with it;
+# the code is identical in every flavour and the hardware is chosen at run
+# time (DETECT_HWACCEL for decode, DETECT_ONNX_PROVIDERS for the detector).
+#   cpu   (default)  plain onnxruntime; amd64 + arm64
+#   intel            onnxruntime-openvino + Intel OpenCL/NPU runtime
+#                    (scripts/install-intel-runtime.sh); amd64 only
+#   docker build --build-arg ACCEL=intel -t detect-pipeline:intel .
+ARG BASE=python:3.11-slim
+FROM ${BASE}
+ARG ACCEL=cpu
 
 # ffmpeg/ffprobe: hardware decode + resolution probe of the camera substream.
 # intel-media-va-driver is the VA-API (iHD) driver for every Intel iGPU
@@ -24,6 +35,18 @@ RUN apt-get update \
 WORKDIR /app
 COPY . /app
 RUN pip install --no-cache-dir ".[service]"
+
+# Flavour step. The accelerator wheels CONFLICT with plain onnxruntime (same
+# import name), so swap rather than add. Pinned: the OpenVINO EP changes
+# device semantics between releases.
+RUN case "${ACCEL}" in \
+      cpu) ;; \
+      intel) sh scripts/install-intel-runtime.sh \
+             && pip uninstall -y onnxruntime \
+             && pip install --no-cache-dir onnxruntime-openvino==1.24.1 ;; \
+      *) echo "unknown ACCEL=${ACCEL} (cpu|intel)" >&2; exit 1 ;; \
+    esac
+ENV OPENNVR_ACCEL_FLAVOUR=${ACCEL}
 
 # On by default; set DETECT_PIPELINE_ENABLED=false to disable without redeploy.
 ENV DETECT_PIPELINE_ENABLED=true
