@@ -4,8 +4,8 @@
 
 The schedule itself is unit-tested (app/tests/tourPlan.test.mjs) and the
 API's filtering is server-tested (server/tests/test_tours.py). What only a
-browser can say is that the wall really turns: the first step's cameras are
-on screen, the second step's replace them when its time is up, Pause holds
+browser can say is that the wall really turns: the first page's cameras are
+on screen, the second page's replace them when its time is up, Pause holds
 the wall past that time and Next moves it on.
 
 It must also leave Live View alone: a tour never touches the operator's own
@@ -28,8 +28,8 @@ from pages.tour import TourPage
 
 pytestmark = pytest.mark.ui
 
-#: The shortest step the API accepts.
-STEP_S = 10
+#: The shortest page the API accepts.
+PAGE_S = 10
 
 
 def _camera(client, sandbox, config, label):
@@ -41,15 +41,15 @@ def _camera(client, sandbox, config, label):
 
 
 @pytest.fixture
-def two_step_tour(client, sandbox, config):
+def two_page_tour(client, sandbox, config):
     north = [_camera(client, sandbox, config, f"north{i}") for i in (1, 2)]
     south = [_camera(client, sandbox, config, "south1")]
     tour = client.post("/tours", json_body={
         "name": sandbox.name("tour"),
-        "steps": [
-            {"label": "North", "layout_id": "2x2", "duration_s": STEP_S,
+        "pages": [
+            {"label": "North", "layout_id": "2x2", "duration_s": PAGE_S,
              "camera_ids": [c["id"] for c in north]},
-            {"label": "South", "layout_id": "1x1", "duration_s": STEP_S,
+            {"label": "South", "layout_id": "1x1", "duration_s": PAGE_S,
              "camera_ids": [c["id"] for c in south]},
         ],
     }, expect=(201,)).json()
@@ -58,8 +58,8 @@ def two_step_tour(client, sandbox, config):
     return tour, north, south
 
 
-def test_a_tour_turns_from_one_step_to_the_next(authed_page, two_step_tour):
-    tour, north, south = two_step_tour
+def test_a_tour_turns_from_one_page_to_the_next(authed_page, two_page_tour):
+    tour, north, south = two_page_tour
     authed_page.add_init_script(
         f"(() => {{ try {{ localStorage.setItem('{DISPLAY_ORDER_KEY}', '[7,0,9]') }} catch (e) {{}} }})()"
     )
@@ -70,11 +70,11 @@ def test_a_tour_turns_from_one_step_to_the_next(authed_page, two_step_tour):
     expect(wall.find(S.TOUR_NAME).first).to_have_text(tour["name"], timeout=30_000)
     eventually(lambda: wall.tile_names() == [c["name"] for c in north],
                budget=BUDGETS.QUICK, describe="the North cameras on the wall")
-    assert wall.step_label() == "North"
+    assert wall.page_label() == "North"
 
     eventually(lambda: wall.tile_names() == [c["name"] for c in south],
-               budget=STEP_S + BUDGETS.QUICK, describe="the wall turning to the South cameras")
-    assert wall.step_label() == "South"
+               budget=PAGE_S + BUDGETS.QUICK, describe="the wall turning to the South cameras")
+    assert wall.page_label() == "South"
 
     assert not fatal_errors(errors), f"the tour threw: {errors[:3]}"
     # The tour never rewrote the operator's own Live View grid.
@@ -82,8 +82,8 @@ def test_a_tour_turns_from_one_step_to_the_next(authed_page, two_step_tour):
     assert saved == "[7,0,9]"
 
 
-def test_pause_holds_the_wall_and_next_moves_it_on(authed_page, two_step_tour):
-    tour, north, south = two_step_tour
+def test_pause_holds_the_wall_and_next_moves_it_on(authed_page, two_page_tour):
+    tour, north, south = two_page_tour
     wall = TourPage(authed_page, tour["id"])
     wall.open()
     eventually(lambda: wall.tile_names() == [c["name"] for c in north],
@@ -91,7 +91,7 @@ def test_pause_holds_the_wall_and_next_moves_it_on(authed_page, two_step_tour):
 
     wall.press(S.TOUR_PAUSE)
     expect(wall.find(S.TOUR_RESUME).first).to_be_visible()
-    time.sleep(STEP_S + 3)  # longer than the step: a running wall would have turned
+    time.sleep(PAGE_S + 3)  # longer than the page: a running wall would have turned
     assert wall.tile_names() == [c["name"] for c in north]
 
     wall.press(S.TOUR_NEXT)

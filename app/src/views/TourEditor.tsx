@@ -6,24 +6,27 @@
  * opened from Settings › Camera Tours or from a running wall's Edit button,
  * where ?return= brings it back on save).
  *
- * Steps on the left, dragged into order; the selected step on the right:
- * its layout, how long each page shows, a preview of every page built from
- * camera stills, the chosen cameras (dragged into order, sorted, counted by
- * location) and a picker that shows each camera's picture. Below the steps,
- * the tour's own settings: Fit or Fill, and the alarm takeover.
+ * Pages on the left, dragged into order; the selected page on the right:
+ * its layout, how long it shows, a preview of it built from camera stills
+ * (tiles dragged into order, sorted, counted by location) and a picker that
+ * shows each camera's picture. A page holds what its layout holds: cameras
+ * added past that, or left over when the layout is made smaller, go onto
+ * new pages right after it, and the editor says so. Below the pages, the
+ * tour's own settings: Fit or Fill, and the alarm takeover.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent,
+  DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, pointerWithin, useDraggable, useDroppable, useSensor, useSensors,
+  type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDownAZ, ArrowLeft, BellRing, ChevronDown, ChevronRight, CopyPlus, GripVertical, MapPin, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Search, Trash2, X } from 'lucide-react'
+import { ArrowDownAZ, ArrowLeft, BellRing, ChevronDown, ChevronRight, CopyPlus, GripVertical, MapPin, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Rows3, Search, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
@@ -32,7 +35,7 @@ import { Modal } from '../components/Modal'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { PLAIN_GRIDS, PREDEFINED_LAYOUTS, parseGridId, resolveLayout, type LayoutDefinition, type WindowLayoutSettings } from '../lib/liveLayouts'
-import { buildPages, cycleSeconds, formatDuration } from '../lib/tourPlan'
+import { AUTO_GRID_MAX, buildPages, camerasOf, cycleSeconds, formatDuration, type Slot } from '../lib/tourPlan'
 import { DEFAULT_TOUR_SETTINGS, type AlertSeverity, type AlertSource, type Tour, type TourInput, type TourSettings } from '../services/tourService'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useSnackbar } from '../components/Snackbar'
@@ -41,6 +44,7 @@ import { Field, Input, Select } from '../components/ui/form'
 import { Switch } from '../components/ui/Switch'
 import { CameraThumb } from '../components/live/CameraThumb'
 import { IconAction } from '../components/live/IconAction'
+import { addCamera, chunk, closeGaps, fill, firstEmpty, fit, moveTo, placeAt, placeMessage, removeAt, tidy } from '../lib/tourArrange'
 
 export const TOURS_LIST_PATH = '/settings/more-settings/camera-tours'
 
@@ -48,7 +52,8 @@ const DURATION_PRESETS = [30, 60, 120, 300]
 const MIN_DURATION = 10
 const MAX_DURATION = 3600
 
-type DraftStep = { uid: string; label: string; layout_id: string; duration_s: number; camera_ids: number[] }
+/** camera_ids in tile order; null is a tile left empty. */
+type DraftPage = { uid: string; label: string; layout_id: string; duration_s: number; camera_ids: Slot[] }
 // `description` has no field in the editor; it rides along so a save keeps it.
 type Draft = {
   id: number | null
@@ -57,13 +62,13 @@ type Draft = {
   description?: string | null
   enabled: boolean
   settings: TourSettings
-  steps: DraftStep[]
+  pages: DraftPage[]
 }
 
 let uidSeq = 0
-const uid = () => `s${++uidSeq}`
-const newStep = (layout_id = 'grid:5x4'): DraftStep => ({ uid: uid(), label: '', layout_id, duration_s: 60, camera_ids: [] })
-const blankDraft = (): Draft => ({ id: null, name: '', enabled: true, settings: DEFAULT_TOUR_SETTINGS, steps: [newStep()] })
+const uid = () => `p${++uidSeq}`
+const newPage = (layout_id = 'grid:5x4'): DraftPage => ({ uid: uid(), label: '', layout_id, duration_s: 60, camera_ids: [] })
+const blankDraft = (): Draft => ({ id: null, name: '', enabled: true, settings: DEFAULT_TOUR_SETTINGS, pages: [newPage()] })
 
 function toInput(d: Draft): TourInput {
   return {
@@ -71,7 +76,7 @@ function toInput(d: Draft): TourInput {
     description: d.description ?? null,
     enabled: d.enabled,
     settings: d.settings,
-    steps: d.steps.map((s) => ({ label: s.label.trim(), layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: s.camera_ids })),
+    pages: d.pages.map((s) => ({ label: s.label.trim(), layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: tidy(s.camera_ids) })),
     ...(d.id != null && d.revision != null ? { expected_revision: d.revision } : {}),
   }
 }
@@ -84,7 +89,7 @@ function fromTour(tour: Tour, copy = false): Draft {
     description: tour.description,
     enabled: tour.enabled,
     settings: { ...DEFAULT_TOUR_SETTINGS, ...tour.settings, alerts: { ...DEFAULT_TOUR_SETTINGS.alerts, ...tour.settings?.alerts } },
-    steps: tour.steps.map((s) => ({ uid: uid(), label: s.label, layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: [...s.camera_ids] })),
+    pages: tour.pages.map((s) => ({ uid: uid(), label: s.label, layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: [...s.camera_ids] })),
   }
 }
 
@@ -159,7 +164,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   const confirm = useConfirm()
   const { showSuccess } = useSnackbar()
   const [draft, setDraft] = useState<Draft>(initial)
-  const [selected, setSelected] = useState(initial.steps[0]?.uid)
+  const [selected, setSelected] = useState(initial.pages[0]?.uid)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<{ text: string; conflict?: boolean } | null>(null)
@@ -169,14 +174,14 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
 
   const camById = useMemo(() => new Map(cameras.map((c) => [c.id, c])), [cameras])
   const [rail, setRail] = usePref('opennvr.tourEditor.rail', false)
-  const [stepsOpen, setStepsOpen] = usePref('opennvr.tourEditor.steps', true)
+  const [pagesOpen, setPagesOpen] = usePref('opennvr.tourEditor.pages', true)
   const [settingsOpen, setSettingsOpen] = usePref('opennvr.tourEditor.settings', true)
   const dirty = JSON.stringify(toInput(draft)) !== JSON.stringify(toInput(initial))
   const resolve = (lid: string) => resolveLayout(lid, windowSettings)
-  const pages = buildPages(draft.steps, resolve)
-  const step = draft.steps.find((s) => s.uid === selected) ?? draft.steps[0]
-  const emptySteps = draft.steps.filter((s) => s.camera_ids.length === 0).length
-  const canSave = !readOnly && !!draft.name.trim() && draft.steps.length > 0 && emptySteps === 0 && !saving
+  const shown = buildPages(draft.pages, resolve)
+  const page = draft.pages.find((s) => s.uid === selected) ?? draft.pages[0]
+  const emptyPages = draft.pages.filter((s) => camerasOf(s.camera_ids).length === 0).length
+  const canSave = !readOnly && !!draft.name.trim() && draft.pages.length > 0 && emptyPages === 0 && !saving
   const nameError = touched && !draft.name.trim()
 
   // Leaving with unsaved changes asks first: in-app links, and the tab itself.
@@ -193,29 +198,43 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty, saved])
 
-  const setStep = (key: string, patch: Partial<DraftStep>) =>
-    setDraft((d) => ({ ...d, steps: d.steps.map((s) => (s.uid === key ? { ...s, ...patch } : s)) }))
+  const setPage = (key: string, patch: Partial<DraftPage>) =>
+    setDraft((d) => ({ ...d, pages: d.pages.map((s) => (s.uid === key ? { ...s, ...patch } : s)) }))
   const setSettings = (patch: Partial<TourSettings>) => setDraft((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
   const setAlerts = (patch: Partial<TourSettings['alerts']>) =>
     setDraft((d) => ({ ...d, settings: { ...d.settings, alerts: { ...d.settings.alerts, ...patch } } }))
 
-  const addStep = () => {
-    const s = newStep(draft.steps[draft.steps.length - 1]?.layout_id)
-    setDraft((d) => ({ ...d, steps: [...d.steps, s] }))
+  const addPage = () => {
+    const s = newPage(draft.pages[draft.pages.length - 1]?.layout_id)
+    setDraft((d) => ({ ...d, pages: [...d.pages, s] }))
     setSelected(s.uid)
   }
-  const duplicateStep = (key: string) => {
-    const i = draft.steps.findIndex((s) => s.uid === key)
+  const duplicatePage = (key: string) => {
+    const i = draft.pages.findIndex((s) => s.uid === key)
     if (i < 0) return
-    const copy = { ...draft.steps[i], uid: uid(), camera_ids: [...draft.steps[i].camera_ids] }
-    setDraft((d) => { const steps = [...d.steps]; steps.splice(i + 1, 0, copy); return { ...d, steps } })
+    const copy = { ...draft.pages[i], uid: uid(), camera_ids: [...draft.pages[i].camera_ids] }
+    setDraft((d) => { const pages = [...d.pages]; pages.splice(i + 1, 0, copy); return { ...d, pages } })
     setSelected(copy.uid)
   }
-  const removeStep = (key: string) => {
-    const i = draft.steps.findIndex((s) => s.uid === key)
-    setDraft((d) => ({ ...d, steps: d.steps.filter((s) => s.uid !== key) }))
-    const next = draft.steps[i + 1] ?? draft.steps[i - 1]
+  const removePage = (key: string) => {
+    const i = draft.pages.findIndex((s) => s.uid === key)
+    setDraft((d) => ({ ...d, pages: d.pages.filter((s) => s.uid !== key) }))
+    const next = draft.pages[i + 1] ?? draft.pages[i - 1]
     if (next) setSelected(next.uid)
+  }
+  // Cameras that did not fit on page `key` go onto new pages right after it,
+  // with its label, layout and time. The page being edited stays selected.
+  const spill = (key: string, cams: number[], tiles: number) => {
+    if (!cams.length) return
+    setDraft((d) => {
+      const i = d.pages.findIndex((s) => s.uid === key)
+      if (i < 0) return d
+      const from = d.pages[i]
+      const added = chunk(cams, tiles).map((ids) => ({ ...from, uid: uid(), camera_ids: ids }))
+      const pages = [...d.pages]
+      pages.splice(i + 1, 0, ...added)
+      return { ...d, pages }
+    })
   }
 
   const save = async () => {
@@ -252,12 +271,12 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  const onStepDrag = ({ active, over }: DragEndEvent) => {
+  const onPageDrag = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
     setDraft((d) => {
-      const from = d.steps.findIndex((s) => s.uid === active.id)
-      const to = d.steps.findIndex((s) => s.uid === over.id)
-      return from < 0 || to < 0 ? d : { ...d, steps: arrayMove(d.steps, from, to) }
+      const from = d.pages.findIndex((s) => s.uid === active.id)
+      const to = d.pages.findIndex((s) => s.uid === over.id)
+      return from < 0 || to < 0 ? d : { ...d, pages: arrayMove(d.pages, from, to) }
     })
   }
 
@@ -281,7 +300,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
           {t('tours.enabled')}
         </label>
         <span className="hidden lg:inline text-xs text-[var(--text-dim)] font-mono tabular-nums" data-testid="tour-cycle">
-          {t('tours.cycleSummary', { steps: draft.steps.length, pages: pages.length, cycle: formatDuration(cycleSeconds(pages)) })}
+          {t('tours.cycleSummary', { pages: draft.pages.length, cycle: formatDuration(cycleSeconds(shown)) })}
         </span>
         <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
         <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
@@ -298,57 +317,57 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
         </div>
       )}
 
-      {/* Two columns from xl up (steps + settings | the selected step); below
-          that one column in reading order: steps, the step, then settings.
-          From xl the left column can fold to a rail of step numbers. The step
-          panel spans both left rows; the first row stays as tall as the step
+      {/* Two columns from xl up (pages + settings | the selected page); below
+          that one column in reading order: pages, the page, then settings.
+          From xl the left column can fold to a rail of page numbers. The page
+          panel spans both left rows; the first row stays as tall as the page
           list and the second takes the rest, so settings sit right under it. */}
       <div className={clsx('grid gap-4 xl:grid-rows-[auto_1fr] items-start',
         rail ? 'xl:grid-cols-[3rem_minmax(0,1fr)]' : 'xl:grid-cols-[20rem_minmax(0,1fr)]')}>
         {rail && (
-          <nav className="hidden xl:flex xl:col-start-1 xl:row-start-1 xl:row-span-2 flex-col items-center gap-1 py-2 border border-[var(--border)] bg-[var(--panel-2)]" aria-label={t('tours.steps')} data-testid="tour-steps-rail">
+          <nav className="hidden xl:flex xl:col-start-1 xl:row-start-1 xl:row-span-2 flex-col items-center gap-1 py-2 border border-[var(--border)] bg-[var(--panel-2)]" aria-label={t('tours.pages')} data-testid="tour-pages-rail">
             <IconAction label={t('tours.showPanel')} onClick={() => setRail(false)}><PanelLeftOpen size={15} /></IconAction>
             <span className="w-6 h-px bg-[var(--border)] my-1" aria-hidden="true" />
-            {draft.steps.map((s, i) => (
+            {draft.pages.map((s, i) => (
               <button key={s.uid} type="button" onClick={() => setSelected(s.uid)}
-                title={s.label || t('tours.stepN', { n: i + 1 })} aria-label={s.label || t('tours.stepN', { n: i + 1 })} aria-current={s.uid === step?.uid || undefined}
+                title={s.label || t('tours.pageN', { n: i + 1 })} aria-label={s.label || t('tours.pageN', { n: i + 1 })} aria-current={s.uid === page?.uid || undefined}
                 className={clsx('w-8 h-8 text-xs font-mono border',
-                  s.uid === step?.uid ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)]',
-                  touched && s.camera_ids.length === 0 && 'border-[var(--danger)]')}>
+                  s.uid === page?.uid ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : 'border-[var(--border)] text-[var(--text-dim)] hover:text-[var(--text)]',
+                  touched && camerasOf(s.camera_ids).length === 0 && 'border-[var(--danger)]')}>
                 {i + 1}
               </button>
             ))}
-            <IconAction label={t('tours.addStep')} onClick={addStep}><Plus size={14} /></IconAction>
+            <IconAction label={t('tours.addPage')} onClick={addPage}><Plus size={14} /></IconAction>
           </nav>
         )}
 
-        <section className={clsx('border border-[var(--border)] bg-[var(--panel-2)] xl:col-start-1 xl:row-start-1', rail && 'xl:hidden')} data-testid="tour-steps">
+        <section className={clsx('border border-[var(--border)] bg-[var(--panel-2)] xl:col-start-1 xl:row-start-1', rail && 'xl:hidden')} data-testid="tour-pages">
           <header className="flex items-center gap-2 pl-1 pr-1 py-1 border-b border-[var(--border)] text-sm font-medium">
-            <button type="button" onClick={() => setStepsOpen(!stepsOpen)} aria-expanded={stepsOpen}
+            <button type="button" onClick={() => setPagesOpen(!pagesOpen)} aria-expanded={pagesOpen}
               className="flex flex-1 min-w-0 items-center gap-1.5 px-1.5 py-0.5 text-left hover:bg-[var(--panel)]">
-              {stepsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {t('tours.steps')}
+              {pagesOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {t('tours.pages')}
               <span className="text-xs font-normal text-[var(--text-dim)] truncate">
-                {stepsOpen ? t('tours.dragToReorder') : t('tours.stepsCount', { count: draft.steps.length })}
+                {pagesOpen ? t('tours.dragToReorder') : t('tours.pagesCount', { count: draft.pages.length })}
               </span>
             </button>
             <span className="hidden xl:inline-flex">
               <IconAction label={t('tours.hidePanel')} onClick={() => setRail(true)}><PanelLeftClose size={15} /></IconAction>
             </span>
           </header>
-          {stepsOpen && (
+          {pagesOpen && (
             <>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onStepDrag}>
-                <SortableContext items={draft.steps.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPageDrag}>
+                <SortableContext items={draft.pages.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
                   <ol className="divide-y divide-[var(--border)]">
-                    {draft.steps.map((s, i) => (
-                      <StepRow
+                    {draft.pages.map((s, i) => (
+                      <PageRow
                         key={s.uid}
-                        step={s}
+                        page={s}
                         index={i}
-                        selected={s.uid === step?.uid}
+                        selected={s.uid === page?.uid}
                         layout={resolve(s.layout_id)}
-                        invalid={touched && s.camera_ids.length === 0}
+                        invalid={touched && camerasOf(s.camera_ids).length === 0}
                         onSelect={() => setSelected(s.uid)}
                       />
                     ))}
@@ -356,31 +375,31 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
                 </SortableContext>
               </DndContext>
               <div className="p-2 border-t border-[var(--border)]">
-                <Button variant="outline" size="sm" onClick={addStep}><Plus size={14} /> {t('tours.addStep')}</Button>
+                <Button variant="outline" size="sm" onClick={addPage}><Plus size={14} /> {t('tours.addPage')}</Button>
               </div>
             </>
           )}
         </section>
 
-        {/* The selected step */}
-        {step && (
+        {/* The selected page */}
+        {page && (
           <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:row-span-2">
-            <StepDetail
-              key={step.uid}
-              step={step}
-              index={draft.steps.indexOf(step)}
-              count={draft.steps.length}
-              layout={resolve(step.layout_id)}
+            <PageDetail
+              key={page.uid}
+              page={page}
+              index={draft.pages.indexOf(page)}
+              count={draft.pages.length}
               windowSettings={windowSettings}
               cameras={cameras}
               camById={camById}
               badCameras={badCameras}
-              badLayout={badLayouts.has(step.layout_id)}
+              badLayout={badLayouts.has(page.layout_id)}
               showErrors={touched}
               cover={draft.settings.fit === 'fill'}
-              onChange={(patch) => setStep(step.uid, patch)}
-              onDuplicate={() => duplicateStep(step.uid)}
-              onRemove={() => removeStep(step.uid)}
+              onChange={(patch) => setPage(page.uid, patch)}
+              onSpill={(cams, tiles) => spill(page.uid, cams, tiles)}
+              onDuplicate={() => duplicatePage(page.uid)}
+              onRemove={() => removePage(page.uid)}
             />
           </div>
         )}
@@ -394,8 +413,8 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   )
 }
 
-function StepRow({ step, index, selected, layout, invalid, onSelect }: {
-  step: DraftStep
+function PageRow({ page, index, selected, layout, invalid, onSelect }: {
+  page: DraftPage
   index: number
   selected: boolean
   layout: LayoutDefinition | null
@@ -403,28 +422,27 @@ function StepRow({ step, index, selected, layout, invalid, onSelect }: {
   onSelect: () => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.uid })
-  const tiles = layout?.tiles.length ?? 0
-  const pages = tiles ? Math.ceil(step.camera_ids.length / tiles) : 0
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: page.uid })
+  const count = camerasOf(page.camera_ids).length
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={clsx('flex items-center gap-2 px-2 py-2 bg-[var(--panel-2)]', selected && 'bg-[color-mix(in_oklab,var(--accent)_12%,var(--panel-2))]', isDragging && 'relative z-10 shadow-lg')}
-      data-testid="tour-step-row"
+      data-testid="tour-page-row"
     >
-      <button type="button" className="p-1 text-[var(--text-dim)] cursor-grab active:cursor-grabbing" aria-label={t('tours.dragStep', { n: index + 1 })} {...attributes} {...listeners}>
+      <button type="button" className="p-1 text-[var(--text-dim)] cursor-grab active:cursor-grabbing" aria-label={t('tours.dragPage', { n: index + 1 })} {...attributes} {...listeners}>
         <GripVertical size={14} />
       </button>
       <button type="button" onClick={onSelect} className="flex-1 min-w-0 flex items-center gap-2 text-left" aria-current={selected || undefined}>
         <span className="text-xs font-mono text-[var(--text-dim)] w-4 text-right">{index + 1}</span>
         {layout && <LayoutPreview layout={layout} small />}
         <span className="min-w-0 flex-1">
-          <span className={clsx('block text-sm truncate', selected && 'font-semibold')}>{step.label || t('tours.stepN', { n: index + 1 })}</span>
+          <span className={clsx('block text-sm truncate', selected && 'font-semibold')}>{page.label || t('tours.pageN', { n: index + 1 })}</span>
           <span className={clsx('block text-[11px] font-mono tabular-nums', invalid ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')}>
-            {step.camera_ids.length === 0
+            {count === 0
               ? t('tours.noCamerasYet')
-              : `${t('tours.camerasCount', { count: step.camera_ids.length })}${pages > 1 ? ` · ${t('tours.pagesCount', { count: pages })}` : ''} · ${formatDuration(step.duration_s)}`}
+              : `${t('tours.tilesUsed', { count, tiles: layout?.tiles.length ?? count })} · ${formatDuration(page.duration_s)}`}
           </span>
         </span>
       </button>
@@ -548,11 +566,10 @@ function layoutOptions(ws: WindowLayoutSettings | undefined): { builtIn: LayoutO
   return { builtIn, grids, custom }
 }
 
-function StepDetail({ step, index, count, layout, windowSettings, cameras, camById, badCameras, badLayout, showErrors, cover, onChange, onDuplicate, onRemove }: {
-  step: DraftStep
+function PageDetail({ page, index, count, windowSettings, cameras, camById, badCameras, badLayout, showErrors, cover, onChange, onSpill, onDuplicate, onRemove }: {
+  page: DraftPage
   index: number
   count: number
-  layout: LayoutDefinition | null
   windowSettings: WindowLayoutSettings | undefined
   cameras: CameraItem[]
   camById: Map<number, CameraItem>
@@ -560,66 +577,144 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
   badLayout: boolean
   showErrors: boolean
   cover: boolean
-  onChange: (patch: Partial<DraftStep>) => void
+  onChange: (patch: Partial<DraftPage>) => void
+  /** Cameras that did not fit: onto new pages of `tiles` right after this one. */
+  onSpill: (cams: number[], tiles: number) => void
   onDuplicate: () => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
   const options = useMemo(() => layoutOptions(windowSettings), [windowSettings])
   // Any grid:CxR is valid, offered or not (a tour made through the API may use 2×2).
-  const plain = parseGridId(step.layout_id)
-  const extraGrid = plain && !options.grids.some((o) => o.id === step.layout_id)
-    ? { id: step.layout_id, label: `${plain[0]}×${plain[1]}`, tiles: plain[0] * plain[1] }
+  const plain = parseGridId(page.layout_id)
+  const extraGrid = plain && !options.grids.some((o) => o.id === page.layout_id)
+    ? { id: page.layout_id, label: `${plain[0]}×${plain[1]}`, tiles: plain[0] * plain[1] }
     : null
-  const known = !!plain || [...options.builtIn, ...options.custom].some((o) => o.id === step.layout_id)
-  const custom = !DURATION_PRESETS.includes(step.duration_s)
-  const pages = buildPages([step], (lid) => resolveLayout(lid, windowSettings))
-  const [previewPage, setPreviewPage] = useState(0)
-  const shownPage = pages[Math.min(previewPage, Math.max(0, pages.length - 1))]
+  const known = !!plain || [...options.builtIn, ...options.custom].some((o) => o.id === page.layout_id)
+  const custom = !DURATION_PRESETS.includes(page.duration_s)
+  // The page as the wall will show it, even with every tile empty: cameras can still be put on it.
+  const [shown] = buildPages([page], (lid) => resolveLayout(lid, windowSettings), { keepEmptyPages: true })
+  const layout = shown.layout
+  const tiles = layout.tiles.length
+  const cameraCount = camerasOf(page.camera_ids).length
+  const hasGaps = page.camera_ids.includes(null)
   // Live video only when asked for: one camera at a time, in a dialog.
   const [live, setLive] = useState<number | null>(null)
+  // As on a running wall's Arrange: a chosen tile that the next camera
+  // clicked in the list goes to, and what the last change did, e.g. that
+  // the camera was already on another tile or that some went onto new pages.
+  const [target, setTarget] = useState<number | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<number | null>(null)
+  const nameOf = (id: number) => camById.get(id)?.name ?? `#${id}`
+  // A layout Live View no longer offers stands in as the automatic grid.
+  const tilesOf = (lid: string) => resolveLayout(lid, windowSettings)?.tiles.length || AUTO_GRID_MAX
+  const spilledNotice = (n: number, per: number) => {
+    const pages = Math.ceil(n / per)
+    return n === 1 ? t('tours.spilledOneCamera') : pages === 1 ? t('tours.spilledOnePage', { count: n }) : t('tours.spilledMany', { count: n, pages })
+  }
+
+  const place = (cam: number, at: number) => {
+    setNotice(placeMessage(t, page.camera_ids, cam, at, nameOf, tiles))
+    onChange({ camera_ids: placeAt(page.camera_ids, cam, at, tiles) })
+    setTarget(null)
+  }
+  const choose = (at: number) => { setTarget(target === at ? null : at); setNotice(null) }
+  // A smaller layout keeps the cameras on its tiles where they are; the
+  // rest go onto new pages after this one rather than disappearing.
+  const changeLayout = (lid: string) => {
+    const per = tilesOf(lid)
+    const { ids, rest } = fit(page.camera_ids, per)
+    onChange({ layout_id: lid, camera_ids: ids })
+    onSpill(rest, per)
+    setTarget(null)
+    setNotice(rest.length ? spilledNotice(rest.length, per) : null)
+  }
+  // An unnamed page whose cameras share one location is named after it
+  // (and so are the pages its overflow goes onto).
+  const withCameras = (ids: Slot[]): Partial<DraftPage> => {
+    const locs = new Set(camerasOf(ids).map((id) => camById.get(id)?.location?.trim()).filter(Boolean))
+    return !page.label && locs.size === 1 ? { camera_ids: ids, label: [...locs][0] as string } : { camera_ids: ids }
+  }
+  // Unticked, a camera leaves its tile empty; ticked, it fills the first
+  // empty tile, and on a full page nothing changes but the hint.
+  const toggle = (cam: number) => {
+    setTarget(null)
+    const at = page.camera_ids.indexOf(cam)
+    if (at >= 0) { onChange({ camera_ids: removeAt(page.camera_ids, at) }); setNotice(null); return }
+    if (firstEmpty(page.camera_ids, tiles) == null) { setNotice(t('tours.pageFull')); return }
+    onChange(withCameras(addCamera(page.camera_ids, cam, tiles)))
+    setNotice(null)
+  }
+  // "Add all": as many as fit here, the rest on new pages after this one.
+  const addAll = (cams: number[]) => {
+    const { ids, rest } = fill(page.camera_ids, cams, tiles)
+    onChange(withCameras(ids))
+    onSpill(rest, tiles)
+    setTarget(null)
+    setNotice(rest.length ? spilledNotice(rest.length, tiles) : null)
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  // A camera from the list lands where the pointer is, or nowhere (let go
+  // over the list and nothing changes); a tile being reordered snaps to
+  // the nearest one.
+  const collide: CollisionDetection = (args) =>
+    String(args.active.id).startsWith('pick:') ? pointerWithin(args) : closestCenter(args)
+  const onDragStart = ({ active }: DragStartEvent) => {
+    const id = String(active.id)
+    // Only a camera from the list needs an overlay: a tile moves itself.
+    setDragging(id.startsWith('pick:') ? Number(id.slice(5)) : null)
+  }
   const onCameraDrag = ({ active, over }: DragEndEvent) => {
+    setDragging(null)
     if (!over || active.id === over.id) return
-    const ids = step.camera_ids
-    onChange({ camera_ids: arrayMove(ids, ids.indexOf(Number(active.id)), ids.indexOf(Number(over.id))) })
+    const ids = page.camera_ids
+    const overId = String(over.id)
+    const at = overId.startsWith('slot:') ? Number(overId.slice(5)) : ids.indexOf(Number(over.id))
+    if (at < 0) return
+    const activeId = String(active.id)
+    if (activeId.startsWith('pick:')) { place(Number(activeId.slice(5)), at); return }
+    setNotice(null)
+    // Swapped, as on a running wall: the cameras between the two stay put.
+    onChange({ camera_ids: moveTo(ids, ids.indexOf(Number(active.id)), at, tiles) })
   }
   const sortBy = (key: 'name' | 'location') => {
     const name = (id: number) => (camById.get(id)?.name ?? '').toLowerCase()
     const loc = (id: number) => (camById.get(id)?.location ?? '').toLowerCase()
     onChange({
-      camera_ids: [...step.camera_ids].sort((a, b) =>
+      camera_ids: camerasOf(page.camera_ids).sort((a, b) =>
         key === 'location' ? loc(a).localeCompare(loc(b)) || name(a).localeCompare(name(b)) : name(a).localeCompare(name(b))),
     })
   }
   const byLocation = useMemo(() => {
     const m = new Map<string, number>()
-    for (const id of step.camera_ids) {
+    for (const id of camerasOf(page.camera_ids)) {
       const loc = camById.get(id)?.location?.trim() || t('tours.noLocation')
       m.set(loc, (m.get(loc) ?? 0) + 1)
     }
     return [...m.entries()]
-  }, [step.camera_ids, camById, t])
+  }, [page.camera_ids, camById, t])
 
   return (
-    <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-step-editor" aria-label={t('tours.stepN', { n: index + 1 })}>
-      {/* One row: the step's number, label, layout and time, then its actions.
+    <section className="@container border border-[var(--border)] bg-[var(--panel-2)] min-w-0" data-testid="tour-page-editor" aria-label={t('tours.pageN', { n: index + 1 })}
+      onKeyDown={(e) => { if (e.key === 'Escape' && target != null) { e.stopPropagation(); setTarget(null) } }}>
+      {/* One row: the page's number, label, layout and time, then its actions.
           The controls carry their own names (placeholder, tooltip, aria). */}
       <header className="flex flex-wrap items-center gap-2 px-2 py-1.5 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))]">
         <span className="shrink-0 w-6 h-6 inline-flex items-center justify-center text-xs font-semibold font-mono bg-[var(--accent)] text-white">{index + 1}</span>
         <div className="min-w-[10rem] flex-1">
-          <Input value={step.label} maxLength={60} placeholder={t('tours.stepLabelPlaceholder')}
-            aria-label={t('tours.stepLabel')} title={t('tours.stepLabel')} onChange={(e) => onChange({ label: e.target.value })} />
+          <Input value={page.label} maxLength={60} placeholder={t('tours.pageLabelPlaceholder')}
+            aria-label={t('tours.pageLabel')} title={t('tours.pageLabel')} onChange={(e) => onChange({ label: e.target.value })} />
         </div>
         <div className="w-44 shrink-0">
-          <Select value={step.layout_id} onChange={(e) => { onChange({ layout_id: e.target.value }); setPreviewPage(0) }}
+          <Select value={page.layout_id} onChange={(e) => changeLayout(e.target.value)}
             aria-label={t('tours.layout')} title={t('tours.layout')}
             className={clsx((badLayout || !known) && '!border-[var(--danger)]')}>
-            {!known && <option value={step.layout_id}>{t('tours.layoutGone', { id: step.layout_id })}</option>}
+            {!known && <option value={page.layout_id}>{t('tours.layoutGone', { id: page.layout_id })}</option>}
             <optgroup label={t('tours.layoutsGrids')}>
               {extraGrid && <option value={extraGrid.id}>{extraGrid.label} ({extraGrid.tiles})</option>}
               {options.grids.map((o) => <option key={o.id} value={o.id}>{o.label} ({o.tiles})</option>)}
@@ -637,8 +732,8 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
         <div className="shrink-0 flex items-center gap-1" title={t('tours.duration')}>
           <div className="w-32">
             <Select
-              value={custom ? 'custom' : String(step.duration_s)}
-              onChange={(e) => onChange({ duration_s: e.target.value === 'custom' ? (custom ? step.duration_s : 90) : Number(e.target.value) })}
+              value={custom ? 'custom' : String(page.duration_s)}
+              onChange={(e) => onChange({ duration_s: e.target.value === 'custom' ? (custom ? page.duration_s : 90) : Number(e.target.value) })}
               aria-label={t('tours.duration')}
             >
               {DURATION_PRESETS.map((d) => <option key={d} value={d}>{t('tours.everyDuration', { d: formatDuration(d) })}</option>)}
@@ -649,7 +744,7 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
             // Sized by a wrapper: the shared control class is always w-full.
             <div className="w-20">
               <Input
-                type="number" min={MIN_DURATION} max={MAX_DURATION} value={step.duration_s}
+                type="number" min={MIN_DURATION} max={MAX_DURATION} value={page.duration_s}
                 aria-label={t('tours.durationSeconds')} title={t('tours.durationSeconds')}
                 onChange={(e) => onChange({ duration_s: Math.min(MAX_DURATION, Math.max(MIN_DURATION, Number(e.target.value) || MIN_DURATION)) })}
               />
@@ -657,8 +752,8 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
           )}
         </div>
         <span className="flex items-center gap-0.5">
-          <IconAction label={t('tours.duplicateStep')} onClick={onDuplicate}><CopyPlus size={13} /></IconAction>
-          <IconAction label={t('tours.removeStep')} onClick={onRemove} disabled={count === 1} danger><Trash2 size={13} /></IconAction>
+          <IconAction label={t('tours.duplicatePage')} onClick={onDuplicate}><CopyPlus size={13} /></IconAction>
+          <IconAction label={t('tours.removePage')} onClick={onRemove} disabled={count === 1} danger><Trash2 size={13} /></IconAction>
         </span>
       </header>
       {(badLayout || !known) && <p className="px-2 pt-1.5 text-xs text-[var(--danger)]">{t('tours.layoutUnavailable')}</p>}
@@ -667,91 +762,88 @@ function StepDetail({ step, index, count, layout, windowSettings, cameras, camBy
         {/* Two panes: pick cameras on the left, arrange them on the right in
             the preview itself (drag tiles to reorder, x to remove). They stack
             when the panel is too narrow for both. */}
+        <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onDragStart} onDragEnd={onCameraDrag} onDragCancel={() => setDragging(null)}>
         <div className="grid gap-3 @3xl:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] items-start">
           <CameraPicker
             cameras={cameras}
-            selected={step.camera_ids}
+            selected={page.camera_ids}
+            target={target}
+            onPick={(cam) => target != null && place(cam, target)}
+            onStopChoosing={() => setTarget(null)}
             onLive={setLive}
-            onChange={(ids) => {
-              // An unnamed step whose cameras share one location is named after it.
-              const locs = new Set(ids.map((id) => camById.get(id)?.location?.trim()).filter(Boolean))
-              onChange(!step.label && locs.size === 1 ? { camera_ids: ids, label: [...locs][0] as string } : { camera_ids: ids })
-            }}
+            onToggle={toggle}
+            onAddAll={addAll}
           />
 
-          <div className="min-w-0 space-y-2" data-testid="tour-step-preview">
+          <div className="min-w-0 space-y-2" data-testid="tour-page-preview-pane">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t('tours.preview')}</span>
-              {pages.length > 1 && (
-                <span className="flex items-center gap-1" role="tablist" aria-label={t('tours.preview')}>
-                  {pages.map((p, i) => (
-                    <button key={p.key} type="button" role="tab" aria-selected={p === shownPage}
-                      onClick={() => setPreviewPage(i)}
-                      className={clsx('text-[11px] px-1.5 py-0.5 border font-mono', p === shownPage ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-[var(--border)] text-[var(--text-dim)]')}>
-                      {i + 1}
-                    </button>
-                  ))}
-                </span>
-              )}
-              <span className={clsx('text-xs font-mono tabular-nums', step.camera_ids.length === 0 && showErrors ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')} data-testid="tour-step-capacity">
-                {step.camera_ids.length === 0
-                  ? t('tours.noCamerasYet')
-                  : pages.length > 1
-                    ? t('tours.pagesOf', { count: step.camera_ids.length, pages: pages.length, per: layout?.tiles.length ?? 0 })
-                    : t('tours.tilesUsed', { count: step.camera_ids.length, tiles: layout?.tiles.length ?? 0 })}
+              <span className={clsx('text-xs font-mono tabular-nums', cameraCount === 0 && showErrors ? 'text-[var(--danger)]' : 'text-[var(--text-dim)]')} data-testid="tour-page-capacity">
+                {cameraCount === 0 ? t('tours.noCamerasYet') : t('tours.tilesUsed', { count: cameraCount, tiles })}
               </span>
               {byLocation.map(([loc, n]) => (
                 <span key={loc} className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 border border-[var(--border)] text-[var(--text-dim)]" title={t('tours.byLocation')}>
                   <MapPin size={10} aria-hidden="true" /> {loc} · {n}
                 </span>
               ))}
-              {step.camera_ids.length > 1 && (
+              {(cameraCount > 1 || hasGaps) && (
                 <span className="ml-auto flex items-center gap-1">
+                  {hasGaps && (
+                    <Button size="sm" variant="ghost" onClick={() => { onChange({ camera_ids: closeGaps(page.camera_ids) }); setTarget(null); setNotice(null) }}
+                      title={t('tours.closeGapsHint')} data-testid="tour-close-gaps">
+                      <Rows3 size={12} /> {t('tours.closeGaps')}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" onClick={() => sortBy('name')}><ArrowDownAZ size={12} /> {t('tours.sortName')}</Button>
                   <Button size="sm" variant="ghost" onClick={() => sortBy('location')}><MapPin size={12} /> {t('tours.sortLocation')}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => onChange({ camera_ids: [] })}>{t('tours.clearCameras')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { onChange({ camera_ids: [] }); setTarget(null); setNotice(null) }}>{t('tours.clearCameras')}</Button>
                 </span>
               )}
             </div>
-            {shownPage ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onCameraDrag}>
-                <SortableContext items={shownPage.cameraIds} strategy={rectSortingStrategy}>
-                  <PagePreview
-                    layout={shownPage.layout}
-                    cameraIds={shownPage.cameraIds}
-                    firstOrder={step.camera_ids.indexOf(shownPage.cameraIds[0]) + 1}
-                    camById={camById}
-                    cover={cover}
-                    bad={badCameras}
-                    onLive={setLive}
-                    onRemove={(cid) => onChange({ camera_ids: step.camera_ids.filter((x) => x !== cid) })}
-                  />
-                </SortableContext>
-              </DndContext>
-            ) : (
-              <div className="aspect-video w-full flex items-center justify-center border border-dashed border-[var(--border)] text-sm text-[var(--text-dim)] px-4 text-center">
-                {t('tours.previewEmpty')}
-              </div>
-            )}
-            {pages.length > 1 && <p className="text-[11px] text-[var(--text-dim)]">{t('tours.reorderAcrossPages')}</p>}
+            <p className={clsx('text-[11px]', notice || target != null ? 'text-[var(--accent)] font-medium' : 'text-[var(--text-dim)]')} role="status" data-testid="tour-page-notice">
+              {target != null ? t('tours.editorTarget', { n: target + 1 }) : notice ?? (cameraCount === 0 ? t('tours.previewEmpty') : t('tours.editorHint'))}
+            </p>
+            <SortableContext items={camerasOf(shown.cameraIds)} strategy={rectSortingStrategy}>
+              <PagePreview
+                layout={layout}
+                cameraIds={shown.cameraIds}
+                camById={camById}
+                cover={cover}
+                bad={badCameras}
+                target={target}
+                onSelect={choose}
+                onLive={setLive}
+                onRemove={(cid) => { onChange({ camera_ids: removeAt(page.camera_ids, page.camera_ids.indexOf(cid)) }); setTarget(null); setNotice(null) }}
+              />
+            </SortableContext>
           </div>
         </div>
+        <DragOverlay dropAnimation={null}>
+          {dragging != null && (
+            <div className="flex items-center gap-2 w-56 p-1 pr-2 text-xs text-white bg-black/85 border border-[var(--accent)] shadow-lg">
+              <CameraThumb cameraId={dragging} alt="" className="w-14 aspect-video shrink-0" />
+              <span className="truncate">{nameOf(dragging)}</span>
+            </div>
+          )}
+        </DragOverlay>
+        </DndContext>
       </div>
       {live != null && <LivePeek cameraId={live} cam={camById.get(live)} onClose={() => setLive(null)} />}
     </section>
   )
 }
 
-/** The step's page as the wall will show it, from stills; each tile can be
+/** The page as the wall will show it, from stills; each tile can be
  *  dragged to reorder, removed, or opened live. */
-function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLive, onRemove }: {
+function PagePreview({ layout, cameraIds, camById, cover, bad, target, onSelect, onLive, onRemove }: {
   layout: LayoutDefinition
-  cameraIds: number[]
-  /** The 1-based position of this page's first camera in the step. */
-  firstOrder: number
+  cameraIds: Slot[]
   camById: Map<number, CameraItem>
   cover: boolean
   bad: Set<number>
+  /** The chosen tile (0-based), if any. */
+  target: number | null
+  onSelect: (slot: number) => void
   onLive: (cameraId: number) => void
   onRemove: (cameraId: number) => void
 }) {
@@ -765,30 +857,60 @@ function PagePreview({ layout, cameraIds, firstOrder, camById, cover, bad, onLiv
         const cid = cameraIds[i]
         const area = { gridRow: `${tile.row + 1} / span ${tile.rowSpan}`, gridColumn: `${tile.col + 1} / span ${tile.colSpan}` }
         return cid != null ? (
-          <PreviewTile key={cid} cameraId={cid} order={firstOrder + i} area={area} cam={camById.get(cid)} cover={cover}
-            bad={bad.has(cid)} onLive={() => onLive(cid)} onRemove={() => onRemove(cid)} />
+          <PreviewTile key={cid} cameraId={cid} order={i + 1} area={area} cam={camById.get(cid)} cover={cover}
+            bad={bad.has(cid)} selected={target === i} onSelect={() => onSelect(i)} onLive={() => onLive(cid)} onRemove={() => onRemove(cid)} />
         ) : (
-          <div key={`e${i}`} style={area} className="flex items-center justify-center border border-dashed border-white/10 bg-[#0b0f16] text-[10px] font-mono text-white/25" aria-hidden="true">
-            {firstOrder + i}
-          </div>
+          <EmptyTile key={`e${i}`} slot={i} order={i + 1} area={area} selected={target === i} onSelect={() => onSelect(i)} />
         )
       })}
     </div>
   )
 }
 
-function PreviewTile({ cameraId, order, area, cam, cover, bad, onLive, onRemove }: {
+/** An empty tile: a camera can be dropped on it, or it can be chosen. */
+function EmptyTile({ slot, order, area, selected, onSelect }: {
+  slot: number
+  order: number
+  area: React.CSSProperties
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const drop = useDroppable({ id: `slot:${slot}` })
+  return (
+    <button
+      ref={drop.setNodeRef}
+      type="button"
+      style={area}
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={t('tours.arrangeEmptyTile', { n: order })}
+      title={t('tours.arrangeEmptyTile', { n: order })}
+      data-testid="tour-preview-empty"
+      className={clsx('flex items-center justify-center border border-dashed bg-[#0b0f16] text-[10px] font-mono text-white/30 hover:bg-white/5',
+        selected ? 'border-transparent ring-2 ring-inset ring-[var(--accent)]' : drop.isOver ? 'border-transparent ring-2 ring-inset ring-[var(--accent)] bg-[var(--accent)]/15' : 'border-white/10')}
+    >
+      {order}
+    </button>
+  )
+}
+
+function PreviewTile({ cameraId, order, area, cam, cover, bad, selected, onSelect, onLive, onRemove }: {
   cameraId: number
   order: number
   area: React.CSSProperties
   cam: CameraItem | undefined
   cover: boolean
   bad: boolean
+  selected: boolean
+  onSelect: () => void
   onLive: () => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cameraId })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({ id: cameraId })
+  // A camera from the list held over this tile would replace it.
+  const pickOver = isOver && String(active?.id ?? '').startsWith('pick:')
   const name = cam?.name ?? `#${cameraId}`
   return (
     <div
@@ -796,10 +918,14 @@ function PreviewTile({ cameraId, order, area, cam, cover, bad, onLive, onRemove 
       style={{ ...area, transform: CSS.Transform.toString(transform), transition }}
       className={clsx('group/tile relative min-w-0 min-h-0 overflow-hidden bg-[#0b0f16]', isDragging && 'z-10 opacity-80 ring-2 ring-[var(--accent)]', bad && 'ring-2 ring-inset ring-[var(--danger)]')}
       data-testid="tour-preview-tile"
+      data-camera-id={cameraId}
     >
-      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" {...attributes} {...listeners} aria-label={t('tours.dragCamera', { name })}>
+      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" {...attributes} {...listeners}
+        onClick={onSelect} aria-pressed={selected} aria-label={t('tours.arrangeTile', { n: order, name })} title={t('tours.arrangeTile', { n: order, name })}>
         <CameraThumb cameraId={cameraId} alt={name} className={clsx('absolute inset-0', !cover && '[&_img]:object-contain')} />
       </div>
+      <div className={clsx('pointer-events-none absolute inset-0',
+        selected ? 'ring-4 ring-inset ring-[var(--accent)]' : pickOver && 'ring-2 ring-inset ring-[var(--accent)] bg-[var(--accent)]/15')} />
       <span className="pointer-events-none absolute left-1 top-1 px-1 text-[10px] font-mono text-white bg-black/60">{order}</span>
       <span className="pointer-events-none absolute left-1 right-1 bottom-0.5 text-[10px] text-white truncate [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">{name}</span>
       {/* Shown on hover or keyboard focus; always reachable by Tab. */}
@@ -872,13 +998,22 @@ function LayoutPreview({ layout, small }: { layout: LayoutDefinition; small?: bo
 
 const NO_LOCATION = '\u0000none'
 
-function CameraPicker({ cameras, selected, onChange, onLive }: {
+function CameraPicker({ cameras, selected, target, onPick, onStopChoosing, onToggle, onAddAll, onLive }: {
   cameras: CameraItem[]
-  selected: number[]
-  onChange: (ids: number[]) => void
+  /** The page's tiles; null is an empty one. */
+  selected: Slot[]
+  /** A chosen tile: a click then puts the camera there. */
+  target: number | null
+  onPick: (cameraId: number) => void
+  onStopChoosing: () => void
+  /** Ticked or unticked. */
+  onToggle: (cameraId: number) => void
+  /** "Add all": these cameras, in order. */
+  onAddAll: (cameraIds: number[]) => void
   onLive: (cameraId: number) => void
 }) {
   const { t } = useTranslation()
+  const position = useMemo(() => new Map(selected.flatMap((id, i) => (id == null ? [] : [[id, i] as const]))), [selected])
   const [q, setQ] = useState('')
   const [location, setLocation] = useState('')
   const chosen = useMemo(() => new Set(selected), [selected])
@@ -900,7 +1035,6 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
       .sort((a, b) => (a.location ?? '').localeCompare(b.location ?? '') || a.name.localeCompare(b.name))
   }, [cameras, q, location])
 
-  const toggle = (id: number) => onChange(chosen.has(id) ? selected.filter((x) => x !== id) : [...selected, id])
   const notYet = shown.filter((c) => !chosen.has(c.id))
   const locationLabel = (loc: string) => (loc === NO_LOCATION ? t('tours.noLocation') : loc)
 
@@ -908,6 +1042,12 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
     <div className="@container border border-[var(--border)] bg-[var(--panel)] min-w-0" data-testid="tour-camera-picker" role="group" aria-label={t('tours.addCameras')}>
       {/* Search on its own line (the pane is narrow); location and "add all" share the next. */}
       <div className="space-y-2 p-2 border-b border-[var(--border)]">
+        {target != null && (
+          <div className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--accent)] border border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]">
+            <span className="flex-1">{t('tours.editorTarget', { n: target + 1 })}</span>
+            <IconAction label={t('tours.stopChoosing')} onClick={onStopChoosing}><X size={12} /></IconAction>
+          </div>
+        )}
         <div className="relative">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-dim)]" aria-hidden="true" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tours.searchCameras')} className="pl-7" aria-label={t('tours.searchCameras')} />
@@ -920,7 +1060,7 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
             </Select>
           </div>
           {notYet.length > 0 && (
-            <Button size="sm" variant="outline" className="shrink-0 whitespace-nowrap" onClick={() => onChange([...selected, ...notYet.map((c) => c.id)])}>
+            <Button size="sm" variant="outline" className="shrink-0 whitespace-nowrap" onClick={() => onAddAll(notYet.map((c) => c.id))}>
               {location
                 ? t('tours.addAllFrom', { count: notYet.length, location: locationLabel(location) })
                 : t('tours.addAllShown', { count: notYet.length })}
@@ -933,23 +1073,48 @@ function CameraPicker({ cameras, selected, onChange, onLive }: {
       ) : (
         <ul className="max-h-[calc(100vh-18rem)] min-h-48 overflow-auto divide-y divide-[var(--border)]">
           {shown.map((c) => (
-            <li key={c.id} className={clsx('flex items-center gap-2 pr-1 hover:bg-[var(--panel-2)]', chosen.has(c.id) && 'bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]')}>
-              <label className="flex flex-1 min-w-0 items-center gap-2 pl-2 py-1.5 text-xs cursor-pointer">
-                <input type="checkbox" checked={chosen.has(c.id)} onChange={() => toggle(c.id)} />
-                <CameraThumb cameraId={c.id} alt={c.name} className="w-16 aspect-video shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{c.name}</span>
-                  <span className="block truncate text-[10px] text-[var(--text-dim)]">
-                    {[c.location, c.ip_address].filter(Boolean).join(' · ')}
-                    {!c.is_active && ` · ${t('tours.cameraPaused')}`}
-                  </span>
-                </span>
-              </label>
-              <IconAction label={t('tours.watchLive', { name: c.name })} onClick={() => onLive(c.id)}><Play size={12} /></IconAction>
-            </li>
+            <PickerRow key={c.id} cam={c} at={position.get(c.id)} choosing={target != null}
+              onToggle={() => onToggle(c.id)} onPick={() => onPick(c.id)} onLive={() => onLive(c.id)} />
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/** A camera in the picker: tick to add or remove it, drag it onto a tile,
+ *  or, with a tile chosen, click to put it there. */
+function PickerRow({ cam, at, choosing, onToggle, onPick, onLive }: {
+  cam: CameraItem
+  /** Its tile on the page, when it is on it. */
+  at: number | undefined
+  choosing: boolean
+  onToggle: () => void
+  onPick: () => void
+  onLive: () => void
+}) {
+  const { t } = useTranslation()
+  const drag = useDraggable({ id: `pick:${cam.id}` })
+  const onPage = at != null
+  return (
+    <li ref={drag.setNodeRef} {...drag.listeners} {...drag.attributes} role={undefined} tabIndex={-1}
+      className={clsx('flex items-center gap-2 pr-1 hover:bg-[var(--panel-2)] cursor-grab active:cursor-grabbing', onPage && 'bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]', drag.isDragging && 'opacity-40')}
+      data-testid="tour-picker-row">
+      <label className="flex flex-1 min-w-0 items-center gap-2 pl-2 py-1.5 text-xs cursor-pointer"
+        title={choosing ? t('tours.arrangePick', { name: cam.name }) : undefined}
+        onClick={(e) => { if (choosing) { e.preventDefault(); onPick() } }}>
+        <input type="checkbox" checked={onPage} onChange={onToggle} />
+        <CameraThumb cameraId={cam.id} alt={cam.name} className="w-16 aspect-video shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{cam.name}</span>
+          <span className="block truncate text-[10px] text-[var(--text-dim)]">
+            {onPage && <span className="text-[var(--accent)]">{t('tours.arrangeOnTile', { n: at + 1 })} · </span>}
+            {[cam.location, cam.ip_address].filter(Boolean).join(' · ')}
+            {!cam.is_active && ` · ${t('tours.cameraPaused')}`}
+          </span>
+        </span>
+      </label>
+      <IconAction label={t('tours.watchLive', { name: cam.name })} onClick={onLive}><Play size={12} /></IconAction>
+    </li>
   )
 }

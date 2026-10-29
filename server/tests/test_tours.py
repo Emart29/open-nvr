@@ -22,7 +22,7 @@ URL = "/api/v1/tours"
 
 
 def _body(**kw):
-    body = {"name": "Ops wall", "steps": [
+    body = {"name": "Ops wall", "pages": [
         {"label": "North", "layout_id": "2x2", "duration_s": 30, "camera_ids": [1, 2]},
         {"label": "South", "layout_id": "1x1", "duration_s": 60, "camera_ids": [3]},
     ]}
@@ -74,7 +74,7 @@ def test_tour_crud_is_audited(env):  # noqa: F811
     A = env.jwt("admin")
     t = _create(env, name="  Ops wall ")
     assert t["name"] == "Ops wall" and t["revision"] == 1 and t["editable"]
-    assert [s["camera_ids"] for s in t["steps"]] == [[1, 2], [3]]
+    assert [s["camera_ids"] for s in t["pages"]] == [[1, 2], [3]]
     assert env.client.get(URL, headers=A).json()["tours"][0]["id"] == t["id"]
 
     r = env.client.put(f"{URL}/{t['id']}", headers=A,
@@ -91,18 +91,114 @@ def test_tour_crud_is_audited(env):  # noqa: F811
     assert actions == ["tour.create", "tour.update", "tour.delete"]
 
 
-def test_step_keeps_order_and_drops_duplicates(env):  # noqa: F811
-    t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [3, 1, 3, 2]}])
-    assert t["steps"][0]["camera_ids"] == [3, 1, 2]
-    assert t["steps"][0]["duration_s"] == 60
+def test_page_keeps_order_and_drops_duplicates(env):  # noqa: F811
+    # The second copy leaves its tile empty: no later camera moves up.
+    t = _create(env, pages=[{"layout_id": "2x2", "camera_ids": [3, 1, 3, 2]}])
+    assert t["pages"][0]["camera_ids"] == [3, 1, None, 2]
+    assert t["pages"][0]["duration_s"] == 60
+
+
+def test_empty_tiles_stay_where_they_are(env):  # noqa: F811
+    t = _create(env, pages=[{"layout_id": "2x2", "camera_ids": [None, 1, None, 2, None, None]}])
+    assert t["pages"][0]["camera_ids"] == [None, 1, None, 2]  # trailing gaps trimmed
+    got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()
+    assert got["pages"][0]["camera_ids"] == [None, 1, None, 2]
+
+
+def test_a_page_with_more_cameras_than_tiles_is_saved_as_several(env):  # noqa: F811
+    """What the wall would have paged through becomes pages you can see:
+    same label, layout and time, cut at the layout's tile count."""
+    t = _create(env, pages=[
+        {"label": "North", "layout_id": "2x2", "duration_s": 45, "camera_ids": [1, 3, None, None, None, None, None, None, None, 2]},
+        {"label": "South", "layout_id": "1x1", "camera_ids": [3]},
+    ])
+    assert [(p["label"], p["layout_id"], p["duration_s"], p["camera_ids"]) for p in t["pages"]] == [
+        ("North", "2x2", 45, [1, 3]),  # the middle slice was empty tiles only: dropped
+        ("North", "2x2", 45, [None, 2]),
+        ("South", "1x1", 60, [3]),
+    ]
+    s = env.Session()
+    assert [p["camera_ids"] for p in s.get(env.models.CameraTour, t["id"]).pages] == [[1, 3], [None, 2], [3]]
+    s.close()
+
+
+def test_a_tour_stored_as_steps_reads_as_pages(env):  # noqa: F811
+    """A row saved when a step paged through its cameras plays exactly as
+    before, and the old name is still served for a wall running that app."""
+    _window_settings(env, {"custom_layouts": [
+        {"id": "wall", "name": "Wall", "grid_columns": 3, "grid_rows": 1}]})
+    t = _create(env)
+    s = env.Session()
+    s.get(env.models.CameraTour, t["id"]).pages = [
+        {"label": "North", "layout_id": "wall", "duration_s": 30, "camera_ids": [1, 2, 3, 1, None, 2, 3]},
+        {"label": "Gone", "layout_id": "nope", "duration_s": 30, "camera_ids": [3] * 30},
+    ]
+    s.commit()
+    s.close()
+    got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()
+    assert [(p["label"], p["camera_ids"]) for p in got["pages"]] == [
+        ("North", [1, 2, 3]), ("North", [1, None, 2]), ("North", [3]),
+        # A missing layout falls back to an automatic grid of at most 25.
+        ("Gone", [3] * 25), ("Gone", [3] * 5),
+    ]
+    assert got["pages"][3]["layout_missing"] is True
+    assert got["steps"] == got["pages"]
+
+
+def test_a_custom_layout_made_smaller_splits_its_pages(env):  # noqa: F811
+    _window_settings(env, {"custom_layouts": [
+        {"id": "wall", "name": "Wall", "grid_columns": 2, "grid_rows": 2}]})
+    t = _create(env, pages=[{"layout_id": "wall", "camera_ids": [1, 2, 3]}])
+    assert [p["camera_ids"] for p in t["pages"]] == [[1, 2, 3]]
+    s = env.Session()
+    row = s.query(env.models.SecuritySetting).filter_by(key="window_division_settings").one()
+    row.json_value = json.dumps({"custom_layouts": [
+        {"id": "wall", "name": "Wall", "grid_columns": 2, "grid_rows": 2,
+         "tiles": [{"row": 0, "col": 0, "rowSpan": 2, "colSpan": 1},
+                   {"row": 0, "col": 1, "rowSpan": 2, "colSpan": 1},
+                   {"row": 5, "col": 0}]}]})  # outside the grid: not a tile
+    s.commit()
+    s.close()
+    got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()
+    assert [p["camera_ids"] for p in got["pages"]] == [[1, 2], [3]]
+
+
+def test_a_client_sending_steps_is_still_understood(env):  # noqa: F811
+    body = _body()
+    body["steps"] = body.pop("pages")
+    r = env.client.post(URL, headers=env.jwt("admin"), json=body)
+    assert r.status_code == 201, r.text
+    assert [p["camera_ids"] for p in r.json()["pages"]] == [[1, 2], [3]]
+
+
+def test_a_tour_has_no_page_limit(env):  # noqa: F811
+    t = _create(env, pages=[{"layout_id": "1x1", "camera_ids": [1, 2, 3]}] * 400)
+    assert len(t["pages"]) == 1200
+
+
+def test_a_runaway_body_is_refused_before_it_is_read(env, monkeypatch):  # noqa: F811
+    from routers import tours
+
+    monkeypatch.setattr(tours, "MAX_BODY_BYTES", 2000)
+    A = env.jwt("admin")
+    r = env.client.post(URL, headers=A, json=_body(pages=[{"layout_id": "1x1", "camera_ids": [1]}] * 100))
+    assert r.status_code == 413
+    assert env.client.get(URL, headers=A).json()["tours"] == []
+    assert env.client.post(URL, headers=A, json=_body()).status_code == 201
+
+
+def test_a_page_of_only_empty_tiles_is_422(env):  # noqa: F811
+    r = env.client.post(URL, headers=env.jwt("admin"),
+                        json=_body(pages=[{"layout_id": "2x2", "camera_ids": [None, None]}]))
+    assert r.status_code == 422
 
 
 def test_bad_bodies_are_422(env):  # noqa: F811
     A = env.jwt("admin")
     for body in (_body(name="  "),
-                 _body(steps=[]),
-                 _body(steps=[{"layout_id": "2x2", "camera_ids": []}]),
-                 _body(steps=[{"layout_id": "2x2", "duration_s": 5, "camera_ids": [1]}])):
+                 _body(pages=[]),
+                 _body(pages=[{"layout_id": "2x2", "camera_ids": []}]),
+                 _body(pages=[{"layout_id": "2x2", "duration_s": 5, "camera_ids": [1]}])):
         assert env.client.post(URL, headers=A, json=body).status_code == 422
 
 
@@ -112,7 +208,7 @@ def test_unknown_or_binned_cameras_are_named(env):  # noqa: F811
     s.commit()
     s.close()
     r = env.client.post(URL, headers=env.jwt("admin"),
-                        json=_body(steps=[{"layout_id": "2x2", "camera_ids": [1, 2, 99]}]))
+                        json=_body(pages=[{"layout_id": "2x2", "camera_ids": [1, 2, 99]}]))
     assert r.status_code == 422
     assert r.json()["detail"]["camera_ids"] == [2, 99]
 
@@ -125,19 +221,19 @@ def test_unknown_and_disabled_layouts_are_422(env):  # noqa: F811
     A = env.jwt("admin")
     for bad in ("nope", "3x3", "old"):
         r = env.client.post(URL, headers=A,
-                            json=_body(steps=[{"layout_id": bad, "camera_ids": [1]}]))
+                            json=_body(pages=[{"layout_id": bad, "camera_ids": [1]}]))
         assert r.status_code == 422 and r.json()["detail"]["layout_ids"] == [bad]
     assert env.client.post(URL, headers=A, json=_body(
-        steps=[{"layout_id": "wall", "camera_ids": [1]}])).status_code == 201
+        pages=[{"layout_id": "wall", "camera_ids": [1]}])).status_code == 201
 
 
 def test_a_plain_grid_needs_no_window_settings(env):  # noqa: F811
     A = env.jwt("admin")
-    t = _create(env, steps=[{"layout_id": "grid:5x4", "camera_ids": [1]}])
-    assert t["steps"][0]["layout_missing"] is False
+    t = _create(env, pages=[{"layout_id": "grid:5x4", "camera_ids": [1]}])
+    assert t["pages"][0]["layout_missing"] is False
     for bad in ("grid:9x1", "grid:0x2", "grid:5x4x", "grid:"):
         assert env.client.post(URL, headers=A, json=_body(
-            steps=[{"layout_id": bad, "camera_ids": [1]}])).status_code == 422
+            pages=[{"layout_id": bad, "camera_ids": [1]}])).status_code == 422
 
 
 # ── reads degrade, never fail ────────────────────────────────────────
@@ -150,25 +246,36 @@ def test_a_binned_camera_drops_out_of_a_running_tour(env):  # noqa: F811
     s.get(env.models.Camera, 1).is_active = False
     s.commit()
     s.close()
-    step = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["steps"][0]
-    assert step["camera_ids"] == [1]
-    assert step["paused_camera_ids"] == [1]
-    assert step["hidden_count"] == 1
+    page = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["pages"][0]
+    assert page["camera_ids"] == [1]
+    assert page["paused_camera_ids"] == [1]
+    assert page["hidden_count"] == 1
+
+
+def test_a_binned_camera_leaves_its_tile_empty(env):  # noqa: F811
+    t = _create(env, pages=[{"layout_id": "2x2", "camera_ids": [1, 2, 3]}])
+    s = env.Session()
+    s.get(env.models.Camera, 2).deleted_at = datetime.now(UTC)
+    s.commit()
+    s.close()
+    page = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["pages"][0]
+    assert page["camera_ids"] == [1, None, 3]
+    assert page["hidden_count"] == 1
 
 
 def test_a_layout_removed_later_is_flagged(env):  # noqa: F811
     _window_settings(env, {"custom_layouts": [
         {"id": "wall", "name": "Wall", "grid_columns": 5, "grid_rows": 4}]})
-    t = _create(env, steps=[{"layout_id": "wall", "camera_ids": [1]}])
-    assert t["steps"][0]["layout_missing"] is False
+    t = _create(env, pages=[{"layout_id": "wall", "camera_ids": [1]}])
+    assert t["pages"][0]["layout_missing"] is False
     s = env.Session()
     row = s.query(env.models.SecuritySetting).filter_by(key="window_division_settings").one()
     row.json_value = json.dumps({"custom_layouts": [
         {"id": "wall", "name": "Wall", "grid_columns": 5, "grid_rows": 4, "enabled": False}]})
     s.commit()
     s.close()
-    step = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["steps"][0]
-    assert step["layout_missing"] is True and step["camera_ids"] == [1]
+    page = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin")).json()["pages"][0]
+    assert page["layout_missing"] is True and page["camera_ids"] == [1]
 
 
 def test_corrupt_window_settings_fall_back_to_predefined_layouts(env):  # noqa: F811
@@ -176,7 +283,7 @@ def test_corrupt_window_settings_fall_back_to_predefined_layouts(env):  # noqa: 
     t = _create(env)  # predefined layouts still accepted
     got = env.client.get(f"{URL}/{t['id']}", headers=env.jwt("admin"))
     assert got.status_code == 200
-    assert [s["layout_missing"] for s in got.json()["steps"]] == [False, False]
+    assert [s["layout_missing"] for s in got.json()["pages"]] == [False, False]
 
 
 # ── who may do what ──────────────────────────────────────────────────
@@ -186,8 +293,8 @@ def test_a_viewer_runs_a_tour_with_only_their_cameras(env):  # noqa: F811
     t = _create(env)
     V = env.jwt("vera")  # live.view, sees camera 3 only, no cameras.manage
     got = env.client.get(f"{URL}/{t['id']}", headers=V).json()
-    assert [s["camera_ids"] for s in got["steps"]] == [[], [3]]
-    assert [s["hidden_count"] for s in got["steps"]] == [2, 0]
+    assert [s["camera_ids"] for s in got["pages"]] == [[], [3]]
+    assert [s["hidden_count"] for s in got["pages"]] == [2, 0]
     assert env.client.get(URL, headers=V).status_code == 200
     assert env.client.post(URL, headers=V, json=_body()).status_code == 403
     assert env.client.put(f"{URL}/{t['id']}", headers=V, json=_body()).status_code == 403
@@ -200,36 +307,36 @@ def test_a_manager_cannot_overwrite_a_tour_with_cameras_they_cannot_see(env):  #
     got = env.client.get(f"{URL}/{t['id']}", headers=O).json()
     assert got["editable"] is False
     assert env.client.put(f"{URL}/{t['id']}", headers=O, json=_body(
-        steps=[{"layout_id": "1x1", "camera_ids": [1]}])).status_code == 403
+        pages=[{"layout_id": "1x1", "camera_ids": [1]}])).status_code == 403
     assert env.client.delete(f"{URL}/{t['id']}", headers=O).status_code == 403
     # …and may only put cameras they manage into a tour of their own.
     r = env.client.post(URL, headers=O, json=_body(
-        steps=[{"layout_id": "1x1", "camera_ids": [1, 2]}]))
+        pages=[{"layout_id": "1x1", "camera_ids": [1, 2]}]))
     assert r.status_code == 422 and r.json()["detail"]["camera_ids"] == [2]
     assert env.client.post(URL, headers=O, json=_body(
-        steps=[{"layout_id": "1x1", "camera_ids": [1]}])).status_code == 201
+        pages=[{"layout_id": "1x1", "camera_ids": [1]}])).status_code == 201
 
 
 def test_a_manager_who_can_only_view_a_camera_may_not_change_its_tour(env):  # noqa: F811
     """Sees every camera, manages one: Edit would only ever end in a 422,
     so the tour is read-only for them, and they may not delete it either."""
-    t = _create(env, steps=[{"layout_id": "2x2", "camera_ids": [1, 2]}])
+    t = _create(env, pages=[{"layout_id": "2x2", "camera_ids": [1, 2]}])
     O = _operator(env, view=(1, 2), manage=(1,))
     got = env.client.get(f"{URL}/{t['id']}", headers=O).json()
-    assert got["steps"][0]["camera_ids"] == [1, 2] and got["editable"] is False
+    assert got["pages"][0]["camera_ids"] == [1, 2] and got["editable"] is False
     assert env.client.put(f"{URL}/{t['id']}", headers=O, json=_body(
-        steps=[{"layout_id": "2x2", "camera_ids": [1]}])).status_code == 403
+        pages=[{"layout_id": "2x2", "camera_ids": [1]}])).status_code == 403
     assert env.client.patch(f"{URL}/{t['id']}", headers=O, json={"enabled": False}).status_code == 403
     assert env.client.delete(f"{URL}/{t['id']}", headers=O).status_code == 403
 
 
 def test_turning_a_tour_off_rewrites_nothing_else(env):  # noqa: F811
-    """The switch must work on a tour whose layout went away and whose step
+    """The switch must work on a tour whose layout went away and whose page
     lost every camera to the bin, and must not drop those cameras or the
     description (re-saving the viewer's filtered copy did all three)."""
     _window_settings(env, {"custom_layouts": [
         {"id": "wall", "name": "Wall", "grid_columns": 5, "grid_rows": 4}]})
-    t = _create(env, description="Ops wall, screen 2", steps=[
+    t = _create(env, description="Ops wall, screen 2", pages=[
         {"layout_id": "wall", "camera_ids": [1]},
         {"layout_id": "2x2", "camera_ids": [2, 3]}])
     s = env.Session()
@@ -246,8 +353,8 @@ def test_turning_a_tour_off_rewrites_nothing_else(env):  # noqa: F811
     s = env.Session()
     stored = s.get(env.models.CameraTour, t["id"])
     assert stored.description == "Ops wall, screen 2"
-    assert [x["camera_ids"] for x in stored.steps] == [[1], [2, 3]]
-    assert stored.steps[0]["layout_id"] == "wall"
+    assert [x["camera_ids"] for x in stored.pages] == [[1], [2, 3]]
+    assert stored.pages[0]["layout_id"] == "wall"
     s.close()
     # A stale revision is refused, and a viewer may not switch it.
     assert env.client.patch(f"{URL}/{t['id']}", headers=A,

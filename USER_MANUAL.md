@@ -128,7 +128,13 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   once. On its right, **Preview** lays each page out exactly as the wall
   does, from still pictures: the layout you chose, every tile in its place,
   and tiles without a camera left empty (numbered here, dark on the wall).
-  Drag a tile to reorder, ✕ to remove it, or sort A to Z or by location. Pictures are stills; **▶** on any camera opens it live, only
+  Drag a tile onto another to swap the two, ✕ to remove one (its tile is
+  left empty and no other camera moves; **Close gaps** packs them up again),
+  or sort A to Z or by location. A camera ticked in the list fills the first
+  empty tile. To
+  put a camera on a particular tile, drag it from the list onto the tile, or
+  click the tile, then the camera. A camera already in the step moves there
+  instead of showing twice, and the editor says so. Pictures are stills; **▶** on any camera opens it live, only
   when asked. Filling in each camera's Location (North, South, Branch 12…)
   is what makes this quick.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
@@ -177,9 +183,10 @@ brings them back to the running wall. For a quick fix on the page on
 screen, **Arrange** (in the app, not on the display link) holds the tour and
 shows that page from stills next to a camera search: ✕ removes a camera, a
 tile dragged onto another swaps the two, and a camera dragged onto a tile —
-or a tile clicked, then a camera — takes its place. **Save** stores it in the
-tour, so every screen running it changes too. On a step with several pages,
-removing a camera moves the later ones up, so its next pages change as well. Edits to a tour reach running walls within five
+or a tile clicked, then a camera — takes its place (a camera already in the step moves, and Arrange says
+where from). **Save** stores it in the
+tour, so every screen running it changes too. Removing a camera leaves its
+tile empty (dark on the wall): no other camera moves. Edits to a tour reach running walls within five
 minutes; a turned-off tour shows a notice and starts again by itself when
 it is turned back on. A running board keeps itself signed in; one left
 switched off for more than 30 days has to sign in again.

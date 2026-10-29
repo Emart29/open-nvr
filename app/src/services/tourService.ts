@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { api } from '../lib/api'
-import type { TourStep } from '../lib/tourPlan'
+import type { Slot, TourPageSpec } from '../lib/tourPlan'
 
 export type AlertSource = 'app_alert' | 'camera_event'
 export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical'
@@ -35,7 +35,7 @@ export const DEFAULT_TOUR_SETTINGS: TourSettings = {
   alerts: { enabled: false, sources: ['app_alert', 'camera_event'], min_severity: 'medium', scope: 'tour', hold_s: 30, cooldown_s: 60 },
 }
 
-/** A tour as the server returns it: every step already filtered to the viewer. */
+/** A tour as the server returns it: every page already filtered to the viewer. */
 export interface Tour {
   id: number
   name: string
@@ -45,7 +45,7 @@ export interface Tour {
   settings?: TourSettings
   /** False unless they may manage every camera in it: they may run it, not change it. */
   editable: boolean
-  steps: TourStep[]
+  pages: TourPageSpec[]
   created_at?: string | null
   updated_at?: string | null
 }
@@ -54,7 +54,8 @@ export interface TourInput {
   name: string
   description?: string | null
   enabled: boolean
-  steps: Array<{ label: string; layout_id: string; duration_s: number; camera_ids: number[] }>
+  /** One per screenful; camera_ids in tile order, null leaves a tile empty. */
+  pages: Array<{ label: string; layout_id: string; duration_s: number; camera_ids: Slot[] }>
   settings?: TourSettings
   expected_revision?: number
 }
@@ -64,7 +65,7 @@ export const tourService = {
   getTour: (tourId: number) => api.get(`/api/v1/tours/${tourId}`),
   createTour: (body: TourInput) => api.post('/api/v1/tours', body),
   updateTour: (tourId: number, body: TourInput) => api.put(`/api/v1/tours/${tourId}`, body),
-  // On/off only: the steps are not re-sent, so nothing else in the tour changes.
+  // On/off only: the pages are not re-sent, so nothing else in the tour changes.
   setTourEnabled: (tourId: number, body: { enabled: boolean; expected_revision?: number }) =>
     api.patch(`/api/v1/tours/${tourId}`, body),
   deleteTour: (tourId: number) => api.delete(`/api/v1/tours/${tourId}`),

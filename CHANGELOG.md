@@ -30,14 +30,37 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   arrive as alerts. An `edge` channel follows `main` for test sites.
   Home Assistant's update entity can install, with a token that has the
   new `system.update` scope (contract 1.2.0, feature `update_install`).
+- **Camera tours are pages.** A tour is now a list of pages, each one
+  screenful: a layout, the camera on each tile, and how long it shows.
+  What the editor shows as a page is exactly what the wall shows, and the
+  wall reads "Page 2/5". Steps that paged through more cameras than their
+  layout held are gone: adding more cameras than fit (e.g. **Add all 20
+  from North** on a 9-tile page) fills the page and puts the rest on new
+  pages right after it, and choosing a smaller layout moves the cameras
+  that no longer fit the same way; the editor says how many went where.
+  The API takes and returns `pages` (`steps` is still accepted, and still
+  returned alongside for one release, for walls running the older app); a
+  page with more cameras than its layout has tiles, including every tour
+  saved as steps, is split into consecutive pages with the same label,
+  layout and time on save and on read, exactly as the wall showed it. No
+  schema change: the `camera_tours.steps` column now holds pages.
+- **Camera tours: empty tiles, placing on a tile, a tours table.** Taking a
+  camera out of a tour page (in the editor, in Arrange, or by binning it)
+  now leaves its tile empty instead of moving every later camera up, so a
+  wall keeps its arrangement; **Close gaps** packs the cameras again. A
+  page's `camera_ids` may hold `null` for an empty tile (trailing ones are
+  trimmed; a duplicate's second tile is left empty). The editor's preview
+  places cameras like Arrange: click a tile then a camera, or drag a camera
+  onto a tile; both say when the camera was already on the page and moved.
+  The tours settings page has a cards/table switch and a search, with only
+  the list scrolling, and Live View's Tours menu scrolls and searches.
 - **Camera tours for display boards.** A tour cycles a screen through
   sets of cameras: 20 North cameras for a minute, then 20 South, and
   round again. Build them under Settings → More Settings → Camera Tours
   (`cameras.manage`); run one from Live View's **Tours** button or open
   its display link (`/display/tour/<id>`, the wall with no app shell) on
-  the board. A step can use any Live View layout or a plain grid up to
-  8×8, pages through more cameras than its layout holds, and can take a
-  whole camera Location at once. An alert on a tour camera can take over
+  the board. A page can use any Live View layout or a plain grid up to
+  8×8, and a whole camera Location can be added at once. An alert on a tour camera can take over
   the wall for a set time and then hand back to the tour (per tour: which
   alerts, which cameras, how long, a cool-down); a chip always shows what
   comes next and when. The editor is a page of its own with camera
