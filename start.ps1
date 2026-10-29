@@ -17,10 +17,14 @@
 #   .\start.ps1 status       # show container status
 #   .\start.ps1 validate     # run pre-flight checks only
 #   .\start.ps1 token        # re-print the first-time setup token
+#   .\start.ps1 update       # update to the latest release (scripts\update-host.ps1)
 # ============================================================
 
 param(
-    [string]$Command = "start"
+    [string]$Command = "start",
+    # The options of `update` (--to, --bundle, --dry-run, ...).
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Rest = @()
 )
 
 $ComposeFile = "docker-compose.yml"
@@ -783,7 +787,14 @@ function Invoke-Up {
     $ca = Get-ComposeArgs
     if (-not (Invoke-PreflightPublishedPorts -ComposeArgs $ca)) { exit 1 }
     Write-Color "  Starting all services ..." Green
-    docker compose @ca up -d --remove-orphans
+    # The updater (scripts\update-host.ps1) runs `up` with KEEP_ORPHANS=1
+    # (containers from overlays this run was not told about are not
+    # removed) and UP_BUILD=1 (images the release builds are rebuilt).
+    $upFlags = @()
+    if ($env:KEEP_ORPHANS -ne "1") { $upFlags += "--remove-orphans" }
+    if ($env:UP_BUILD -eq "1") { $upFlags += "--build" }
+    docker compose @ca up -d @upFlags
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Show-RunningInfo
     Show-FirstTimeSetupToken -ComposeArgs $ca
     Test-EdgeReachable
@@ -922,9 +933,16 @@ switch ($Command) {
         }
     }
 
+    "update" {
+        # Update to a newer release, safely: verify, back up, switch, check,
+        # roll back on failure. Options: see scripts\update-host.ps1.
+        . (Join-Path $PSScriptRoot "scripts\update-host.ps1")
+        Invoke-Update $Rest
+    }
+
     default {
         Write-Color "Unknown command: $Command" Red
-        Write-Color "Usage: .\start.ps1 [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure]"
+        Write-Color "Usage: .\start.ps1 [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|update]"
         exit 1
     }
 }

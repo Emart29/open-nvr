@@ -71,14 +71,15 @@ upd_run() {
     # testing the whole flow with a release you signed yourself
     # (OPENNVR_UPDATE_EXTRA_KEYS=<keys.json> in the shell running this).
     local pass=() src
-    src=$(get_env_var UPDATE_SOURCE_URL)
+    # The shell's UPDATE_SOURCE_URL wins over the one in .env.
+    src="${UPDATE_SOURCE_URL:-$(get_env_var UPDATE_SOURCE_URL)}"
     [ -n "$src" ] && pass+=(-e "UPDATE_SOURCE_URL=$src")
     if [ -n "${OPENNVR_UPDATE_EXTRA_KEYS:-}" ] && [ -f "$OPENNVR_UPDATE_EXTRA_KEYS" ]; then
         cp "$OPENNVR_UPDATE_EXTRA_KEYS" "$UPD_DIR/extra-keys.json"
         pass+=(-e "OPENNVR_UPDATE_EXTRA_KEYS=/work/extra-keys.json")
     fi
     # shellcheck disable=SC2086  # $ARGS is a word list by design (compose_args)
-    "${env_prefix[@]}" docker compose $ARGS run --rm --no-deps -T "${user[@]}" "${pass[@]}" \
+    COMPOSE_IGNORE_ORPHANS=True "${env_prefix[@]}" docker compose --progress quiet $ARGS run --rm --no-deps -T "${user[@]}" "${pass[@]}" \
         -v "$PWD:/repo:ro" -v "$PWD/$UPD_DIR:/work" \
         --entrypoint python opennvr-core -m updater "$@"
 }
