@@ -158,6 +158,15 @@ EXPOSE 8000 8100
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+# The commit this image was built from, reported by /health and system info
+# so the updater can tell one build from another (__version__ alone cannot:
+# every main build between two releases carries the same version). Declared
+# last so a new commit does not invalidate any cached layer above. CI passes
+# it; a local build without it reports null.
+ARG GIT_COMMIT=""
+ENV OPENNVR_BUILD_COMMIT=${GIT_COMMIT}
+LABEL org.opencontainers.image.revision=${GIT_COMMIT}
+
 # Use entrypoint script to fix permissions before starting services
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 

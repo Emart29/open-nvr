@@ -55,7 +55,7 @@ Open the URL, accept the self-signed certificate, paste the token, add a camera.
 | Your LAN IP changed | `./start.sh refresh-certs` *(Linux/macOS)* |
 | Stop everything | `./start.sh down` |
 | Tail live logs | `./start.sh logs` |
-| Pick up new images after an upgrade | `docker compose pull && ./start.sh up` |
+| Upgrade to a new release | back up, check out the tag, set `CORE_TAG`/`ADAPTER_TAG`, `./start.sh up`: [step by step](DOCKER_QUICKSTART.md#upgrading-to-a-new-release) |
 
 Unattended installs: `cp .env.example .env && ./scripts/generate-secrets.sh --write && ./start.sh up`. Retention, hardening and every compose file: [`DOCKER_QUICKSTART.md`](DOCKER_QUICKSTART.md).
 </details>

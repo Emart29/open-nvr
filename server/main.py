@@ -99,6 +99,7 @@ from routers import (
     suricata_logs,
     suricata_stream,
     system,
+    system_update,
     tours,
     users,
     webrtc,
@@ -589,6 +590,12 @@ async def lifespan(app: FastAPI):
 
     spawn_background(background_system_monitor(), name="system-monitor")
 
+    # OpenNVR updates: results and newly found versions become host-level
+    # alerts like the monitor's (services/update_notifier.py).
+    from services.update_notifier import run_forever as _update_notifier
+
+    spawn_background(_update_notifier(), name="update-notifier")
+
     # Recording-health watchdog: surfaces "camera silently stopped recording"
     # as a camera event within minutes instead of being discovered days later.
     async def background_recording_watchdog():
@@ -1039,11 +1046,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    ``commit`` is the git commit the image was built from (Dockerfile
+    GIT_COMMIT; null for a local build without it): the updater checks it,
+    since every build between two releases carries the same ``version``.
+    """
     return {
         "status": "healthy",
         "service": "OpenNVR Surveillance System API",
         "version": __version__,
+        "commit": os.environ.get("OPENNVR_BUILD_COMMIT") or None,
     }
 
 
@@ -1084,6 +1097,7 @@ app.include_router(security.router, prefix=settings.api_prefix)
 app.include_router(webrtc.router, prefix=settings.api_prefix)
 app.include_router(window_settings.router, prefix=settings.api_prefix)
 app.include_router(tours.router, prefix=settings.api_prefix)
+app.include_router(system_update.router, prefix=settings.api_prefix)
 app.include_router(device_firewall.router, prefix=settings.api_prefix)
 app.include_router(media_source.router, prefix=settings.api_prefix)
 app.include_router(mediamtx_admin.router, prefix=settings.api_prefix)

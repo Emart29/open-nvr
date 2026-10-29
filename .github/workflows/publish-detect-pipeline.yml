@@ -11,7 +11,8 @@
 #     plus a container smoke that proves the import graph + ffmpeg resolve
 #     inside the real /app layout (the "green tests, crashes on deploy" class).
 #   - Push to any branch → build + push :<branch> and :sha-<short>.
-#   - Tag v* / default branch → also :latest + semver tags (compose pins :latest).
+#   - Tag v* → also :latest + semver tags. Only a release moves :latest
+#     (compose defaults to it when CORE_TAG is unset); main is :main.
 
 name: publish-detect-pipeline
 
@@ -59,6 +60,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Sigstore keyless signing (same as publish-app-images.yml): the
+      # certificate names this workflow, ref and repository.
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,6 +74,12 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.1"
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -90,7 +100,7 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=OpenNVR detect-pipeline
             org.opencontainers.image.description=Always-on Tier-0 detection (motion, region, detect, track) per camera. Additive consumer of MediaMTX; publishes to the OpenNVR inference event bus.
@@ -98,6 +108,7 @@ jobs:
             org.opencontainers.image.vendor=OpenNVR
 
       - name: Build${{ github.event_name != 'pull_request' && ' + push' || ' (no push)' }}
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ./detect-pipeline
@@ -117,6 +128,20 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=detect-pipeline
           cache-to: type=gha,scope=detect-pipeline,mode=max
+
+      # Sign the multi-arch manifest digest (never a tag: tags move). Check with
+      #   cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      #     --certificate-identity-regexp '^https://github.com/open-nvr/' ghcr.io/open-nvr/detect-pipeline@<digest>
+      # The updater trusts the signed release manifest; this is defence in depth.
+      - name: Sign (Sigstore keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$DIGEST"
+          cosign sign --yes "ghcr.io/open-nvr/detect-pipeline@${DIGEST}"
+          echo "signed ghcr.io/open-nvr/detect-pipeline@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
 
       # Prove the container's import graph + entrypoint + ffmpeg resolve inside
       # the real /app layout (catches a module missing from COPY, or ffmpeg not

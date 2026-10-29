@@ -40,7 +40,7 @@ def _conforms(value, schema_name):
 def test_version_matches_the_code():
     from core.contract import CONTRACT_VERSION, FEATURES
 
-    assert CONTRACT["contract_version"] == CONTRACT_VERSION == "1.1.0"
+    assert CONTRACT["contract_version"] == CONTRACT_VERSION == "1.2.0"
     assert len(set(FEATURES)) == len(FEATURES)
     # Removing a feature flag is breaking, so the contract lists them.
     assert CONTRACT["features"] == list(FEATURES)
@@ -54,7 +54,7 @@ def test_every_endpoint_exists_with_its_token_scope():
     app = FastAPI()
     for mod in ("system", "cameras", "recordings", "streams", "timeline_events",
                 "alerts_inbox", "events", "zones", "live_state", "media", "site_mode",
-                "entities", "search", "api_tokens"):
+                "entities", "search", "api_tokens", "system_update"):
         app.include_router(importlib.import_module(f"routers.{mod}").router, prefix="/api/v1")
     real = {(m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops}
     for e in CONTRACT["rest"]:

@@ -8,6 +8,28 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OpenNVR updates itself, if you let it.** Each release now ships a
+  signed manifest (`release-manifest.json`, Ed25519, keys in
+  `server/updater/keys.json`) naming its commit, image digests, pins and
+  database revisions. `./start.sh update` (`.\start.ps1 update`) checks
+  it, downloads everything first, backs up the database, keys and `.env`
+  under `backups/`, switches, checks the new version is healthy and rolls
+  back (database included) if not; `update --restore <backup>` is the
+  escape hatch. Settings → OpenNVR Updates shows what was found, the
+  release notes, history and progress, has **Update now**
+  (`system.update`, admins only, new) and the policy: off (default),
+  notify, manual, or automatic in a maintenance window, patch releases
+  only unless widened, after a per-site delay that urgent releases skip.
+  `start.sh auto-update enable` installs the host runner (systemd,
+  launchd or a Scheduled Task) that does the work; the app only leaves it
+  a request in `data/update-requests/`. Air-gapped sites: offline
+  bundles (`scripts/make-offline-bundle.py`, also as deltas against a
+  base version) applied with `update --bundle`, or one internal mirror
+  for many NVRs via `UPDATE_SOURCE_URL`. A withdrawn release is never
+  offered (signed `release/revocations.json`). Results and new versions
+  arrive as alerts. An `edge` channel follows `main` for test sites.
+  Home Assistant's update entity can install, with a token that has the
+  new `system.update` scope (contract 1.2.0, feature `update_install`).
 - **Camera tours are pages.** A tour is now a list of pages, each one
   screenful: a layout, the camera on each tile, and how long it shows.
   What the editor shows as a page is exactly what the wall shows, and the
@@ -121,6 +143,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`:latest` is the last release.** The core, detect-pipeline and
+  camera-agent images now move `:latest` only on a `v*` release tag; it
+  used to follow every merge to `main` as well, so an install with no
+  `CORE_TAG` pin could pick up untested builds on its next pull. Use
+  `:main` for the bleeding edge. Catalog app images keep their old policy,
+  because the app catalog advertises `:latest`.
 - **The Investigate cases answer like the real tools.** A failure analysis
   of granite4:micro's failing runs found fixtures that answered made-up event
   ids and a search default that hid visits; both now behave as the tools do,

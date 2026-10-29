@@ -165,13 +165,43 @@ docker compose -f docker-compose.yml down
 docker compose -f docker-compose.yml logs -f
 docker compose -f docker-compose.yml logs -f opennvr-core
 
-# Refresh to the latest published images
-docker compose -f docker-compose.yml pull
-docker compose -f docker-compose.yml up -d
-
 # Restart a single service after editing .env
 docker compose -f docker-compose.yml restart opennvr-core
 ```
+
+### Upgrading to a new release
+
+`.env` pins the images to a release (`CORE_TAG`, `ADAPTER_TAG`), so
+`docker compose pull` alone re-fetches the version you already run. A
+release also changes the compose files, so the checkout moves with it.
+Replace `X.Y.Z` with the release you are moving to, and read its
+**Upgrading** note in [`CHANGELOG.md`](CHANGELOG.md) first: some releases
+need a new `.env` value.
+
+```bash
+# 1. Back up the database. Dump inside the container and copy the file
+#    out (in PowerShell, never redirect pg_dump with ">": it corrupts it).
+docker exec opennvr_db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc -d "$POSTGRES_DB" -f /tmp/opennvr.dump'
+docker cp opennvr_db:/tmp/opennvr.dump ./opennvr-before-X.Y.Z.dump
+
+# 2. Move the checkout to the release. Git refuses if you changed a
+#    tracked file; keep your change somewhere else first.
+git fetch --tags
+git checkout -B opennvr-release vX.Y.Z
+
+# 3. In .env, pin the images to that release:
+#      CORE_TAG=X.Y.Z
+#      ADAPTER_TAG=X.Y.Z
+
+# 4. Start it. Images are pulled and the database migrates on boot.
+./start.sh up            # Windows: .\start.ps1 up
+```
+
+To go back, restore the dump into a stopped core, check out the previous
+tag and set the previous pins:
+`docker exec -i opennvr_db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < opennvr-before-X.Y.Z.dump`
+(from bash; in PowerShell, `docker cp` the file into the container and
+restore from there).
 
 ## Connect Home Assistant
 

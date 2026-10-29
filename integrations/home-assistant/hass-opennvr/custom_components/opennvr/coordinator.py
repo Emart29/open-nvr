@@ -86,6 +86,9 @@ class OpenNVRSiteData:
     #: ``{key: {"state", "attributes"}}``; event entities have none.
     states: dict[str, dict[str, Any]] = field(default_factory=dict)
     site_mode: SiteMode | None = None
+    #: ``GET /system/update`` (contract 1.2, ``update_install``): the update
+    #: the host found, a run in progress; None from older servers.
+    update: dict[str, Any] | None = None
 
 
 class OpenNVRCoordinator(DataUpdateCoordinator[OpenNVRSiteData]):
@@ -183,12 +186,13 @@ class OpenNVRCoordinator(DataUpdateCoordinator[OpenNVRSiteData]):
                 info = await self.client.get_system_info()
             self._check_contract(info, UpdateFailed)
             # Independent reads, in parallel: this is also HA startup time.
-            cams, catalog, states, site_mode = await asyncio.gather(*(
+            cams, catalog, states, site_mode, update = await asyncio.gather(*(
                 create_eager_task(coro) for coro in (
                     self.client.get_cameras(),
                     self.client.get_entities(etag=old.catalog.etag if old else None),
                     self.client.get_entity_states(),
-                    self._site_mode(info))))
+                    self._site_mode(info),
+                    self._update_status(info))))
             all_cameras = {c.id: c for c in cams}
         except OpenNVRAuthError as err:
             raise self._refused(err) from err
@@ -218,7 +222,7 @@ class OpenNVRCoordinator(DataUpdateCoordinator[OpenNVRSiteData]):
         self.refreshes += 1
         return OpenNVRSiteData(info=info, all_cameras=all_cameras, cameras=cameras,
                                catalog=catalog, by_key=by_key, states=states,
-                               site_mode=site_mode)
+                               site_mode=site_mode, update=update)
 
     async def _site_mode(self, info: SystemInfo) -> SiteMode | None:
         if not info.has("site_mode"):
@@ -227,6 +231,14 @@ class OpenNVRCoordinator(DataUpdateCoordinator[OpenNVRSiteData]):
             return await self.client.get_site_mode()
         except OpenNVRAuthError:
             return None  # the token may read the site but not its mode
+
+    async def _update_status(self, info: SystemInfo) -> dict[str, Any] | None:
+        if not info.has("update_install"):
+            return None
+        try:
+            return await self.client.get_update_status()
+        except OpenNVRAuthError:
+            return None  # the token may not read system information
 
     # ── what the platforms read ──────────────────────────────────────────
 

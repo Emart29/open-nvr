@@ -55,9 +55,16 @@ _EARLIER_LATE_PERMISSIONS: tuple[NewPermission, ...] = (
                   backfill_from="ai.view"),
 )
 
+#: OpenNVR updates from the app (docs/design/auto-update-implementation-plan.md,
+#: UPD-301). A new ability, so nobody but admins gets it on upgrade.
+NEW_PERMISSIONS_UPDATE: tuple[NewPermission, ...] = (
+    NewPermission("system.update", "Install OpenNVR updates and set the update policy"),
+)
+
 UPGRADE_PATH_PERMISSIONS: tuple[NewPermission, ...] = (
     *_EARLIER_LATE_PERMISSIONS,
     *NEW_PERMISSIONS_HA,
+    *NEW_PERMISSIONS_UPDATE,
 )
 
 

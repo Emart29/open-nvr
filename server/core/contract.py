@@ -16,7 +16,7 @@ descriptor fields, payload schemas), with example payloads in
 changes without the matching bump; the tests hold the code to it.
 """
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 
 #: Capabilities an integration may feature-detect. Each issue that adds a
 #: client-visible capability appends its name here.
@@ -45,4 +45,5 @@ FEATURES: tuple[str, ...] = (
     "mqtt_discovery",       # HA-402: Home Assistant MQTT discovery; /system/info says if on
     "search_summary",       # HA-502: GET /search/summary
     "camera_describe",      # HA-501: POST /cameras/{id}/describe
+    "update_install",       # UPD-305: GET/POST/DELETE /system/update(/request) with system.update
 )

@@ -18,6 +18,8 @@
 #   ./start.sh status       # show container status
 #   ./start.sh validate     # run pre-flight checks only
 #   ./start.sh token        # re-print the first-time setup token
+#   ./start.sh update       # update to the latest release (scripts/update-host.sh)
+#   ./start.sh auto-update enable|disable|status   # the runner for in-app updates
 # ============================================================
 
 set -e
@@ -171,17 +173,28 @@ python3_usable() {
 port_bindable() {
     local port="$1" proto="${2:-both}"
     if python3_usable; then
+        # On Linux a non-root user may not bind below
+        # ip_unprivileged_port_start (80, 443), but the Docker daemon
+        # publishes as root and can: that EACCES says nothing about the
+        # port, so it counts as bindable. In use (EADDRINUSE) still fails.
         python3 -c '
-import socket, sys
+import errno, os, socket, sys
 p, proto = int(sys.argv[1]), sys.argv[2]
 types = {"tcp": [socket.SOCK_STREAM], "udp": [socket.SOCK_DGRAM]}.get(
     proto, [socket.SOCK_STREAM, socket.SOCK_DGRAM])
+try:
+    with open("/proc/sys/net/ipv4/ip_unprivileged_port_start") as f:
+        unprivileged = int(f.read())
+except (OSError, ValueError):
+    unprivileged = 0
+privileged = p < unprivileged and hasattr(os, "geteuid") and os.geteuid() != 0
 for typ in types:
     s = socket.socket(socket.AF_INET, typ)
     try:
         s.bind(("0.0.0.0", p))
-    except OSError:
-        sys.exit(1)
+    except OSError as e:
+        if not (privileged and e.errno == errno.EACCES):
+            sys.exit(1)
     finally:
         s.close()
 ' "$port" "$proto" >/dev/null 2>&1
@@ -1380,7 +1393,17 @@ run_up() {
     export_camera_lan_ips
     write_net_hints
     echo -e "  ${GREEN}Starting all services ...${NC}"
-    docker compose $ARGS up -d --remove-orphans
+    # The updater (scripts/update-host.sh) brings the stack up through here
+    # too, with KEEP_ORPHANS=1 (containers from overlays this run was not
+    # told about are not removed) and UP_BUILD=1 (images the release
+    # builds from its own files are rebuilt from the new checkout).
+    # The updater's hand-off folders, bind-mounted into core: made here as
+    # this user, or Docker would create them root-owned on Linux.
+    mkdir -p data/updates data/update-requests
+    local up_flags="--remove-orphans"
+    [ "${KEEP_ORPHANS:-}" = 1 ] && up_flags=""
+    [ "${UP_BUILD:-}" = 1 ] && up_flags="$up_flags --build"
+    docker compose $ARGS up -d $up_flags
     echo ""
     ADMIN_USER=$(get_env_var "DEFAULT_ADMIN_USERNAME")
     ADMIN_USER=${ADMIN_USER:-admin}
@@ -1584,9 +1607,25 @@ case "$COMMAND" in
     echo -e "  ${GRAY}You'll need to accept the new cert in your browser on next visit.${NC}"
     ;;
 
+  update)
+    # Update to a newer release, safely: verify, back up, switch, check,
+    # roll back on failure. The options are listed in the script's header.
+    # shellcheck source=scripts/update-host.sh
+    . "$(dirname "$0")/scripts/update-host.sh"
+    shift
+    run_update "$@"
+    ;;
+
+  auto-update)
+    # The timer that lets the app's Update now and automatic updates work.
+    # shellcheck source=scripts/update-host.sh
+    . "$(dirname "$0")/scripts/update-host.sh"
+    run_auto_update "${2:-status}"
+    ;;
+
   *)
     echo -e "${RED}Unknown command: $COMMAND${NC}"
-    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs]"
+    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs|update|auto-update]"
     exit 1
     ;;
 esac

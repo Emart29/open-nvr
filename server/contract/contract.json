@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "about": "The HA-facing API of OpenNVR (design \u00a76.11). Additive changes bump MINOR; removing or renaming anything bumps MAJOR with a two-release deprecation window. Checked by scripts/contract_check.py and server/tests/test_contract.py.",
   "features": [
     "correlation_id",
@@ -25,7 +25,8 @@
     "card_session",
     "mqtt_discovery",
     "search_summary",
-    "camera_describe"
+    "camera_describe",
+    "update_install"
   ],
   "rest": [
     {
@@ -237,6 +238,24 @@
       "path": "/api/v1/api-tokens/session",
       "token_scope": "cameras.view",
       "response": "session_token"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/update",
+      "token_scope": "settings.view",
+      "response": "update_status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/system/update/request",
+      "token_scope": "system.update",
+      "response": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/system/update/request",
+      "token_scope": "system.update",
+      "response": null
     }
   ],
   "ws_v2": {
@@ -1141,6 +1160,90 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "update_status": {
+      "type": "object",
+      "required": [
+        "installed",
+        "available",
+        "run",
+        "pending_request",
+        "runner",
+        "connected",
+        "policy"
+      ],
+      "properties": {
+        "installed": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "available": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "urgent": {
+              "type": "boolean"
+            },
+            "manual_steps": {
+              "type": "array"
+            }
+          }
+        },
+        "run": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "pending_request": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "runner": {
+          "type": "object",
+          "required": [
+            "running"
+          ],
+          "properties": {
+            "running": {
+              "type": "boolean"
+            }
+          }
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "policy": {
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "off",
+                "notify",
+                "manual",
+                "auto"
+              ]
+            }
+          }
         }
       }
     }

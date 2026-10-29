@@ -24,6 +24,13 @@ if [ -d "/app/kai-c-state" ]; then
     chown -R opennvr:opennvr /app/kai-c-state 2>/dev/null || true
 fi
 
+# Where core leaves update requests for the host's updater
+# (services/update_status.py). Only this folder: the updater's own state
+# is mounted read-only and stays the host user's.
+if [ -d "/app/update-requests" ]; then
+    chown opennvr:opennvr /app/update-requests 2>/dev/null || true
+fi
+
 # KAI-C's audit log (kai_c/audit.py) defaults to
 # /var/log/opennvr/kai-c-audit.jsonl and creates the directory on first
 # write — which, as the opennvr user under a root-owned /var/log, it

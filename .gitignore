@@ -285,6 +285,10 @@ AI-adapters/
 
 # Launcher-written host network hints (mounted into opennvr-core)
 data/net-hints/
+# The updater's working files and backups (scripts/update-host.sh): plans,
+# signed manifests, database dumps and copies of .env. Private to the host.
+data/updates/
+backups/
 
 # KAI-C runtime adapter-registration receipts (#371) — machine state,
 # never source. In Docker this lives on the opennvr_kai_c_state volume.

@@ -35,6 +35,7 @@ import { complianceService } from '../services/complianceService'
 import { appsService } from '../services/appsService'
 import { vehiclesService } from '../services/vehiclesService'
 import { tourService } from '../services/tourService'
+import { updateService } from '../services/updateService'
 
 export const apiService = {
   ...authService,
@@ -53,5 +54,6 @@ export const apiService = {
   ...appsService,
   ...vehiclesService,
   ...tourService,
+  ...updateService,
 }
 

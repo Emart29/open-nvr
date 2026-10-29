@@ -577,6 +577,10 @@ services:
       # OPENNVR_HOST_IP/OPENNVR_LAN_IPS env vars (frozen at container
       # creation) go stale after a subnet change.
       - ./data/net-hints:/app/net-hints:ro
+      # OpenNVR updates (services/update_status.py): core reads the host
+      # updater's state and writes requests for it; it never runs Docker.
+      - ./data/updates:/app/update-state:ro
+      - ./data/update-requests:/app/update-requests
     environment:
       # Must match the mediamtx service's TZ — recording directories are
       # named in local time and parsed with the same zone.

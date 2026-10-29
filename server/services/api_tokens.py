@@ -56,6 +56,10 @@ ALLOWED_SCOPES: frozenset[str] = frozenset({
     "settings.manage",
     # App-declared entities (HA-114): read / drive an app's own entities.
     "apps.view",
+    # OpenNVR updates (UPD-305): Home Assistant's Install button asks for the
+    # update the host found, or withdraws that request. Never the policy. A
+    # token gets it only from an admin who ticks it; not in the HA preset.
+    "system.update",
 })
 
 _A = "/api/v1"
@@ -65,6 +69,9 @@ _A = "/api/v1"
 #: table is the written contract of what an API client can do.
 TOKEN_ROUTES: dict[tuple[str, str], str] = {
     ("GET", f"{_A}/system/info"): "settings.view",
+    ("GET", f"{_A}/system/update"): "settings.view",
+    ("POST", f"{_A}/system/update/request"): "system.update",
+    ("DELETE", f"{_A}/system/update/request"): "system.update",
     ("GET", f"{_A}/system/resources"): "settings.view",
     ("GET", f"{_A}/cameras/"): "cameras.view",
     ("GET", f"{_A}/cameras/{{camera_id}}"): "cameras.view",
