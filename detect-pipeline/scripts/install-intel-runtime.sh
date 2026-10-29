@@ -14,8 +14,10 @@ set -eu
 
 LEVEL_ZERO=1.34.0
 GMM=22.10.0
-IGC=2.42.6
-IGC_BUILD=23070
+# IGC is pinned BY the compute runtime (Depends: intel-igc-opencl-2 = this
+# version); take the pair from the compute-runtime release notes, never latest.
+IGC=2.41.5
+IGC_BUILD=22716
 NEO=26.35.39758.10
 NPU=1.38.0.20260910-34487311128
 
@@ -47,10 +49,16 @@ mkdir npu && tar -xzf npu.tar.gz -C npu
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ocl-icd-libopencl1 clinfo
-# dpkg first, then let apt pull whatever Debian deps the Ubuntu-built packages
-# declare (libtbb, libstdc++ ...); a second dpkg pass is never needed.
-dpkg -i libze1.deb gmm.deb igc-core.deb igc-opencl.deb opencl-icd.deb || apt-get install -y -f --no-install-recommends
-dpkg -i npu/intel-level-zero-npu_*.deb npu/intel-driver-compiler-npu_*.deb || apt-get install -y -f --no-install-recommends
+# One apt transaction for all the local debs: apt resolves the Debian deps the
+# Ubuntu-built packages declare (libtbb12, hwloc ...) and FAILS on a conflict.
+# (dpkg -i followed by apt-get -f install "fixes" a conflict by removing the
+# package — which is how an image can end up with no OpenCL ICD and exit 0.)
+apt-get install -y --no-install-recommends ocl-icd-libopencl1 clinfo \
+    ./libze1.deb ./gmm.deb ./igc-core.deb ./igc-opencl.deb ./opencl-icd.deb \
+    ./npu/intel-level-zero-npu_*.deb ./npu/intel-driver-compiler-npu_*.deb
+# Prove the three things OpenVINO needs are really there — or fail the build.
+test -f /etc/OpenCL/vendors/intel.icd
+ls /usr/lib/x86_64-linux-gnu/libze_intel_vpu.so* >/dev/null
+ls /usr/lib/x86_64-linux-gnu/libigc.so* >/dev/null
 rm -rf /var/lib/apt/lists/* "$tmp"
 echo "intel runtime installed: level-zero $LEVEL_ZERO, compute-runtime $NEO, igc $IGC, npu $NPU"
