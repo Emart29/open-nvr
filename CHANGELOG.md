@@ -8,6 +8,28 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OpenNVR updates itself, if you let it.** Each release now ships a
+  signed manifest (`release-manifest.json`, Ed25519, keys in
+  `server/updater/keys.json`) naming its commit, image digests, pins and
+  database revisions. `./start.sh update` (`.\start.ps1 update`) checks
+  it, downloads everything first, backs up the database, keys and `.env`
+  under `backups/`, switches, checks the new version is healthy and rolls
+  back (database included) if not; `update --restore <backup>` is the
+  escape hatch. Settings → OpenNVR Updates shows what was found, the
+  release notes, history and progress, has **Update now**
+  (`system.update`, admins only, new) and the policy: off (default),
+  notify, manual, or automatic in a maintenance window, patch releases
+  only unless widened, after a per-site delay that urgent releases skip.
+  `start.sh auto-update enable` installs the host runner (systemd,
+  launchd or a Scheduled Task) that does the work; the app only leaves it
+  a request in `data/update-requests/`. Air-gapped sites: offline
+  bundles (`scripts/make-offline-bundle.py`, also as deltas against a
+  base version) applied with `update --bundle`, or one internal mirror
+  for many NVRs via `UPDATE_SOURCE_URL`. A withdrawn release is never
+  offered (signed `release/revocations.json`). Results and new versions
+  arrive as alerts. An `edge` channel follows `main` for test sites.
+  Home Assistant's update entity can install, with a token that has the
+  new `system.update` scope (contract 1.2.0, feature `update_install`).
 - **Camera tours for display boards.** A tour cycles a screen through
   sets of cameras: 20 North cameras for a minute, then 20 South, and
   round again. Build them under Settings → More Settings → Camera Tours

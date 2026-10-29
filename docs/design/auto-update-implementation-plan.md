@@ -198,11 +198,11 @@ Found and fixed on the way: Windows PowerShell 5.1 drops the double quotes insid
 | UPD-302 | Done | 60888cf9 | GET status, PUT policy, POST/DELETE request; audited |
 | UPD-303 | Done | a9c65098, 4b547396 | --from-queue tick; systemd/launchd/Scheduled Task (S4U when allowed, else logged-on) |
 | UPD-304 | Done | d5aa344a | Live on a fresh stack: setup + MFA login, policy saved to the host, Update now lands as request.env, runner tick handles it once and the page shows the result |
-| UPD-305 | Not started | | |
+| UPD-305 | Done | adcb1ca2 | contract 1.2.0 (update_install); install and progress in the HA update entity; system.update scope, never in the HA preset |
 | UPD-401 | Done | a9c65098 | updater/policy.py + 'python -m updater due' |
-| UPD-402 | Not started | | |
-| UPD-403 | Not started | | |
-| UPD-501 | Not started | | |
-| UPD-502 | Not started | | |
-| UPD-503 | Not started | | |
-| UPD-504 | Not started | | |
+| UPD-402 | Done | f69aed7f | release/revocations.json, signed by the release workflow; checks refuse a revoked version |
+| UPD-403 | Done | b77d3a2c | services/update_notifier.py: host-level system events (opennvr_update), each run and each found version told once |
+| UPD-501 | Done | 51533aa1 | scripts/make-offline-bundle.py; containerd-store image IDs are the platform manifest digest (manifests list platform_manifests) |
+| UPD-502 | Done | 4683b2fd | --since: only images whose IDs changed |
+| UPD-503 | Done | 485f3f75 | --mirror-dir writes a static tree; UPDATE_SOURCE_URL points sites at it |
+| UPD-504 | Done | 5e54e515 | rolling `edge` prerelease, X.Y.(Z+1)-edge.N, CORE_TAG=sha-<7>, fetched by commit |
