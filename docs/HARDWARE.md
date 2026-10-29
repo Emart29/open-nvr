@@ -114,20 +114,52 @@ The same recipe on every hardware class, so rows compare:
 
 ### First results — Intel Core Ultra 9 285K (Arrow Lake, 24 cores, iGPU + NPU)
 
-| Measure | cpu flavour | intel flavour |
+Single-stream detector latency, yolo26n @ 640, 30-frame average, idle box:
+
+| Device | ms/frame |
+|---|---|
+| onnxruntime CPU, all cores | 10 |
+| OpenVINO CPU | 15.5 |
+| iGPU | 7.7 |
+| **NPU** | **7.4** |
+| OpenVINO AUTO | 17.0 (still on CPU after 30 frames) |
+
+Whole stack under load — 720p30 H264 fake cameras in copy mode plus four real
+352x288 cameras, `DETECT_FPS=2`, every catalog app running (guard-scan,
+occupancy, line-crossing, loitering, intrusion, abandoned-object,
+footage-search, doorbell, plate recognition), 90–120 s windows, container CPU
+averaged every 5 s:
+
+| | cpu flavour | intel flavour |
 |---|---|---|
-| H264 720p decode | software | VA-API on the iGPU, ~45× real time per stream |
-| Tier-0 detector, yolo26n @ 640, ms/frame (single stream, 30-frame average) | 10 (onnxruntime CPU, all cores) | **7.4 NPU**, 7.7 iGPU, 15.5 OpenVINO CPU, 17.0 AUTO |
-| Cameras per box at 70% CPU | pending | pending |
+| Cameras | 9 × 720p + 4 × CIF | 7 × 720p + 2 × CIF (two of each were down on the site link) |
+| Decode backend (effective, all cameras) | cpu | vaapi, iGPU Video engine ~9 % busy |
+| Detector backend (effective) | onnxruntime CPU | OpenVINO **NPU** |
+| detect-pipeline, cores | **6.5** | **1.1** |
+| …per 720p camera, cores | ~0.7 | ~0.15 |
+| yolo-pose adapter (guard-scan), cores | 14.3 | 12.6 |
+| guard-scan app, cores | 1.4 | 2.1 |
+| MediaMTX + rig + core + db, cores | 0.3 | 0.3 |
+| Host total, of 24 cores | 72 % (17.3) | 40 % (9.7) |
+| Analysed rate per camera | 2.7 fps | 2.8 fps |
 
-The detector row is latency on an otherwise idle box; the number that matters
-for an NVR is CPU *freed*: the service caps each CPU detector at
-`DETECT_CV_THREADS` (2 by default) so its per-frame cost is far above the
-all-cores 10 ms, while the NPU figure costs almost no CPU at all and leaves
-the iGPU to decode. The cameras-per-box rows capture that.
+What the numbers say:
 
-Rows fill in as the benchmark runs; the raw harness is `tools/usecase_eval.py`
-and the rig is documented in `docs/FAKE_CAMERAS.md`.
+- **Decode and the Tier-0 detector together drop about 6×** when they move
+  to the iGPU and NPU — from ~0.7 to ~0.15 core per 720p camera. On a box
+  that gives Tier-0 nothing else to do, that is the difference between
+  roughly 30 and 150 cameras of substream analysis.
+- **The adapters are the ceiling now.** Pose estimation for the guard-scan
+  app alone costs 12–14 cores on CPU and does not change with the flavour,
+  because adapters are CPU-only until Phase 2 (ai-adapter #68). That is the
+  Phase 2 motivation in one row, and the app side of it (an app should not be
+  able to peg the box; a per-track inference budget) is tracked separately.
+- **Thermal headroom is part of sizing.** Under this load the package ran
+  at 95–99 °C and the box hard-rebooted — nothing in the journal, two-minute
+  boot-to-trip cadence, i.e. a thermal or power trip. The accelerators add
+  package power on top of CPU load; a desktop-class CPU in a closed cabinet
+  needs real airflow. Watch `x86_pkg_temp` (`/sys/class/thermal`) during a
+  benchmark; the Settings → AI → Hardware panel (Phase 3) will show it.
 
 ## Roadmap
 
