@@ -173,17 +173,28 @@ python3_usable() {
 port_bindable() {
     local port="$1" proto="${2:-both}"
     if python3_usable; then
+        # On Linux a non-root user may not bind below
+        # ip_unprivileged_port_start (80, 443), but the Docker daemon
+        # publishes as root and can: that EACCES says nothing about the
+        # port, so it counts as bindable. In use (EADDRINUSE) still fails.
         python3 -c '
-import socket, sys
+import errno, os, socket, sys
 p, proto = int(sys.argv[1]), sys.argv[2]
 types = {"tcp": [socket.SOCK_STREAM], "udp": [socket.SOCK_DGRAM]}.get(
     proto, [socket.SOCK_STREAM, socket.SOCK_DGRAM])
+try:
+    with open("/proc/sys/net/ipv4/ip_unprivileged_port_start") as f:
+        unprivileged = int(f.read())
+except (OSError, ValueError):
+    unprivileged = 0
+privileged = p < unprivileged and hasattr(os, "geteuid") and os.geteuid() != 0
 for typ in types:
     s = socket.socket(socket.AF_INET, typ)
     try:
         s.bind(("0.0.0.0", p))
-    except OSError:
-        sys.exit(1)
+    except OSError as e:
+        if not (privileged and e.errno == errno.EACCES):
+            sys.exit(1)
     finally:
         s.close()
 ' "$port" "$proto" >/dev/null 2>&1
