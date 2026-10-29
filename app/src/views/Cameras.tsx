@@ -503,60 +503,70 @@ export function Cameras() {
     }
   }
 
-  // Under the toolbar, for both views: the page checkbox (the grid has no
-  // header row to hold one) and the offer to extend a page to every page.
-  const renderSelectionBar = () => {
-    const offerAll = pageAllSelected && !everythingSelected && total > cameras.length
-    const showAll = everythingSelected && total > cameras.length
-    if (view !== 'grid' && !offerAll && !showAll) return null
+  // "All 10 on this page selected. Select all 20" and "All 20 selected.
+  // Clear selection": shown where it takes no new row, so ticking a page
+  // never shifts the list (the table's header cell, the grid's fixed bar).
+  const selectionNotice = () => {
+    if (total <= cameras.length) return null
+    if (everythingSelected) {
+      return (
+        <span className="text-[var(--text-dim)]">
+          {t('cameraBulk.allSelected', { count: total })}{' '}
+          <button
+            type="button"
+            className="text-[var(--accent)] hover:underline"
+            onClick={clearSelection}
+            data-testid="camera-clear-selection"
+          >
+            {t('cameraBulk.clearSelection')}
+          </button>
+        </span>
+      )
+    }
+    if (!pageAllSelected) return null
     return (
-      <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-[13px]"
-        data-testid="camera-selection-bar"
-      >
-        {view === 'grid' && (
-          <label className="inline-flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="accent-[var(--accent)]"
-              checked={pageAllSelected}
-              ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !pageAllSelected }}
-              onChange={(e) => selectPage(e.target.checked)}
-              data-testid="camera-select-page"
-            />
-            {t('cameraBulk.selectPage')}
-          </label>
-        )}
-        {offerAll && (
-          <span className="text-[var(--text-dim)]">
-            {t('cameraBulk.pageSelected', { count: cameras.length })}{' '}
-            <button
-              type="button"
-              className="text-[var(--accent)] hover:underline disabled:opacity-60"
-              onClick={selectAllPages}
-              disabled={selectingAll}
-              data-testid="camera-select-all-pages"
-            >
-              {t('cameraBulk.selectAllPages', { count: total })}
-            </button>
-          </span>
-        )}
-        {showAll && (
-          <span className="text-[var(--text-dim)]">
-            {t('cameraBulk.allSelected', { count: total })}{' '}
-            <button
-              type="button"
-              className="text-[var(--accent)] hover:underline"
-              onClick={clearSelection}
-              data-testid="camera-clear-selection"
-            >
-              {t('cameraBulk.clearSelection')}
-            </button>
-          </span>
-        )}
-      </div>
+      <span className="text-[var(--text-dim)]">
+        {t('cameraBulk.pageSelected', { count: cameras.length })}{' '}
+        <button
+          type="button"
+          className="text-[var(--accent)] hover:underline disabled:opacity-60"
+          onClick={selectAllPages}
+          disabled={selectingAll}
+          data-testid="camera-select-all-pages"
+        >
+          {t('cameraBulk.selectAllPages', { count: total })}
+        </button>
+      </span>
     )
   }
+
+  const pageCheckbox = (testId: string) => (
+    <input
+      type="checkbox"
+      className="accent-[var(--accent)]"
+      checked={pageAllSelected}
+      ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !pageAllSelected }}
+      onChange={(e) => selectPage(e.target.checked)}
+      aria-label={t('cameraBulk.selectPage')}
+      data-testid={testId}
+    />
+  )
+
+  // Grid only: it has no header row, so this bar stands in for one. Always
+  // there and of fixed height, so its text changing moves nothing. The box
+  // sits where the cards' own checkboxes sit (1px border + 8px + 24px box).
+  const renderSelectionBar = () => (
+    <div
+      className="flex h-9 items-center gap-2 border border-[var(--border)] bg-[var(--panel)] pl-2 pr-3 text-[13px]"
+      data-testid="camera-selection-bar"
+    >
+      <label className="inline-flex shrink-0 items-center gap-2 cursor-pointer">
+        <span className="flex h-6 w-6 items-center justify-center">{pageCheckbox('camera-select-page')}</span>
+        {t('cameraBulk.selectPage')}
+      </label>
+      <span className="min-w-0 truncate">{selectionNotice()}</span>
+    </div>
+  )
 
   // Grid view: one card per camera with a still of what it sees. Stills load
   // as cards scroll into view and are cached five minutes (CameraThumb).
@@ -1245,7 +1255,7 @@ export function Cameras() {
         />
       )}
 
-      {!camsQuery.isPending && cameras.length > 0 && renderSelectionBar()}
+      {!camsQuery.isPending && cameras.length > 0 && view === 'grid' && renderSelectionBar()}
 
       {/* Cameras table. table-fixed with explicit widths is what keeps this
           from ever scrolling sideways: the fixed columns come to ~560px and
@@ -1288,18 +1298,8 @@ export function Cameras() {
           {/* Sticks while the rows scroll under it. */}
           <THead className="sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
             <TR>
-              <TH className="w-[26px] !pr-0">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--accent)]"
-                  checked={pageAllSelected}
-                  ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !pageAllSelected }}
-                  onChange={(e) => selectPage(e.target.checked)}
-                  aria-label={t('cameraBulk.selectPage')}
-                  data-testid="camera-select-page-header"
-                />
-              </TH>
-              <TH className="text-xs">{t('nav.cameras')}</TH>
+              <TH className="w-[26px] !pr-0">{pageCheckbox('camera-select-page-header')}</TH>
+              <TH className="text-xs whitespace-nowrap overflow-hidden text-ellipsis">{selectionNotice() ?? t('nav.cameras')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.location')}</TH>
               <TH className="text-xs w-[100px]">{t('cameraBulk.status')}</TH>
               <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
