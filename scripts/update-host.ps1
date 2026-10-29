@@ -33,6 +33,13 @@ function Get-UpdKV([string]$File, [string]$Key, [switch]$Last) {
     return ($line -split '=', 2)[1]
 }
 
+# A run is over: its last step, and one line in history.log for the app.
+function Complete-UpdRun([string]$Result) {
+    $finished = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    Add-UpdState @("STEP=$Result", "FINISHED=$finished")
+    $line = "$finished $(Get-UpdKV "$UpdDir\state.env" FROM) $(Get-UpdKV "$UpdDir\state.env" TO) $Result`n"
+    [IO.File]::AppendAllText((Join-Path (Get-Location).Path "$UpdDir\history.log"), $line, $Utf8NoBom)
+}
 function Add-UpdState([string[]]$Pairs) {
     $f = Join-Path $UpdDir "state.env"
     [IO.File]::AppendAllText((Join-Path (Get-Location).Path $f), (($Pairs -join "`n") + "`n"), $Utf8NoBom)
@@ -284,34 +291,34 @@ function Invoke-UpdRollback {
         Write-UpdFail "This release changes data outside the database, so it is not rolled back automatically."
         Write-UpdSay "The stack is left as it is. Your backup: $backup"
         Write-UpdSay "To go back anyway: .\start.ps1 update --restore $backup"
-        Add-UpdState @("STEP=failed"); return $false
+        Complete-UpdRun "failed"; return $false
     }
     Write-UpdWarn "Rolling back to $(Get-UpdKV $plan FROM_VERSION) ..."
     git checkout -q -B opennvr-release $fromCommit | Out-Host
-    if ($LASTEXITCODE -ne 0) { Add-UpdState @("STEP=failed"); return $false }
+    if ($LASTEXITCODE -ne 0) { Complete-UpdRun "failed"; return $false }
     Copy-Item (Join-Path $backup "env") .env -Force
     $script:UpdCa = Get-ComposeArgs
     $oldImage = "ghcr.io/open-nvr/core:$(Get-EnvVar CORE_TAG)"
     if ($restoreDb -eq "1") {
-        if (-not (Restore-UpdSite $backup $oldImage)) { Add-UpdState @("STEP=failed"); return $false }
+        if (-not (Restore-UpdSite $backup $oldImage)) { Complete-UpdRun "failed"; return $false }
     }
     if (-not (Invoke-UpdUp)) {
-        Add-UpdState @("STEP=failed")
+        Complete-UpdRun "failed"
         Write-UpdFail "The old version did not start either. See $UpdDir\up.log; backup: $backup"
         return $false
     }
     if ((Test-Path "$UpdDir\installed\release-manifest.json") -and -not (Test-UpdVerify "installed")) {
-        Add-UpdState @("STEP=failed")
+        Complete-UpdRun "failed"
         Write-UpdFail "Rolled back, but the old version does not check out healthy. Backup: $backup"
         return $false
     }
-    Add-UpdState @("STEP=rolled_back")
+    Complete-UpdRun "rolled_back"
     Write-UpdWarn "Rolled back: the site runs $(Get-UpdKV $plan FROM_VERSION) again, with its data."
     return $true
 }
 
 function Complete-Update {
-    Add-UpdState @("STEP=succeeded", "FINISHED=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))")
+    Complete-UpdRun "succeeded"
     Remove-Item "$UpdDir\installed" -Recurse -Force -ErrorAction SilentlyContinue
     Move-Item "$UpdDir\candidate" "$UpdDir\installed"
     Remove-OldUpdBackups
@@ -334,6 +341,88 @@ function Invoke-UpdSwitch {
     return $true
 }
 
+# ── the runner: one tick a minute, from the Scheduled Task ────────────
+# Same as upd_queue in update-host.sh: heartbeat; an "Update now" asked for
+# in the app; else, unless updates are off, a check every few hours, and in
+# auto mode the install when updater/policy.py says it is due.
+
+function Invoke-UpdateQueue {
+    $here = (Get-Location).Path
+    New-Item -ItemType Directory -Force (Join-Path $here $UpdDir), (Join-Path $here "data\update-requests") | Out-Null
+    $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    [IO.File]::WriteAllText((Join-Path $here "$UpdDir\runner.env"), "LAST_SEEN=$now`n", $Utf8NoBom)
+    $lock = Join-Path $UpdDir ".lock"
+    if (Test-Path $lock) {
+        $old = Get-Content $lock -ErrorAction SilentlyContinue
+        if ($old -and (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue)) { return }
+    }
+    $req = "data\update-requests\request.env"
+    $policy = "data\update-requests\policy.env"
+    $id = Get-UpdKV $req ID
+    $handled = if (Test-Path "$UpdDir\last-request") { (Get-Content "$UpdDir\last-request" -Raw).Trim() } else { "" }
+    if ($id -and $id -ne $handled) {
+        # Marked first: a request is tried once, never in a loop.
+        [IO.File]::WriteAllText((Join-Path $here "$UpdDir\last-request"), "$id`n", $Utf8NoBom)
+        Invoke-Update -UpdateArgs @("--to", (Get-UpdKV $req TO), "--yes")
+        return
+    }
+    $mode = Get-UpdKV $policy MODE
+    if (-not $mode -or $mode -eq "off") { return }
+    $last = Get-UpdKV "$UpdDir\check.env" CHECKED_EPOCH
+    $every = if ($env:OPENNVR_UPDATE_CHECK_EVERY) { [long]$env:OPENNVR_UPDATE_CHECK_EVERY } else { 21600 }
+    if (-not $last -or ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$last) -ge $every) {
+        Invoke-Update -UpdateArgs @("--dry-run")
+    }
+    if ($mode -ne "auto" -or (Get-UpdKV "$UpdDir\check.env" CODE -Last) -ne "0") { return }
+    $script:UpdCa = Get-ComposeArgs
+    $due = Invoke-Updater "" @("due", "--policy-file", "/repo/data/update-requests/policy.env",
+                               "--local-time", (Get-Date -Format "yyyy-MM-ddTHH:mm"))
+    if ($due -eq 0) { Invoke-Update -UpdateArgs @("--to", (Get-UpdKV "$UpdDir\plan.env" TO_VERSION), "--yes") }
+}
+
+# .\start.ps1 auto-update enable|disable|status: the Scheduled Task that runs the tick.
+function Set-AutoUpdate([string]$Action) {
+    $name = "OpenNVR update runner"
+    $here = (Get-Location).Path
+    switch ($Action) {
+        "enable" {
+            $shell = (Get-Process -Id $PID).Path
+            $act = New-ScheduledTaskAction -Execute $shell -WorkingDirectory $here `
+                -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$here\start.ps1`" update --from-queue"
+            $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+            $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable `
+                -ExecutionTimeLimit (New-TimeSpan -Hours 2) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+            $desc = "Runs '.\start.ps1 update --from-queue' in $here each minute: the app's Update now and automatic updates."
+            # S4U runs without a window (a logged-on task flashes a console
+            # every minute) and stores no password; Windows may refuse it to a
+            # non-admin, and then the task runs while this user is logged on.
+            try {
+                $who = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U
+                Register-ScheduledTask -TaskName $name -Action $act -Trigger $trigger -Settings $settings `
+                    -Principal $who -Description $desc -Force -ErrorAction Stop | Out-Null
+                Write-UpdOk "The update runner checks in every minute, in the background. The update policy is set in the app."
+            } catch {
+                $who = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+                Register-ScheduledTask -TaskName $name -Action $act -Trigger $trigger -Settings $settings `
+                    -Principal $who -Description $desc -Force | Out-Null
+                Write-UpdOk "The update runner checks in every minute while you are logged on."
+                Write-UpdSay "(Run this from an administrator PowerShell to let it run in the background instead.)"
+            }
+        }
+        "disable" {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+            Write-UpdOk "The update runner is off. Updates can still be run by hand: .\start.ps1 update"
+        }
+        default {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            $seen = Get-UpdKV "$UpdDir\runner.env" LAST_SEEN
+            if ($task) { Write-UpdSay "The update runner is installed ($($task.State))." }
+            else { Write-UpdSay "The update runner is not installed. Turn it on with: .\start.ps1 auto-update enable" }
+            if ($seen) { Write-UpdSay "It last checked in at $seen (UTC)." }
+        }
+    }
+}
+
 # ── entry point ──────────────────────────────────────────────────────
 
 function Invoke-Update([string[]]$UpdateArgs) {
@@ -348,6 +437,7 @@ function Invoke-Update([string[]]$UpdateArgs) {
             "--accept-manual" { $extra += "--accept-manual" }
             "--channel"       { $extra += @("--channel", $UpdateArgs[++$i]) }
             "--restore"       { $restore = $UpdateArgs[++$i] }
+            "--from-queue"    { Invoke-UpdateQueue; return }
             default           { Write-UpdFail "unknown option: $($UpdateArgs[$i])"; exit 1 }
         }
     }
@@ -455,7 +545,7 @@ function Invoke-Update([string[]]$UpdateArgs) {
         Add-UpdState @("FROM=$from", "TO=$toV", "STARTED=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))",
                        "STEP=backing_up", "BACKUP=$backup")
         if (-not (Backup-UpdSite $backup)) {
-            Add-UpdState @("STEP=failed"); Write-UpdFail "The backup failed; nothing changed."; exit 1 }
+            Complete-UpdRun "failed"; Write-UpdFail "The backup failed; nothing changed."; exit 1 }
         if (-not (Invoke-UpdSwitch)) { exit 1 }
     } finally {
         Unlock-Update

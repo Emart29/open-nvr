@@ -20,6 +20,8 @@
 #   ./start.sh update --adopt         take over a site not on a known release
 #   ./start.sh update --accept-manual the release's manual steps are done
 #   ./start.sh update --restore DIR   put a backup back (the escape hatch)
+#   ./start.sh update --from-queue    one tick of the runner (the timer runs it)
+#   sudo ./start.sh auto-update enable|disable|status   that timer
 #
 # Files: data/updates/ (plan, state, the installed and candidate manifests)
 # and backups/<time>-<version>/ (database dump, two volumes, .env); both
@@ -43,6 +45,14 @@ upd_state() {
     # Append KEY=value lines to state.env (the last one wins when read).
     local kv
     for kv in "$@"; do echo "$kv" >> "$UPD_DIR/state.env"; done
+}
+
+# A run is over: its last step, and one line in history.log for the app.
+upd_end() {
+    local finished
+    finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    upd_state "STEP=$1" "FINISHED=$finished"
+    echo "$finished $(upd_kv "$UPD_DIR/state.env" FROM) $(upd_kv "$UPD_DIR/state.env" TO) $1" >> "$UPD_DIR/history.log"
 }
 
 # A service's running container, found through compose rather than by its
@@ -94,7 +104,9 @@ upd_running_images() {
 
 upd_lock() {
     mkdir -p "$UPD_DIR"
-    chmod 700 "$UPD_DIR" 2>/dev/null || true
+    # Readable by core (mounted read-only into it for the app); it holds
+    # manifests, plans and run state, no secrets: the backups are elsewhere.
+    chmod 755 "$UPD_DIR" 2>/dev/null || true
     if ! mkdir "$UPD_DIR/.lock" 2>/dev/null; then
         local pid
         pid=$(cat "$UPD_DIR/.lock/pid" 2>/dev/null || true)
@@ -243,35 +255,35 @@ upd_rollback() {
         upd_fail "This release changes data outside the database, so it is not rolled back automatically."
         upd_say "The stack is left as it is. Your backup: $backup"
         upd_say "To go back anyway: ./start.sh update --restore $backup"
-        upd_state STEP=failed
+        upd_end failed
         return 1
     fi
     upd_warn "Rolling back to $(upd_kv "$UPD_DIR/plan.env" FROM_VERSION) ..."
-    git checkout -q -B opennvr-release "$from_commit" || { upd_state STEP=failed; return 1; }
-    cp "$backup/env" .env || { upd_state STEP=failed; return 1; }
-    ARGS=$(compose_args) || { upd_state STEP=failed; return 1; }
+    git checkout -q -B opennvr-release "$from_commit" || { upd_end failed; return 1; }
+    cp "$backup/env" .env || { upd_end failed; return 1; }
+    ARGS=$(compose_args) || { upd_end failed; return 1; }
     local old_image
     old_image="ghcr.io/open-nvr/core:$(get_env_var CORE_TAG)"
     if [ "$restore_db" = "1" ]; then
-        upd_restore "$backup" "$old_image" || { upd_state STEP=failed; return 1; }
+        upd_restore "$backup" "$old_image" || { upd_end failed; return 1; }
     fi
     if ! upd_up; then
-        upd_state STEP=failed
+        upd_end failed
         upd_fail "The old version did not start either. See $UPD_DIR/up.log; backup: $backup"
         return 1
     fi
     if [ -f "$UPD_DIR/installed/release-manifest.json" ] && ! upd_verify installed; then
-        upd_state STEP=failed
+        upd_end failed
         upd_fail "Rolled back, but the old version does not check out healthy. Backup: $backup"
         return 1
     fi
-    upd_state STEP=rolled_back
+    upd_end rolled_back
     upd_warn "Rolled back: the site runs $(upd_kv "$UPD_DIR/plan.env" FROM_VERSION) again, with its data."
     return 0
 }
 
 upd_finish() {
-    upd_state STEP=succeeded "FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    upd_end succeeded
     rm -rf "$UPD_DIR/installed"
     mv "$UPD_DIR/candidate" "$UPD_DIR/installed"
     upd_prune_backups
@@ -325,6 +337,116 @@ upd_restore_cmd() {
     upd_ok "Restored from $dir."
 }
 
+# ── the runner: one tick a minute, from the timer ────────────────────
+#
+# Leaves a heartbeat for the app; starts an "Update now" asked for in the
+# app; otherwise, unless updates are off, checks for an update every few
+# hours, and in auto mode installs it when updater/policy.py says it is due.
+
+upd_queue() {
+    mkdir -p "$UPD_DIR" data/update-requests
+    chmod 755 "$UPD_DIR" 2>/dev/null || true
+    echo "LAST_SEEN=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$UPD_DIR/runner.env"
+    # Someone (or the last tick) is updating: nothing to do this minute.
+    if [ -d "$UPD_DIR/.lock" ] && kill -0 "$(cat "$UPD_DIR/.lock/pid" 2>/dev/null)" 2>/dev/null; then
+        return 0
+    fi
+    local req=data/update-requests/request.env policy=data/update-requests/policy.env id handled
+    id=$(upd_kv "$req" ID)
+    handled=$(cat "$UPD_DIR/last-request" 2>/dev/null || true)
+    if [ -n "$id" ] && [ "$id" != "$handled" ]; then
+        # Marked first: a request is tried once, never in a loop.
+        echo "$id" > "$UPD_DIR/last-request"
+        run_update --to "$(upd_kv "$req" TO)" --yes
+        return
+    fi
+    local mode last now
+    mode=$(upd_kv "$policy" MODE)
+    [ -n "$mode" ] && [ "$mode" != off ] || return 0
+    last=$(upd_kv "$UPD_DIR/check.env" CHECKED_EPOCH)
+    now=$(date +%s)
+    if [ -z "$last" ] || [ $((now - last)) -ge "${OPENNVR_UPDATE_CHECK_EVERY:-21600}" ]; then
+        ( run_update --dry-run ) || true
+    fi
+    [ "$mode" = auto ] && [ "$(upd_kv "$UPD_DIR/check.env" CODE)" = 0 ] || return 0
+    ARGS=$(compose_args) || return 1
+    if upd_run "" due --policy-file /repo/$policy --local-time "$(date +%Y-%m-%dT%H:%M)"; then
+        run_update --to "$(upd_kv "$UPD_DIR/plan.env" TO_VERSION)" --yes
+    fi
+}
+
+# ./start.sh auto-update enable|disable|status: the timer that runs the tick.
+run_auto_update() {
+    local unit=/etc/systemd/system/opennvr-update
+    local plist="$HOME/Library/LaunchAgents/org.opennvr.update.plist"
+    case "${1:-status}:$(uname -s)" in
+        enable:Linux)
+            [ "$(id -u)" = 0 ] || { upd_fail "Run this with sudo: it installs a systemd timer."; exit 1; }
+            local run_as="${SUDO_USER:-$(id -un)}"
+            cat > "$unit.service" <<EOF
+[Unit]
+Description=OpenNVR update runner (one tick)
+After=docker.service
+
+[Service]
+Type=oneshot
+User=$run_as
+WorkingDirectory=$PWD
+ExecStart=$PWD/start.sh update --from-queue
+EOF
+            cat > "$unit.timer" <<EOF
+[Unit]
+Description=OpenNVR update runner, every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
+EOF
+            systemctl daemon-reload && systemctl enable --now opennvr-update.timer || exit 1
+            upd_ok "The update runner checks in every minute, as $run_as. The update policy is set in the app."
+            ;;
+        disable:Linux)
+            [ "$(id -u)" = 0 ] || { upd_fail "Run this with sudo."; exit 1; }
+            systemctl disable --now opennvr-update.timer 2>/dev/null || true
+            rm -f "$unit.service" "$unit.timer"; systemctl daemon-reload
+            upd_ok "The update runner is off. Updates can still be run by hand: ./start.sh update"
+            ;;
+        enable:Darwin)
+            mkdir -p "$(dirname "$plist")"
+            cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>org.opennvr.update</string>
+  <key>ProgramArguments</key><array><string>$PWD/start.sh</string><string>update</string><string>--from-queue</string></array>
+  <key>WorkingDirectory</key><string>$PWD</string>
+  <key>StartInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>$PWD/$UPD_DIR/runner.log</string>
+  <key>StandardErrorPath</key><string>$PWD/$UPD_DIR/runner.log</string>
+</dict></plist>
+EOF
+            launchctl unload "$plist" 2>/dev/null || true
+            launchctl load -w "$plist" || exit 1
+            upd_ok "The update runner checks in every minute. The update policy is set in the app."
+            ;;
+        disable:Darwin)
+            launchctl unload -w "$plist" 2>/dev/null || true
+            rm -f "$plist"
+            upd_ok "The update runner is off. Updates can still be run by hand: ./start.sh update"
+            ;;
+        status:*)
+            local seen
+            seen=$(upd_kv "$UPD_DIR/runner.env" LAST_SEEN)
+            if [ -n "$seen" ]; then upd_say "The update runner last checked in at $seen (UTC)."
+            else upd_say "The update runner has never run here. Turn it on with: sudo ./start.sh auto-update enable"; fi
+            ;;
+        *) upd_fail "usage: ./start.sh auto-update enable|disable|status (Linux and macOS)"; exit 1 ;;
+    esac
+}
+
 run_update() {
     local to="" bundle_file="" dry=0 yes=0 extra=() restore=""
     while [ $# -gt 0 ]; do
@@ -337,6 +459,7 @@ run_update() {
             --accept-manual) extra+=(--accept-manual); shift ;;
             --channel) extra+=(--channel "$2"); shift 2 ;;
             --restore) restore="$2"; shift 2 ;;
+            --from-queue) upd_queue; return ;;
             *) upd_fail "unknown option: $1"; exit 1 ;;
         esac
     done
@@ -432,7 +555,7 @@ run_update() {
     backup="$UPD_BACKUPS/$(date +%Y%m%d-%H%M%S)-$from"
     upd_state "FROM=$from" "TO=$to_v" "STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" STEP=backing_up "BACKUP=$backup"
     if ! upd_backup "$backup"; then
-        upd_state STEP=failed
+        upd_end failed
         upd_fail "The backup failed; nothing changed."
         exit 1
     fi

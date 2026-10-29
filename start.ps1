@@ -18,6 +18,7 @@
 #   .\start.ps1 validate     # run pre-flight checks only
 #   .\start.ps1 token        # re-print the first-time setup token
 #   .\start.ps1 update       # update to the latest release (scripts\update-host.ps1)
+#   .\start.ps1 auto-update enable|disable|status   # the runner for in-app updates
 # ============================================================
 
 param(
@@ -790,6 +791,8 @@ function Invoke-Up {
     # The updater (scripts\update-host.ps1) runs `up` with KEEP_ORPHANS=1
     # (containers from overlays this run was not told about are not
     # removed) and UP_BUILD=1 (images the release builds are rebuilt).
+    # The updater's hand-off folders, bind-mounted into core.
+    New-Item -ItemType Directory -Force "data\updates", "data\update-requests" | Out-Null
     $upFlags = @()
     if ($env:KEEP_ORPHANS -ne "1") { $upFlags += "--remove-orphans" }
     if ($env:UP_BUILD -eq "1") { $upFlags += "--build" }
@@ -940,9 +943,16 @@ switch ($Command) {
         Invoke-Update $Rest
     }
 
+    "auto-update" {
+        # The Scheduled Task that lets the app's Update now and automatic updates work.
+        . (Join-Path $PSScriptRoot "scripts\update-host.ps1")
+        $action = if ($Rest.Count -gt 0) { $Rest[0] } else { "status" }
+        Set-AutoUpdate $action
+    }
+
     default {
         Write-Color "Unknown command: $Command" Red
-        Write-Color "Usage: .\start.ps1 [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|update]"
+        Write-Color "Usage: .\start.ps1 [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|update|auto-update]"
         exit 1
     }
 }

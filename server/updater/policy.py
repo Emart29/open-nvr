@@ -61,7 +61,7 @@ def in_window(policy: Policy, local: datetime) -> bool:
 
 
 def site_delay(seed: str, version: str) -> timedelta:
-    """This site's wait for this release: stable for the pair, spread over 0–72 h."""
+    """This site's wait for this release: stable for the pair, spread over 0-72 h."""
     digest = hashlib.sha256(f"{seed}:{version}".encode()).digest()
     return timedelta(minutes=int.from_bytes(digest[:4], "big") % (MAX_DELAY_H * 60))
 

@@ -18,7 +18,8 @@
 #   ./start.sh status       # show container status
 #   ./start.sh validate     # run pre-flight checks only
 #   ./start.sh token        # re-print the first-time setup token
-#   ./start.sh update       # update to the latest release (see --help)
+#   ./start.sh update       # update to the latest release (scripts/update-host.sh)
+#   ./start.sh auto-update enable|disable|status   # the runner for in-app updates
 # ============================================================
 
 set -e
@@ -1385,6 +1386,9 @@ run_up() {
     # too, with KEEP_ORPHANS=1 (containers from overlays this run was not
     # told about are not removed) and UP_BUILD=1 (images the release
     # builds from its own files are rebuilt from the new checkout).
+    # The updater's hand-off folders, bind-mounted into core: made here as
+    # this user, or Docker would create them root-owned on Linux.
+    mkdir -p data/updates data/update-requests
     local up_flags="--remove-orphans"
     [ "${KEEP_ORPHANS:-}" = 1 ] && up_flags=""
     [ "${UP_BUILD:-}" = 1 ] && up_flags="$up_flags --build"
@@ -1601,9 +1605,16 @@ case "$COMMAND" in
     run_update "$@"
     ;;
 
+  auto-update)
+    # The timer that lets the app's Update now and automatic updates work.
+    # shellcheck source=scripts/update-host.sh
+    . "$(dirname "$0")/scripts/update-host.sh"
+    run_auto_update "${2:-status}"
+    ;;
+
   *)
     echo -e "${RED}Unknown command: $COMMAND${NC}"
-    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs|update]"
+    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs|update|auto-update]"
     exit 1
     ;;
 esac
