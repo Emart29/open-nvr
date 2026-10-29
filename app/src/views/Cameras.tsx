@@ -27,7 +27,7 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { Camera as CameraIcon, CameraOff, Download, PauseCircle, Pencil, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
+import { Camera as CameraIcon, CameraOff, ChevronDown, Download, LayoutGrid, List, PauseCircle, Pencil, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
 import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
@@ -36,6 +36,8 @@ import type { BadgeVariant } from '../components/ui'
 import { AddCameraDialog } from '../components/AddCameraDialog'
 import { CameraExportDialog, CameraImportDialog } from '../components/cameras/CameraImportExport'
 import { RecordingPauseDialog } from '../components/cameras/RecordingPauseDialog'
+import { CameraBulkMenu, type BulkAction } from '../components/cameras/CameraBulkMenu'
+import { CameraThumb } from '../components/live/CameraThumb'
 import { QrScanner } from '../components/QrScanner'
 import { parseCameraQr } from '../lib/cameraQr'
 import { ASPECT_OPTIONS, isCustomAspect } from '../lib/aspect'
@@ -52,6 +54,26 @@ type CameraAssignment = { skill: string; labels?: string[] | null }
 /** The Location filter's value for cameras that have none (any string a
  *  location cannot be). */
 const NO_LOCATION = '\u0000none'
+
+type CameraStatusFilter = 'all' | 'active' | 'inactive'
+type CameraView = 'table' | 'grid'
+const STATUS_PREF = 'opennvr.cameras.status'
+const VIEW_PREF = 'opennvr.cameras.view'
+
+/** A remembered choice, or the default when storage is empty, blocked or
+ *  holds something this version does not know. */
+function readPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = window.localStorage.getItem(key)
+    return v && (allowed as readonly string[]).includes(v) ? (v as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writePref(key: string, value: string) {
+  try { window.localStorage.setItem(key, value) } catch { /* private mode: not remembered */ }
+}
 
 type CameraLocations = { locations: Array<{ location: string; count: number }>; none: number }
 
@@ -155,14 +177,21 @@ export function Cameras() {
   const pauseAllowed = siteInfo.data?.recording_pause_enabled === true
   // An admin sees Pause even while it is off, and is pointed at the setting.
   const showPause = canPause && (pauseAllowed || isSuperuser)
-  const [pausing, setPausing] = useState<Camera | null>(null)
+  const [pausing, setPausing] = useState<Array<{ id: number; name: string }> | null>(null)
+  const [showBulkLocation, setShowBulkLocation] = useState(false)
+  const [bulkLocation, setBulkLocation] = useState('')
   const { showError, showSuccess, showInfo, showWarning } = useSnackbar()
   const confirm = useConfirm()
   // A mutation (delete / bulk op) is in flight. Distinct from the list's own
   // fetching state: the list now refreshes on its own in the background, and
   // that must never disable the buttons.
   const [mutating, setMutating] = useState(false)
-  const [activeOnly, setActiveOnly] = useState(true)
+  // All / Active / Inactive, and table or grid: both remembered per browser.
+  const [status, setStatus] = useState<CameraStatusFilter>(() => readPref(STATUS_PREF, ['all', 'active', 'inactive'], 'all'))
+  const [view, setView] = useState<CameraView>(() => readPref(VIEW_PREF, ['table', 'grid'], 'table'))
+  const pickStatus = (s: CameraStatusFilter) => { setPage(1); setSelected(new Set()); setStatus(s); writePref(STATUS_PREF, s) }
+  const pickView = (v: CameraView) => { setView(v); writePref(VIEW_PREF, v) }
+  const activeOnly = status === 'active'
   const [limit, setLimit] = useState(20)
   const [page, setPage] = useState(1)
   const skip = useMemo(() => (page - 1) * limit, [page, limit])
@@ -182,7 +211,7 @@ export function Cameras() {
   const camsQuery = useCameras({
     skip,
     limit,
-    active_only: activeOnly,
+    status,
     q: debouncedQuery || undefined,
     ...(location === NO_LOCATION ? { no_location: true } : location ? { location } : {}),
   })
@@ -197,6 +226,7 @@ export function Cameras() {
     [camsQuery.data],
   )
   const total = camsQuery.data?.total ?? 0
+  const counts = camsQuery.data?.counts
 
   const mtxQuery = useMediaMtxHealth()
   // null while we genuinely don't know yet — the "Media Server is not running"
@@ -355,6 +385,151 @@ export function Cameras() {
     }
   }
 
+  // One camera's buttons, shared by the table row and the grid card.
+  const cameraActions = (c: Camera) => (
+    <>
+      {canManageCameras && (
+        <IconButton variant="outline" onClick={() => startEdit(c)} title={t('camera.edit')} label={`${t('camera.edit')} ${c.name}`}>
+          <Pencil size={15} />
+        </IconButton>
+      )}
+      {/* Recording is always on unless the site allows
+          pausing (Settings > Recording); then a pause is
+          timed or until resumed, and audited. */}
+      {c.is_active && c.recording_pause && canResume && (
+        <IconButton
+          variant="outline"
+          className="!text-[var(--warning)] !border-[var(--warning)]"
+          onClick={() => onResumeRecording(c)}
+          disabled={mutating}
+          title={t('recordingPause.resume')}
+          label={`${t('recordingPause.resume')} ${c.name}`}
+          data-testid={`recording-resume-${c.id}`}
+        >
+          <PlayCircle size={15} />
+        </IconButton>
+      )}
+      {c.is_active && !c.recording_pause && showPause && c.mediamtx_provisioned === true && (
+        <IconButton
+          variant="outline"
+          onClick={() => setPausing([c])}
+          title={t('recordingPause.pause')}
+          label={`${t('recordingPause.pause')} ${c.name}`}
+          data-testid={`recording-pause-${c.id}`}
+        >
+          <PauseCircle size={15} />
+        </IconButton>
+      )}
+      {c.mediamtx_provisioned === true && (
+        <IconButton
+          variant="outline"
+          className="!text-[var(--accent)] !border-[color-mix(in_oklab,var(--accent)_50%,var(--border))]"
+          onClick={() => navigate(`/live?camera=${c.id}`)}
+          title={t('camera.viewLive')}
+          label={`View ${c.name} live`}
+        >
+          <Video size={15} />
+        </IconButton>
+      )}
+      {canManageCameras && (
+        <IconButton
+          variant="outline"
+          className="hover:!text-[var(--danger)] hover:!border-[var(--danger)]"
+          onClick={() => onDelete(c)}
+          title={t('camera.delete')}
+          label={`Delete ${c.name}`}
+        >
+          <Trash2 size={15} />
+        </IconButton>
+      )}
+    </>
+  )
+
+  const activeBadge = (c: Camera) => c.is_active
+    ? <Badge variant="success">{t('cameraBulk.status_active')}</Badge>
+    : <Badge variant="neutral">{t('cameraBulk.status_inactive')}</Badge>
+
+  const toggleSelected = (id: number, on: boolean) => {
+    const next = new Set(selected)
+    if (on) next.add(id); else next.delete(id)
+    setSelected(next)
+  }
+
+  // Grid view: one card per camera with a still of what it sees. Stills load
+  // as cards scroll into view and are cached five minutes (CameraThumb).
+  const renderGrid = () => (
+    <div className={`min-h-0 overflow-auto ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}>
+      <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(250px,1fr))]" data-testid="camera-grid">
+        {cameras.map((c) => {
+          const stream = streamState(c)
+          const rec = recordingState(c)
+          const device = [c.manufacturer, c.model].filter(Boolean).join(' ')
+          const isSelected = selected.has(c.id)
+          return (
+            <div
+              key={c.id}
+              data-testid={`camera-card-${c.id}`}
+              className={`flex flex-col border bg-[var(--panel)] ${isSelected ? 'border-[var(--accent)]' : 'border-[var(--border)]'} ${c.is_active ? '' : 'opacity-70'}`}
+            >
+              <div className="relative aspect-video bg-[#0b0f16]">
+                {c.is_active && c.mediamtx_provisioned === true ? (
+                  <button
+                    type="button"
+                    className="absolute inset-0 block"
+                    onClick={() => navigate(`/live?camera=${c.id}`)}
+                    title={t('camera.viewLive')}
+                    aria-label={`View ${c.name} live`}
+                  >
+                    <CameraThumb cameraId={c.id} alt={c.name} className="absolute inset-0" />
+                  </button>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white/40 text-xs">
+                    <CameraOff size={20} aria-hidden="true" />
+                    {c.is_active ? stream.label : t('cameraBulk.status_inactive')}
+                  </div>
+                )}
+                <label className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center bg-black/55 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="accent-[var(--accent)]"
+                    checked={isSelected}
+                    onChange={(e) => toggleSelected(c.id, e.target.checked)}
+                    aria-label={`Select ${c.name}`}
+                  />
+                </label>
+                <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
+                  <Badge variant={stream.variant} title={stream.title}>
+                    {stream.icon && <Unplug size={12} />}
+                    {stream.label}
+                  </Badge>
+                </div>
+                <div className="pointer-events-none absolute left-2 bottom-2">
+                  <Badge variant={rec.variant} title={rec.title}>{rec.label}</Badge>
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 pt-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium" title={c.name}>{c.name}</span>
+                  {c.is_active && c.detection_enabled === false && (
+                    <Badge variant="warning" className="shrink-0" title={t('cameras.detectionOffHint')}>{t('cameras.detectionOff')}</Badge>
+                  )}
+                </div>
+                <div className="truncate text-xs text-[var(--text-dim)]" title={c.location || undefined}>
+                  {c.location?.trim() || '—'}
+                </div>
+                {device && <div className="truncate text-[11px] text-[var(--text-dim)]" title={device}>{device}</div>}
+              </div>
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                {activeBadge(c)}
+                <div className="flex items-center gap-1">{cameraActions(c)}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   // User search for bulk assign
   useEffect(() => {
     let alive = true
@@ -504,6 +679,102 @@ export function Cameras() {
     }
   }
 
+  // The ticked cameras, as far as this page knows them: a selection can
+  // outlive a page change, so an id not on screen still goes through.
+  const selectedCameras = (): Camera[] => {
+    const byId = new Map(cameras.map((c) => [c.id, c]))
+    return Array.from(selected).map((id) => byId.get(id) ?? ({ id, name: `#${id}`, is_active: true } as Camera))
+  }
+
+  /** One call per camera, failures counted rather than swallowed. Cameras the
+   *  action does not apply to (`skip`) are left out and reported. */
+  const runBulk = async (
+    apply: (c: Camera) => Promise<unknown>,
+    done: string,
+    skip?: (c: Camera) => boolean,
+  ) => {
+    const all = selectedCameras()
+    const targets = skip ? all.filter((c) => !skip(c)) : all
+    const skipped = all.length - targets.length
+    if (!targets.length) { showInfo(t('cameraBulk.nothingToDo')); return }
+    try {
+      setMutating(true)
+      let failed = 0
+      for (const c of targets) {
+        try { await apply(c) } catch { failed++ }
+      }
+      await refreshCameras()
+      setSelected(new Set())
+      if (failed) showError(t('camera.bulkPartial', { failed, total: targets.length }))
+      else showSuccess(skipped ? `${done} ${t('cameraBulk.skipped', { count: skipped })}` : done)
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  const onBulkAction = async (action: BulkAction) => {
+    const count = selected.size
+    switch (action) {
+      case 'location':
+        setShowBulkAssign(false)
+        setBulkLocation('')
+        setShowBulkLocation(true)
+        return
+      case 'detection-on':
+      case 'detection-off': {
+        const on = action === 'detection-on'
+        return runBulk(
+          (c) => apiService.updateCamera(c.id, { detection_enabled: on }),
+          t(on ? 'cameraBulk.detectionOnDone' : 'cameraBulk.detectionOffDone', { count }),
+          (c) => (c.detection_enabled !== false) === on,
+        )
+      }
+      case 'activate':
+        return runBulk(
+          (c) => apiService.updateCamera(c.id, { is_active: true }),
+          t('cameraBulk.activateDone', { count }),
+          (c) => c.is_active,
+        )
+      case 'deactivate':
+        if (!(await confirm({
+          title: t('cameraBulk.confirmDeactivateTitle', { count }),
+          message: t('cameraBulk.confirmDeactivateMessage'),
+          confirmLabel: t('cameraBulk.deactivate'),
+          danger: true,
+        }))) return
+        return runBulk(
+          (c) => apiService.updateCamera(c.id, { is_active: false }),
+          t('cameraBulk.deactivateDone', { count }),
+          (c) => !c.is_active,
+        )
+      case 'pause': {
+        // A turned-off camera is not recording, so there is nothing to pause.
+        const targets = selectedCameras().filter((c) => c.is_active && !c.recording_pause)
+        if (!targets.length) { showInfo(t('cameraBulk.nothingToDo')); return }
+        setPausing(targets)
+        return
+      }
+      case 'resume':
+        return runBulk(
+          (c) => apiService.setCameraRecording(c.id, { enabled: true, reason: 'resumed from Cameras (bulk)' }),
+          t('cameraBulk.resumeDone', { count }),
+          (c) => !c.recording_pause,
+        )
+    }
+  }
+
+  const onBulkLocation = async (clear = false) => {
+    const value = clear ? null : bulkLocation.trim()
+    if (!clear && !value) return
+    await runBulk(
+      (c) => apiService.updateCamera(c.id, { location: value }),
+      clear ? t('cameraBulk.locationCleared', { count: selected.size })
+        : t('cameraBulk.locationDone', { count: selected.size, location: value ?? '' }),
+    )
+    queryClient.invalidateQueries({ queryKey: ['camera-locations'] })
+    setShowBulkLocation(false)
+  }
+
   const onBulkAssign = async () => {
     const ids = Array.from(selected)
     if (!ids.length || bulkUserId === '') return
@@ -635,42 +906,101 @@ export function Cameras() {
           {/* Only once there is a location to pick: on a recorder where
               no camera has one, the menu would offer nothing. */}
           {(locations?.locations.length ?? 0) > 0 && (
-            <select
-              value={location}
-              onChange={(e) => { setPage(1); setLocation(e.target.value) }}
-              aria-label={t('camera.location')}
-              title={t('camera.location')}
-              className="h-9 w-52 max-w-full border border-[var(--border)] bg-[var(--bg-2)] px-2 text-[13px] outline-none transition-colors focus:border-[var(--accent)]"
-            >
-              <option value="">{t('camera.allLocations')}</option>
-              {locations!.locations.map((l) => (
-                <option key={l.location} value={l.location}>{l.location} ({l.count})</option>
-              ))}
-              {locations!.none > 0 && <option value={NO_LOCATION}>{t('camera.noLocation')} ({locations!.none})</option>}
-            </select>
+            // The browser's own arrow sat flush against the right border;
+            // draw one with the same inset the search icon has on the left.
+            <div className="relative w-52 max-w-full">
+              <select
+                value={location}
+                onChange={(e) => { setPage(1); setLocation(e.target.value) }}
+                aria-label={t('camera.location')}
+                title={t('camera.location')}
+                className="h-9 w-full appearance-none border border-[var(--border)] bg-[var(--bg-2)] pl-3 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--accent)] truncate"
+              >
+                <option value="">{t('camera.allLocations')}</option>
+                {locations!.locations.map((l) => (
+                  <option key={l.location} value={l.location}>{l.location} ({l.count})</option>
+                ))}
+                {locations!.none > 0 && <option value={NO_LOCATION}>{t('camera.noLocation')} ({locations!.none})</option>}
+              </select>
+              <ChevronDown
+                size={15}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]"
+                aria-hidden="true"
+              />
+            </div>
           )}
-          <Checkbox
-            label={t('camera.activeOnly')}
-            checked={activeOnly}
-            onChange={(e) => { setPage(1); setActiveOnly(e.target.checked) }}
-            className="!items-center !text-[13px]"
-          />
+          {/* All / Active / Inactive, each with its count under the current
+              search and location. */}
+          <div role="radiogroup" aria-label={t('cameraBulk.status')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
+            {(['all', 'active', 'inactive'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={status === s}
+                onClick={() => pickStatus(s)}
+                data-testid={`camera-status-${s}`}
+                className={`px-3 text-[13px] inline-flex items-center gap-1.5 border-l first:border-l-0 border-[var(--border)] transition-colors ${
+                  status === s ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                }`}
+              >
+                {t(`cameraBulk.status_${s}`)}
+                {counts && (
+                  <span className={`font-mono tabular-nums text-[11px] ${status === s ? 'text-white/80' : 'text-[var(--text-dim)]'}`}>
+                    {counts[s]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {/* Table or grid of thumbnails. */}
+          <div role="radiogroup" aria-label={t('cameraBulk.view')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
+            {([['table', List], ['grid', LayoutGrid]] as const).map(([v, Icon]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={view === v}
+                onClick={() => pickView(v)}
+                title={t(`cameraBulk.view_${v}`)}
+                aria-label={t(`cameraBulk.view_${v}`)}
+                data-testid={`camera-view-${v}`}
+                className={`w-9 inline-flex items-center justify-center border-l first:border-l-0 border-[var(--border)] transition-colors ${
+                  view === v ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                }`}
+              >
+                <Icon size={15} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {canManageCameras && selected.size > 0 ? (
+            {(canManageCameras || canPause || canResume) && selected.size > 0 ? (
               <>
-                <Button size="sm" variant="danger" className="h-7" onClick={onBulkDelete} disabled={mutating}>
-                  Delete selected ({selected.size})
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className={`h-7 ${showBulkAssign ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
-                  onClick={() => setShowBulkAssign((s) => !s)}
-                  aria-expanded={showBulkAssign}
+                <span className="text-[12px] text-[var(--text-dim)]">{t('cameraBulk.selected', { count: selected.size })}</span>
+                <CameraBulkMenu
+                  canManage={canManageCameras}
+                  canPause={showPause}
+                  canResume={canResume}
                   disabled={mutating}
-                >
-                  Assign permissions
-                </Button>
+                  onPick={onBulkAction}
+                />
+                {canManageCameras && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={`h-7 ${showBulkAssign ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                    onClick={() => { setShowBulkLocation(false); setShowBulkAssign((s) => !s) }}
+                    aria-expanded={showBulkAssign}
+                    disabled={mutating}
+                  >
+                    Assign permissions
+                  </Button>
+                )}
+                {canManageCameras && (
+                  <Button size="sm" variant="danger" className="h-7" onClick={onBulkDelete} disabled={mutating}>
+                    Delete selected ({selected.size})
+                  </Button>
+                )}
               </>
             ) : page === 1 && !hasNext && cameras.length > 0 ? (
               <span className="text-[11px] font-mono tabular-nums text-[var(--text-dim)]">
@@ -679,6 +1009,44 @@ export function Cameras() {
             ) : null}
           </div>
         </div>
+
+        {/* Bulk location: same third-row pattern as bulk assign below. */}
+        {canManageCameras && showBulkLocation && selected.size > 0 && (
+          <form
+            className={`flex flex-wrap items-center gap-3 border-t border-[var(--border)] text-[13px] ${TITLE_PANEL_BODY_CLASS}`}
+            onSubmit={(e) => { e.preventDefault(); void onBulkLocation() }}
+          >
+            <span className="text-[var(--text-dim)]">{t('cameraBulk.moveTo')}</span>
+            <input
+              autoFocus
+              list="camera-bulk-locations"
+              value={bulkLocation}
+              maxLength={200}
+              onChange={(e) => setBulkLocation(e.target.value)}
+              placeholder={t('cameraBulk.locationPlaceholder')}
+              aria-label={t('camera.location')}
+              data-testid="camera-bulk-location-input"
+              className="h-9 w-72 max-w-full border border-[var(--border)] bg-[var(--bg-2)] px-2.5 text-[13px] outline-none transition-colors focus:border-[var(--accent)]"
+            />
+            <datalist id="camera-bulk-locations">
+              {(locations?.locations ?? []).map((l) => <option key={l.location} value={l.location} />)}
+            </datalist>
+            <div className="ml-auto flex items-center gap-2">
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setShowBulkLocation(false)}>{t('common.cancel')}</Button>
+              <Button size="sm" variant="outline" className="h-7" onClick={() => void onBulkLocation(true)} disabled={mutating}>
+                {t('cameraBulk.clearLocation')}
+              </Button>
+              <button
+                type="submit"
+                disabled={mutating || !bulkLocation.trim()}
+                className={TITLE_ACTION_CLASS}
+                data-testid="camera-bulk-location-apply"
+              >
+                {t('cameraBulk.applyTo', { count: selected.size })}
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Bulk assign: a third row of the same panel, since it acts on the
             selection the row above just announced. */}
@@ -775,7 +1143,7 @@ export function Cameras() {
         <EmptyState
           icon={<CameraOff size={28} />}
           title={t('camera.noCamerasTitle')}
-          description={query || activeOnly || location
+          description={query || status !== 'all' || location
             ? t('camera.noMatch')
             : t('camera.addAction')}
           action={canManageCameras ? (
@@ -784,15 +1152,17 @@ export function Cameras() {
             </Button>
           ) : undefined}
         />
+      ) : view === 'grid' ? (
+        renderGrid()
       ) : (
-        /* min-w is the floor, not the target. The fixed columns take ~570px,
+        /* min-w is the floor, not the target. The fixed columns take ~670px,
            so below roughly 760px of table area the Camera column would be
            squeezed to nothing; past that point letting the wrapper scroll is
            the lesser evil. At any normal window width the table fits and no
            scrollbar appears. */
         <Table
           wrapperClassName="min-h-0 overflow-auto"
-          className={`table-fixed min-w-[900px] ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}
+          className={`table-fixed min-w-[1000px] ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}
         >
           {/* Sticks while the rows scroll under it. */}
           <THead className="sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
@@ -813,6 +1183,7 @@ export function Cameras() {
               </TH>
               <TH className="text-xs">{t('nav.cameras')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.location')}</TH>
+              <TH className="text-xs w-[100px]">{t('cameraBulk.status')}</TH>
               <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.stream')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.recording')}</TH>
@@ -836,20 +1207,12 @@ export function Cameras() {
                       type="checkbox"
                       className="accent-[var(--accent)]"
                       checked={selected.has(c.id)}
-                      onChange={(e) => {
-                        const next = new Set(selected)
-                        if (e.target.checked) next.add(c.id); else next.delete(c.id)
-                        setSelected(next)
-                      }}
+                      onChange={(e) => toggleSelected(c.id, e.target.checked)}
                     />
                   </TD>
                   <TD className="truncate">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="truncate font-medium" title={c.name}>{c.name}</span>
-                      {/* The Active column is gone, so with "Active only"
-                          unticked this badge is the only thing distinguishing
-                          a deactivated camera. */}
-                      {!c.is_active && <Badge variant="neutral" className="shrink-0">{t('common.inactive')}</Badge>}
                       {c.is_active && c.detection_enabled === false && (
                         <Badge variant="warning" className="shrink-0" title={t('cameras.detectionOffHint')}>{t('cameras.detectionOff')}</Badge>
                       )}
@@ -863,6 +1226,7 @@ export function Cameras() {
                   <TD className="truncate" title={c.location || undefined}>
                     {c.location?.trim() ? c.location : <span className="text-[var(--text-dim)]">—</span>}
                   </TD>
+                  <TD>{activeBadge(c)}</TD>
                   <TD className="whitespace-nowrap truncate" title={`${c.ip_address}:${c.port}`}>
                     {c.ip_address}<span className="text-[var(--text-dim)]">:{c.port}</span>
                   </TD>
@@ -876,62 +1240,7 @@ export function Cameras() {
                     <Badge variant={rec.variant} title={rec.title}>{rec.label}</Badge>
                   </TD>
                   <TD>
-                    <div className="flex items-center justify-end gap-1">
-                      {canManageCameras && (
-                        <IconButton variant="outline" onClick={() => startEdit(c)} title={t('camera.edit')} label={`${t('camera.edit')} ${c.name}`}>
-                          <Pencil size={15} />
-                        </IconButton>
-                      )}
-                      {/* Recording is always on unless the site allows
-                          pausing (Settings > Recording); then a pause is
-                          timed or until resumed, and audited. */}
-                      {c.is_active && c.recording_pause && canResume && (
-                        <IconButton
-                          variant="outline"
-                          className="!text-[var(--warning)] !border-[var(--warning)]"
-                          onClick={() => onResumeRecording(c)}
-                          disabled={mutating}
-                          title={t('recordingPause.resume')}
-                          label={`${t('recordingPause.resume')} ${c.name}`}
-                          data-testid={`recording-resume-${c.id}`}
-                        >
-                          <PlayCircle size={15} />
-                        </IconButton>
-                      )}
-                      {c.is_active && !c.recording_pause && showPause && c.mediamtx_provisioned === true && (
-                        <IconButton
-                          variant="outline"
-                          onClick={() => setPausing(c)}
-                          title={t('recordingPause.pause')}
-                          label={`${t('recordingPause.pause')} ${c.name}`}
-                          data-testid={`recording-pause-${c.id}`}
-                        >
-                          <PauseCircle size={15} />
-                        </IconButton>
-                      )}
-                      {c.mediamtx_provisioned === true && (
-                        <IconButton
-                          variant="outline"
-                          className="!text-[var(--accent)] !border-[color-mix(in_oklab,var(--accent)_50%,var(--border))]"
-                          onClick={() => navigate(`/live?camera=${c.id}`)}
-                          title={t('camera.viewLive')}
-                          label={`View ${c.name} live`}
-                        >
-                          <Video size={15} />
-                        </IconButton>
-                      )}
-                      {canManageCameras && (
-                        <IconButton
-                          variant="outline"
-                          className="hover:!text-[var(--danger)] hover:!border-[var(--danger)]"
-                          onClick={() => onDelete(c)}
-                          title={t('camera.delete')}
-                          label={`Delete ${c.name}`}
-                        >
-                          <Trash2 size={15} />
-                        </IconButton>
-                      )}
-                    </div>
+                    <div className="flex items-center justify-end gap-1">{cameraActions(c)}</div>
                   </TD>
                 </TR>
               )
@@ -940,14 +1249,13 @@ export function Cameras() {
         </Table>
       )}
 
-      {/* activeOnly filters client-side of the count the backend returns, so
-          the total would lie -- pass none and let the hasNext probe decide. */}
+      {/* The server filters by status before counting, so total is exact. */}
       {(page > 1 || hasNext) && (
       <div className="shrink-0">
       <Pagination
         page={page}
         pageSize={limit}
-        total={activeOnly ? undefined : total}
+        total={total}
         hasNext={hasNext}
         rowCount={cameras.length}
         pageSizeOptions={[10, 20, 50]}
@@ -961,10 +1269,10 @@ export function Cameras() {
 
       {pausing && (
         <RecordingPauseDialog
-          camera={pausing}
+          cameras={pausing}
           allowed={pauseAllowed}
           onClose={() => setPausing(null)}
-          onDone={() => { refreshCameras() }}
+          onDone={() => { setSelected(new Set()); refreshCameras() }}
         />
       )}
 

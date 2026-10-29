@@ -22,14 +22,14 @@ const DURATIONS: Array<{ value: string; key: string }> = [
 ]
 
 /**
- * Pause recording on one camera. OpenNVR records all the time, so this only
- * opens where a site admin has allowed pausing; an admin who opens it while
- * pausing is off is pointed at the setting instead.
+ * Pause recording on one camera or a selection of them. OpenNVR records all
+ * the time, so this only opens where a site admin has allowed pausing; an
+ * admin who opens it while pausing is off is pointed at the setting instead.
  */
 export function RecordingPauseDialog({
-  camera, allowed, onClose, onDone,
+  cameras, allowed, onClose, onDone,
 }: {
-  camera: { id: number; name: string }
+  cameras: Array<{ id: number; name: string }>
   /** The site's "Allow pausing recording" setting. */
   allowed: boolean
   onClose: () => void
@@ -41,29 +41,39 @@ export function RecordingPauseDialog({
   const [duration, setDuration] = useState('3600')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const single = cameras.length === 1 ? cameras[0] : null
 
   const pause = async () => {
     setBusy(true)
-    try {
-      await apiService.setCameraRecording(camera.id, {
-        enabled: false,
-        ...(duration ? { resume_after_s: Number(duration) } : {}),
-        ...(reason.trim() ? { reason: reason.trim() } : {}),
-      })
-      showSuccess(t('recordingPause.pausedOk', { name: camera.name }))
-      onDone()
-      onClose()
-    } catch (e: any) {
-      showError(extractApiError(e, t('recordingPause.failedPause')))
-    } finally {
-      setBusy(false)
+    const body = {
+      enabled: false,
+      ...(duration ? { resume_after_s: Number(duration) } : {}),
+      ...(reason.trim() ? { reason: reason.trim() } : {}),
     }
+    let failed = 0
+    let lastError: unknown = null
+    for (const c of cameras) {
+      try { await apiService.setCameraRecording(c.id, body) } catch (e) { failed++; lastError = e }
+    }
+    setBusy(false)
+    onDone()
+    if (single && failed) {
+      showError(extractApiError(lastError as any, t('recordingPause.failedPause')))
+      return
+    }
+    if (failed) showError(t('camera.bulkPartial', { failed, total: cameras.length }))
+    else showSuccess(single
+      ? t('recordingPause.pausedOk', { name: single.name })
+      : t('recordingPause.pausedMany', { count: cameras.length }))
+    onClose()
   }
 
   return (
     <Modal
       open
-      title={t('recordingPause.pauseTitle', { name: camera.name })}
+      title={single
+        ? t('recordingPause.pauseTitle', { name: single.name })
+        : t('recordingPause.pauseTitleMany', { count: cameras.length })}
       onClose={onClose}
       widthClassName="w-[420px]"
       data-testid="recording-pause-dialog"

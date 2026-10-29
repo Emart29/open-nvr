@@ -901,6 +901,9 @@ class UserList(BaseModel):
 class CameraList(BaseModel):
     cameras: list[CameraResponse]
     total: int
+    # {"all", "active", "inactive"} under the same search/location/scope,
+    # ignoring the status filter. None from callers that do not compute it.
+    counts: dict[str, int] | None = None
 
 
 class RecordingList(BaseModel):

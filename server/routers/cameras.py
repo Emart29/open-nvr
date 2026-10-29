@@ -634,11 +634,18 @@ def get_cameras(
     # or no_location for cameras with none. Missing = every location.
     location: str | None = Query(None, max_length=100),
     no_location: bool = False,
+    # The Cameras page's All / Active / Inactive switch. Given, it replaces
+    # active_only (kept for every older caller).
+    status: Literal["all", "active", "inactive"] | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     request: Request = None,
 ):
-    """Get list of cameras (user's own cameras + permitted cameras; superusers see all)."""
+    """Get list of cameras (user's own cameras + permitted cameras; superusers see all).
+
+    ``counts`` is how many cameras are active and inactive under the same
+    search, location and permissions, whatever ``status`` picked, so the
+    page can label its switch without a second request."""
     camera_logger.log_action(
         "camera.list_request",
         user_id=current_user.id,
@@ -663,8 +670,6 @@ def get_cameras(
     # (#671). Ordered by id so skip/limit pages are stable.
     scope = visible_camera_ids(db, current_user)
     query = db.query(Camera).filter(Camera.deleted_at.is_(None))
-    if active_only:
-        query = query.filter(Camera.is_active == True)  # noqa: E712
     if scope is not None:
         query = query.filter(Camera.id.in_(scope or {-1}))
     match = camera_search_filter(q)
@@ -673,6 +678,24 @@ def get_cameras(
     place = camera_location_filter(location, no_location)
     if place is not None:
         query = query.filter(place)
+    # Counted before the status filter: the switch shows all three numbers.
+    # NULL is_active reads as active, as everywhere else.
+    by_state = dict(
+        query.with_entities(func.coalesce(Camera.is_active, True), func.count(Camera.id))
+        .group_by(func.coalesce(Camera.is_active, True))
+        .all()
+    )
+    counts = {
+        "active": int(by_state.get(True, 0)),
+        "inactive": int(by_state.get(False, 0)),
+    }
+    counts["all"] = counts["active"] + counts["inactive"]
+    if status is None:
+        status = "active" if active_only else "all"
+    if status == "active":
+        query = query.filter(Camera.is_active.isnot(False))
+    elif status == "inactive":
+        query = query.filter(Camera.is_active.is_(False))
     total = query.count()
     cameras = query.order_by(Camera.id).offset(skip).limit(limit).all()
     camera_logger.log_action(
@@ -753,7 +776,7 @@ def get_cameras(
 
         results.append(c_resp)
 
-    return CameraList(cameras=results, total=total)
+    return CameraList(cameras=results, total=total, counts=counts)
 
 
 @router.get("/by-ip/{ip_address}", response_model=list[CameraResponse])
