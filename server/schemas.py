@@ -751,6 +751,10 @@ class CameraResponse(CameraBase):
     # endpoint does not compute it, which callers must read as "unknown".
     recording_state: str | None = None
     last_recording_at: datetime | None = None
+    # Set while recording is paused on this camera (HA-108): {"since",
+    # "resume_at" (None = until resumed), "by", "reason"}. recording_state
+    # reads 'off' meanwhile; this says it was deliberate, and by whom.
+    recording_pause: dict[str, Any] | None = None
     # Live connectivity from the in-memory tracker (CameraStatusService:
     # MediaMTX path ready AND bytes flowing). None means UNKNOWN, not offline:
     # the backend restarted and the first reconcile pass has not landed yet,
@@ -897,6 +901,9 @@ class UserList(BaseModel):
 class CameraList(BaseModel):
     cameras: list[CameraResponse]
     total: int
+    # {"all", "active", "inactive"} under the same search/location/scope,
+    # ignoring the status filter. None from callers that do not compute it.
+    counts: dict[str, int] | None = None
 
 
 class RecordingList(BaseModel):

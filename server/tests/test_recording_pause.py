@@ -251,3 +251,40 @@ def test_a_bad_resume_delay_never_stops_recording(env, mtx):  # noqa: F811
         s.close()
     assert ("disable", 1) not in mtx
     assert _state(env)[0] == {}
+
+
+def test_the_camera_list_says_who_paused_a_camera_and_until_when(env, mtx):  # noqa: F811
+    _allow(env)
+    assert _pause(env, env.jwt("admin"), reason="cleaning crew", resume_after_s=3600).status_code == 200
+    cams = env.client.get("/api/v1/cameras/", headers=env.jwt("admin")).json()["cameras"]
+    by_id = {c["id"]: c for c in cams}
+    pause = by_id[1]["recording_pause"]
+    assert pause["by"] == "user:admin" and pause["reason"] == "cleaning crew"
+    assert pause["resume_at"] is not None
+    assert by_id[1]["recording_state"] == "off"
+    assert all(c["recording_pause"] is None for c in cams if c["id"] != 1)
+
+
+def test_the_camera_list_filters_by_status_and_counts_both(env):  # noqa: F811
+    s = env.Session()
+    cams = s.query(env.models.Camera).order_by(env.models.Camera.id).all()
+    cams[0].is_active = False
+    first, n = cams[0].id, len(cams)
+    s.commit()
+    s.close()
+
+    def get(**params):
+        r = env.client.get("/api/v1/cameras/", headers=env.jwt("admin"), params=params)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    want = {"all": n, "active": n - 1, "inactive": 1}
+    every = get(status="all")
+    assert every["total"] == n and every["counts"] == want
+    inactive = get(status="inactive")
+    assert [c["id"] for c in inactive["cameras"]] == [first]
+    assert inactive["total"] == 1 and inactive["counts"] == want
+    assert get(status="active")["total"] == n - 1
+    # Older callers: active_only still means what it did.
+    assert get()["total"] == n - 1
+    assert get(active_only="false")["total"] == n

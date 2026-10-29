@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, Route, Search } from 'lucide-react'
+import { ChevronDown, Plus, Route, Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from '../../i18n'
 import { apiService } from '../../lib/apiService'
@@ -25,6 +25,7 @@ const SEARCH_FROM = 6
 export function ToursMenu({ dropUp = false }: { dropUp?: boolean }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('cameras.manage')
   const [open, setOpen] = useState(false)
@@ -127,7 +128,16 @@ export function ToursMenu({ dropUp = false }: { dropUp?: boolean }) {
             )}
           </div>
           {canManage && (
-            <div className="shrink-0 border-t border-[var(--border)] px-3 py-1.5">
+            <div className="shrink-0 border-t border-[var(--border)] px-3 py-1.5 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="tours-menu-new"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                onClick={() => { close(); navigate(`/tours/new?return=${encodeURIComponent(location.pathname + location.search)}`) }}
+              >
+                <Plus size={12} aria-hidden="true" /> {t('tours.new')}
+              </button>
               <button
                 type="button"
                 role="menuitem"
