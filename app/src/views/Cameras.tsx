@@ -60,6 +60,10 @@ type CameraStatusFilter = 'all' | 'active' | 'inactive'
 type CameraView = 'table' | 'grid'
 const STATUS_PREF = 'opennvr.cameras.status'
 const VIEW_PREF = 'opennvr.cameras.view'
+const TILE_PREF = 'opennvr.cameras.tile'
+type TileSize = 's' | 'm' | 'l'
+/** Smallest tile width per size; the grid fits as many as the width allows. */
+const TILE_MIN_PX: Record<TileSize, number> = { s: 180, m: 220, l: 300 }
 
 /** A remembered choice, or the default when storage is empty, blocked or
  *  holds something this version does not know. */
@@ -192,6 +196,8 @@ export function Cameras() {
   const [view, setView] = useState<CameraView>(() => readPref(VIEW_PREF, ['table', 'grid'], 'table'))
   const pickStatus = (s: CameraStatusFilter) => { setPage(1); setStatus(s); writePref(STATUS_PREF, s) }
   const pickView = (v: CameraView) => { setView(v); writePref(VIEW_PREF, v) }
+  const [tile, setTile] = useState<TileSize>(() => readPref(TILE_PREF, ['s', 'm', 'l'], 'm'))
+  const pickTile = (v: TileSize) => { setTile(v); writePref(TILE_PREF, v) }
   const activeOnly = status === 'active'
   const [limit, setLimit] = useState(20)
   const [page, setPage] = useState(1)
@@ -504,8 +510,7 @@ export function Cameras() {
   }
 
   // "All 10 on this page selected. Select all 20" and "All 20 selected.
-  // Clear selection": shown where it takes no new row, so ticking a page
-  // never shifts the list (the table's header cell, the grid's fixed bar).
+  // Clear selection", in the selection strip above the list.
   const selectionNotice = () => {
     if (total <= cameras.length) return null
     if (everythingSelected) {
@@ -552,16 +557,19 @@ export function Cameras() {
     />
   )
 
-  // Grid only: it has no header row, so this bar stands in for one. Always
-  // there and of fixed height, so its text changing moves nothing. The box
-  // sits where the cards' own checkboxes sit (1px border + 8px + 24px box).
+  // Selection strip above the list, in both views. Always there and of fixed
+  // height, so ticking a page or taking "Select all N" moves nothing. Its box
+  // sits in line with the list's own: the table's checkbox column (12px cell
+  // padding), or the cards' boxes (8px in, 24px wide).
   const renderSelectionBar = () => (
     <div
-      className="flex h-9 items-center gap-2 border border-[var(--border)] bg-[var(--panel)] pl-2 pr-3 text-[13px]"
+      className={`flex h-9 items-center gap-2 border border-[var(--border)] bg-[var(--panel)] pr-3 text-[13px] ${view === 'grid' ? 'pl-2' : 'pl-3'}`}
       data-testid="camera-selection-bar"
     >
       <label className="inline-flex shrink-0 items-center gap-2 cursor-pointer">
-        <span className="flex h-6 w-6 items-center justify-center">{pageCheckbox('camera-select-page')}</span>
+        {view === 'grid'
+          ? <span className="flex h-6 w-6 items-center justify-center">{pageCheckbox('camera-select-page')}</span>
+          : pageCheckbox('camera-select-page')}
         {t('cameraBulk.selectPage')}
       </label>
       <span className="min-w-0 truncate">{selectionNotice()}</span>
@@ -572,7 +580,11 @@ export function Cameras() {
   // as cards scroll into view and are cached five minutes (CameraThumb).
   const renderGrid = () => (
     <div className={`min-h-0 overflow-auto ${camsQuery.isFetching || mutating ? 'opacity-60 transition-opacity' : 'transition-opacity'}`}>
-      <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(250px,1fr))]" data-testid="camera-grid">
+      <div
+        className={`grid ${tile === 's' ? 'gap-2' : 'gap-3'}`}
+        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_MIN_PX[tile]}px, 1fr))` }}
+        data-testid="camera-grid"
+      >
         {cameras.map((c) => {
           const stream = streamState(c)
           const rec = recordingState(c)
@@ -646,9 +658,9 @@ export function Cameras() {
                 <div className="truncate text-xs text-[var(--text-dim)]" title={c.location || undefined}>
                   {c.location?.trim() || '—'}
                 </div>
-                {device && <div className="truncate text-[11px] text-[var(--text-dim)]" title={device}>{device}</div>}
+                {device && tile !== 's' && <div className="truncate text-[11px] text-[var(--text-dim)]" title={device}>{device}</div>}
               </div>
-              <div className="flex items-center justify-between gap-2 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                 {activeBadge(c)}
                 <div className="flex items-center gap-1">{cameraActions(c)}</div>
               </div>
@@ -1116,6 +1128,28 @@ export function Cameras() {
                 {cameras.length} {cameras.length === 1 ? t('camera.cameraNoun') : t('camera.camerasNoun')}
               </span>
             ) : null}
+            {/* Tile size, grid only. */}
+            {view === 'grid' && (
+              <div role="radiogroup" aria-label={t('cameraBulk.tileSize')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
+                {(['s', 'm', 'l'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={tile === v}
+                    onClick={() => pickTile(v)}
+                    title={t(`cameraBulk.tile_${v}`)}
+                    aria-label={t(`cameraBulk.tile_${v}`)}
+                    data-testid={`camera-tile-${v}`}
+                    className={`w-8 text-[12px] font-medium border-l first:border-l-0 border-[var(--border)] transition-colors ${
+                      tile === v ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {v.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Table or grid of thumbnails. */}
             <div role="radiogroup" aria-label={t('cameraBulk.view')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
               {([['table', List], ['grid', LayoutGrid]] as const).map(([v, Icon]) => (
@@ -1255,7 +1289,7 @@ export function Cameras() {
         />
       )}
 
-      {!camsQuery.isPending && cameras.length > 0 && view === 'grid' && renderSelectionBar()}
+      {!camsQuery.isPending && cameras.length > 0 && renderSelectionBar()}
 
       {/* Cameras table. table-fixed with explicit widths is what keeps this
           from ever scrolling sideways: the fixed columns come to ~560px and
@@ -1299,7 +1333,7 @@ export function Cameras() {
           <THead className="sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
             <TR>
               <TH className="w-[26px] !pr-0">{pageCheckbox('camera-select-page-header')}</TH>
-              <TH className="text-xs whitespace-nowrap overflow-hidden text-ellipsis">{selectionNotice() ?? t('nav.cameras')}</TH>
+              <TH className="text-xs">{t('nav.cameras')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.location')}</TH>
               <TH className="text-xs w-[100px]">{t('cameraBulk.status')}</TH>
               <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
