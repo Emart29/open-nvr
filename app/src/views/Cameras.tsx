@@ -16,7 +16,7 @@
  * along with OpenNVR.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation, useDateFormat, type DateFormatters } from '../i18n'
@@ -27,7 +27,7 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { Camera as CameraIcon, CameraOff, ChevronDown, Download, LayoutGrid, List, PauseCircle, Pencil, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
+import { Camera as CameraIcon, CameraOff, ChevronDown, Download, LayoutGrid, List, PauseCircle, Pencil, Play, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
 import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
@@ -38,6 +38,7 @@ import { CameraExportDialog, CameraImportDialog } from '../components/cameras/Ca
 import { RecordingPauseDialog } from '../components/cameras/RecordingPauseDialog'
 import { CameraBulkMenu, type BulkAction } from '../components/cameras/CameraBulkMenu'
 import { CameraThumb } from '../components/live/CameraThumb'
+import { LivePeek } from '../components/live/LivePeek'
 import { QrScanner } from '../components/QrScanner'
 import { parseCameraQr } from '../lib/cameraQr'
 import { ASPECT_OPTIONS, isCustomAspect } from '../lib/aspect'
@@ -189,7 +190,7 @@ export function Cameras() {
   // All / Active / Inactive, and table or grid: both remembered per browser.
   const [status, setStatus] = useState<CameraStatusFilter>(() => readPref(STATUS_PREF, ['all', 'active', 'inactive'], 'all'))
   const [view, setView] = useState<CameraView>(() => readPref(VIEW_PREF, ['table', 'grid'], 'table'))
-  const pickStatus = (s: CameraStatusFilter) => { setPage(1); setSelected(new Set()); setStatus(s); writePref(STATUS_PREF, s) }
+  const pickStatus = (s: CameraStatusFilter) => { setPage(1); setStatus(s); writePref(STATUS_PREF, s) }
   const pickView = (v: CameraView) => { setView(v); writePref(VIEW_PREF, v) }
   const activeOnly = status === 'active'
   const [limit, setLimit] = useState(20)
@@ -200,6 +201,12 @@ export function Cameras() {
   // '' every location; NO_LOCATION the cameras without one; else one location.
   const [location, setLocation] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Every camera matching the filters, fetched when "Select all N" is taken,
+  // so bulk actions know the state of cameras on other pages too.
+  const [allPages, setAllPages] = useState<Camera[] | null>(null)
+  // The camera being watched live in a dialog over this page.
+  const [peek, setPeek] = useState<Camera | null>(null)
+  const [selectingAll, setSelectingAll] = useState(false)
   const liveUpdates = useCameraStatusConnected()
 
   // One request per pause in typing, not one per keystroke.
@@ -245,7 +252,14 @@ export function Cameras() {
   // selection on a background refresh would be maddening.
   useEffect(() => {
     setSelected(new Set())
-  }, [skip, limit, activeOnly, debouncedQuery, location])
+    setAllPages(null)
+  }, [limit, status, debouncedQuery, location])
+  // Paging keeps a selection made with "Select all N" (it spans the pages by
+  // design) and drops a page-only one, as before.
+  const spansPagesRef = useRef(false)
+  useEffect(() => {
+    if (!spansPagesRef.current) setSelected(new Set())
+  }, [skip])
 
   const [showImport, setShowImport] = useState(false)
   const [showExport, setShowExport] = useState(false)
@@ -424,7 +438,7 @@ export function Cameras() {
         <IconButton
           variant="outline"
           className="!text-[var(--accent)] !border-[color-mix(in_oklab,var(--accent)_50%,var(--border))]"
-          onClick={() => navigate(`/live?camera=${c.id}`)}
+          onClick={() => setPeek(c)}
           title={t('camera.viewLive')}
           label={`View ${c.name} live`}
         >
@@ -455,6 +469,95 @@ export function Cameras() {
     setSelected(next)
   }
 
+  const pageSelectedCount = cameras.filter((c) => selected.has(c.id)).length
+  const pageAllSelected = cameras.length > 0 && pageSelectedCount === cameras.length
+  const everythingSelected = allPages !== null && total > 0 && selected.size >= total
+  spansPagesRef.current = everythingSelected
+
+  /** Header checkbox: tick or clear this page. Clearing while everything is
+   *  selected clears everything, as the box then stands for the whole set. */
+  const selectPage = (on: boolean) => {
+    if (!on && everythingSelected) { clearSelection(); return }
+    const next = new Set(selected)
+    for (const c of cameras) { if (on) next.add(c.id); else next.delete(c.id) }
+    setSelected(next)
+  }
+
+  const clearSelection = () => { setSelected(new Set()); setAllPages(null) }
+
+  const selectAllPages = async () => {
+    setSelectingAll(true)
+    try {
+      const { data } = await apiService.getCameras({
+        status,
+        ...(debouncedQuery ? { q: debouncedQuery } : {}),
+        ...(location === NO_LOCATION ? { no_location: true } : location ? { location } : {}),
+      })
+      const list = (data?.cameras ?? []) as Camera[]
+      setAllPages(list)
+      setSelected(new Set(list.map((c) => c.id)))
+    } catch (e: any) {
+      showError(extractApiError(e, t('cameraBulk.selectAllFailed')))
+    } finally {
+      setSelectingAll(false)
+    }
+  }
+
+  // Under the toolbar, for both views: the page checkbox (the grid has no
+  // header row to hold one) and the offer to extend a page to every page.
+  const renderSelectionBar = () => {
+    const offerAll = pageAllSelected && !everythingSelected && total > cameras.length
+    const showAll = everythingSelected && total > cameras.length
+    if (view !== 'grid' && !offerAll && !showAll) return null
+    return (
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-[13px]"
+        data-testid="camera-selection-bar"
+      >
+        {view === 'grid' && (
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-[var(--accent)]"
+              checked={pageAllSelected}
+              ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !pageAllSelected }}
+              onChange={(e) => selectPage(e.target.checked)}
+              data-testid="camera-select-page"
+            />
+            {t('cameraBulk.selectPage')}
+          </label>
+        )}
+        {offerAll && (
+          <span className="text-[var(--text-dim)]">
+            {t('cameraBulk.pageSelected', { count: cameras.length })}{' '}
+            <button
+              type="button"
+              className="text-[var(--accent)] hover:underline disabled:opacity-60"
+              onClick={selectAllPages}
+              disabled={selectingAll}
+              data-testid="camera-select-all-pages"
+            >
+              {t('cameraBulk.selectAllPages', { count: total })}
+            </button>
+          </span>
+        )}
+        {showAll && (
+          <span className="text-[var(--text-dim)]">
+            {t('cameraBulk.allSelected', { count: total })}{' '}
+            <button
+              type="button"
+              className="text-[var(--accent)] hover:underline"
+              onClick={clearSelection}
+              data-testid="camera-clear-selection"
+            >
+              {t('cameraBulk.clearSelection')}
+            </button>
+          </span>
+        )}
+      </div>
+    )
+  }
+
   // Grid view: one card per camera with a still of what it sees. Stills load
   // as cards scroll into view and are cached five minutes (CameraThumb).
   const renderGrid = () => (
@@ -471,23 +574,39 @@ export function Cameras() {
               data-testid={`camera-card-${c.id}`}
               className={`flex flex-col border bg-[var(--panel)] ${isSelected ? 'border-[var(--accent)]' : 'border-[var(--border)]'} ${c.is_active ? '' : 'opacity-70'}`}
             >
-              <div className="relative aspect-video bg-[#0b0f16]">
+              <div className="group relative aspect-video bg-[#0b0f16]">
+                {/* Clicking the picture selects the card, like a row's
+                    checkbox; watching live is the Live button in its corner,
+                    kept out of the middle so a click there never opens it. */}
+                <button
+                  type="button"
+                  className="absolute inset-0 block cursor-pointer"
+                  onClick={() => toggleSelected(c.id, !isSelected)}
+                  aria-pressed={isSelected}
+                  aria-label={`Select ${c.name}`}
+                  data-testid={`camera-card-select-${c.id}`}
+                />
                 {c.is_active && c.mediamtx_provisioned === true ? (
-                  <button
-                    type="button"
-                    className="absolute inset-0 block"
-                    onClick={() => navigate(`/live?camera=${c.id}`)}
-                    title={t('camera.viewLive')}
-                    aria-label={`View ${c.name} live`}
-                  >
-                    <CameraThumb cameraId={c.id} alt={c.name} className="absolute inset-0" />
-                  </button>
+                  <>
+                    <CameraThumb cameraId={c.id} alt={c.name} className="pointer-events-none absolute inset-0" />
+                    <button
+                      type="button"
+                      onClick={() => setPeek(c)}
+                      title={t('camera.viewLive')}
+                      aria-label={`View ${c.name} live`}
+                      data-testid={`camera-card-live-${c.id}`}
+                      className="absolute right-2 bottom-2 inline-flex items-center gap-1 bg-black/65 px-2 py-0.5 text-[11px] text-white hover:bg-[var(--accent)] focus-visible:bg-[var(--accent)]"
+                    >
+                      <Play size={11} aria-hidden="true" /> {t('cameraBulk.live')}
+                    </button>
+                  </>
                 ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-white/40 text-xs">
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-white/40 text-xs">
                     <CameraOff size={20} aria-hidden="true" />
                     {c.is_active ? stream.label : t('cameraBulk.status_inactive')}
                   </div>
                 )}
+                {isSelected && <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-[var(--accent)]" />}
                 <label className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center bg-black/55 cursor-pointer">
                   <input
                     type="checkbox"
@@ -656,7 +775,7 @@ export function Cameras() {
         try { await apiService.deleteCamera(id) } catch { failed++ }
       }
       await refreshCameras()
-      setSelected(new Set())
+      clearSelection()
       if (failed) showError(t('camera.bulkPartial', { failed, total: ids.length }))
       else showSuccess('Bulk delete completed')
     } catch (e: any) {
@@ -682,7 +801,7 @@ export function Cameras() {
   // The ticked cameras, as far as this page knows them: a selection can
   // outlive a page change, so an id not on screen still goes through.
   const selectedCameras = (): Camera[] => {
-    const byId = new Map(cameras.map((c) => [c.id, c]))
+    const byId = new Map([...(allPages ?? []), ...cameras].map((c) => [c.id, c]))
     return Array.from(selected).map((id) => byId.get(id) ?? ({ id, name: `#${id}`, is_active: true } as Camera))
   }
 
@@ -704,7 +823,7 @@ export function Cameras() {
         try { await apply(c) } catch { failed++ }
       }
       await refreshCameras()
-      setSelected(new Set())
+      clearSelection()
       if (failed) showError(t('camera.bulkPartial', { failed, total: targets.length }))
       else showSuccess(skipped ? `${done} ${t('cameraBulk.skipped', { count: skipped })}` : done)
     } finally {
@@ -787,7 +906,7 @@ export function Cameras() {
         } catch { failed++ }
       }
       setShowBulkAssign(false)
-      setSelected(new Set())
+      clearSelection()
       if (failed) showError(t('camera.bulkPartial', { failed, total: ids.length }))
       else showSuccess('Bulk assign completed')
     } catch (e: any) {
@@ -953,26 +1072,6 @@ export function Cameras() {
               </button>
             ))}
           </div>
-          {/* Table or grid of thumbnails. */}
-          <div role="radiogroup" aria-label={t('cameraBulk.view')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
-            {([['table', List], ['grid', LayoutGrid]] as const).map(([v, Icon]) => (
-              <button
-                key={v}
-                type="button"
-                role="radio"
-                aria-checked={view === v}
-                onClick={() => pickView(v)}
-                title={t(`cameraBulk.view_${v}`)}
-                aria-label={t(`cameraBulk.view_${v}`)}
-                data-testid={`camera-view-${v}`}
-                className={`w-9 inline-flex items-center justify-center border-l first:border-l-0 border-[var(--border)] transition-colors ${
-                  view === v ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
-                }`}
-              >
-                <Icon size={15} aria-hidden="true" />
-              </button>
-            ))}
-          </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {(canManageCameras || canPause || canResume) && selected.size > 0 ? (
               <>
@@ -1007,6 +1106,26 @@ export function Cameras() {
                 {cameras.length} {cameras.length === 1 ? t('camera.cameraNoun') : t('camera.camerasNoun')}
               </span>
             ) : null}
+            {/* Table or grid of thumbnails. */}
+            <div role="radiogroup" aria-label={t('cameraBulk.view')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
+              {([['table', List], ['grid', LayoutGrid]] as const).map(([v, Icon]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={view === v}
+                  onClick={() => pickView(v)}
+                  title={t(`cameraBulk.view_${v}`)}
+                  aria-label={t(`cameraBulk.view_${v}`)}
+                  data-testid={`camera-view-${v}`}
+                  className={`w-9 inline-flex items-center justify-center border-l first:border-l-0 border-[var(--border)] transition-colors ${
+                    view === v ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1126,6 +1245,8 @@ export function Cameras() {
         />
       )}
 
+      {!camsQuery.isPending && cameras.length > 0 && renderSelectionBar()}
+
       {/* Cameras table. table-fixed with explicit widths is what keeps this
           from ever scrolling sideways: the fixed columns come to ~560px and
           Camera absorbs the rest, so content length no longer drives layout.
@@ -1171,14 +1292,11 @@ export function Cameras() {
                 <input
                   type="checkbox"
                   className="accent-[var(--accent)]"
-                  checked={cameras.length > 0 && cameras.every(c => selected.has(c.id))}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelected(new Set(cameras.map(c => c.id)))
-                    } else {
-                      setSelected(new Set())
-                    }
-                  }}
+                  checked={pageAllSelected}
+                  ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !pageAllSelected }}
+                  onChange={(e) => selectPage(e.target.checked)}
+                  aria-label={t('cameraBulk.selectPage')}
+                  data-testid="camera-select-page-header"
                 />
               </TH>
               <TH className="text-xs">{t('nav.cameras')}</TH>
@@ -1267,12 +1385,25 @@ export function Cameras() {
       </div>
       )}
 
+      {peek && (
+        <LivePeek
+          cameraId={peek.id}
+          cam={peek}
+          onClose={() => setPeek(null)}
+          footer={
+            <Button size="sm" variant="outline" className="h-7 shrink-0" onClick={() => navigate(`/live?camera=${peek.id}`)}>
+              {t('cameraBulk.openLiveView')}
+            </Button>
+          }
+        />
+      )}
+
       {pausing && (
         <RecordingPauseDialog
           cameras={pausing}
           allowed={pauseAllowed}
           onClose={() => setPausing(null)}
-          onDone={() => { setSelected(new Set()); refreshCameras() }}
+          onDone={() => { clearSelection(); refreshCameras() }}
         />
       )}
 
