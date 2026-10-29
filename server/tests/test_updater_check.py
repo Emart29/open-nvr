@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from updater import check, cli, envfile, manifest, source, verify
+from updater import check, cli, envfile, manifest, revocations, source, verify
 
 CORE = "ghcr.io/open-nvr/core"
 OLD_C, NEW_C = "1" * 40, "2" * 40
@@ -266,6 +266,8 @@ def run_check(tmp_path, monkeypatch, published: dict, *extra):
             raise manifest.ManifestError("nope")
         return published[version]
     monkeypatch.setattr(source, "fetch", fetch)
+    # Never the network: the withdrawn list is whatever the test publishes.
+    monkeypatch.setattr(revocations, "fetch", lambda base=None: published.get("revoked", {}))
     return cli.main(["check", "--work", str(work), "--repo", str(repo), "--platform", "linux/amd64",
                      "--head", OLD_C, "--site-images", str(work / "images.in"),
                      "--core-image-id", sha("b"), "--installed-version", "0.1.8", *extra]), work

@@ -28,7 +28,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from updater import check, envfile, manifest, source, verify
+from updater import check, envfile, manifest, revocations, source, verify
 
 FAILED_VERIFY = 30
 
@@ -131,6 +131,9 @@ def _check(a: argparse.Namespace) -> int:
         else:
             raw, sig = source.fetch(a.to, a.source_url)
         candidate = manifest.verify(raw, sig)
+        # Withdrawn releases: from the bundle (as it was when made) or the
+        # current list online. A list that fails its check stops here.
+        revoked = revocations.from_dir(a.bundle) if a.bundle else revocations.fetch(a.source_url)
     except manifest.ManifestError as exc:
         print(f"Cannot check for an update: {exc}", file=sys.stderr)
         return 1
@@ -146,6 +149,7 @@ def _check(a: argparse.Namespace) -> int:
         site_images=_lines(a.site_images), core_image_id=a.core_image_id or None,
         db_revision=verify.db_revision(os.environ.get("DATABASE_URL")),
         accept_manual=a.accept_manual, adopt=a.adopt, allow_edge=a.channel == "edge",
+        revoked=revoked,
     )
     result = check.decide(site, candidate)
     if isinstance(result, check.Refusal):

@@ -244,24 +244,31 @@ def trusted_keys() -> dict[str, Ed25519PublicKey]:
     return keys
 
 
-def verify(raw: bytes, signature: bytes, keys: dict[str, Ed25519PublicKey] | None = None) -> Manifest:
-    """The manifest in *raw*, if *signature* (the ``.sig`` file) is a valid
-    signature over exactly these bytes by a trusted key; else ManifestError."""
+def check_signature(raw: bytes, signature: bytes, keys: dict[str, Ed25519PublicKey] | None = None,
+                    *, what: str = "manifest") -> None:
+    """ManifestError unless *signature* (a ``.sig`` file) is a trusted key's
+    signature over exactly *raw*. Shared by every signed release file."""
     keys = trusted_keys() if keys is None else keys
     if not keys:
-        raise ManifestError("this build trusts no release key, so it cannot check any update")
+        raise ManifestError(f"this build trusts no release key, so it cannot check the {what}")
     try:
         sig = json.loads(signature.decode("utf-8"))
         key_id, value = sig["key_id"], base64.b64decode(sig["signature"], validate=True)
     except Exception as exc:
-        raise ManifestError("the manifest signature file is unreadable") from exc
+        raise ManifestError(f"the {what} signature file is unreadable") from exc
     key = keys.get(key_id)
     if key is None:
-        raise ManifestError(f"the manifest is signed with key {key_id!r}, which this build does not trust")
+        raise ManifestError(f"the {what} is signed with key {key_id!r}, which this build does not trust")
     try:
         key.verify(value, raw)
     except InvalidSignature as exc:
-        raise ManifestError("the manifest signature does not match: it was changed or corrupted") from exc
+        raise ManifestError(f"the {what} signature does not match: it was changed or corrupted") from exc
+
+
+def verify(raw: bytes, signature: bytes, keys: dict[str, Ed25519PublicKey] | None = None) -> Manifest:
+    """The manifest in *raw*, if *signature* (the ``.sig`` file) is a valid
+    signature over exactly these bytes by a trusted key; else ManifestError."""
+    check_signature(raw, signature, keys)
     try:
         doc = json.loads(raw.decode("utf-8"))
     except Exception as exc:

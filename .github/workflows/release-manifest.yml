@@ -105,6 +105,9 @@ jobs:
           [ -f "release-src/release/${version}.json" ] && extra=(--extra "release-src/release/${version}.json")
           python scripts/release/make_manifest.py --version "$version" --source release-src \
             --commit "${{ steps.ready.outputs.sha }}" --out dist "${extra[@]}"
+          # The withdrawn-release list as it is on this workflow's ref (main),
+          # so re-running this for the latest tag publishes a withdrawal.
+          python scripts/release/sign_revocations.py --out dist
 
       - uses: actions/upload-artifact@v4
         if: steps.ready.outputs.go == 'true'
@@ -125,5 +128,6 @@ jobs:
             gh release create "$TAG" --draft --verify-tag --title "$TAG" \
               --notes "See CHANGELOG.md. Signed update manifest attached."
           fi
-          gh release upload "$TAG" dist/release-manifest.json dist/release-manifest.json.sig --clobber
+          gh release upload "$TAG" dist/release-manifest.json dist/release-manifest.json.sig \
+            dist/release-revocations.json dist/release-revocations.json.sig --clobber
           echo "attached the signed manifest to $TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -26,3 +26,18 @@ head. What only the person cutting the release knows goes in
 | `notes_url` | Defaults to the GitHub release page. |
 
 No file means none of these apply.
+
+## Withdrawing a release
+
+If a release turns out to be bad after it shipped, add it to
+`release/revocations.json` on `main`:
+
+```json
+{"schema": 1, "revoked": [{"version": "0.2.1", "reason": "Recordings stop on Raspberry Pi 5; fixed in 0.2.2."}]}
+```
+
+then run the **release-manifest** workflow by hand for the **latest** release
+tag. It signs the list and attaches it to that release, where every site
+looks for it. From then on the withdrawn release is never offered or
+installed automatically, and a site already running it is told why. The list
+also rides along with every later release.

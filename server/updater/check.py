@@ -50,6 +50,8 @@ class Site:
     accept_manual: bool = False
     adopt: bool = False
     allow_edge: bool = False
+    #: Releases the project withdrew, {version: reason} (updater/revocations.py).
+    revoked: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,10 +111,20 @@ def accepted_ids(image: Image, platform: str) -> tuple[str, ...]:
 def decide(site: Site, candidate: Manifest) -> Plan | Refusal:
     installed = site.installed
 
+    revoked = site.revoked or {}
+    installed_withdrawn = revoked.get(site.installed_version)
+
     # ── Is it an update at all, and may this site take it? ───────────
     if parse_version(candidate.version) <= parse_version(site.installed_version):
+        if installed_withdrawn:
+            return Refusal(UP_TO_DATE, f"OpenNVR {site.installed_version} is installed, and the project has "
+                                       f"withdrawn it: {installed_withdrawn}",
+                           ("No newer release is out yet. Watch the release page for the fix.",))
         return Refusal(UP_TO_DATE, f"OpenNVR {site.installed_version} is installed; "
                                    f"{candidate.version} is not newer.")
+    if candidate.version in revoked:
+        return Refusal(REFUSED, f"OpenNVR {candidate.version} was withdrawn by the project: {revoked[candidate.version]}",
+                       ("It is not installed. The next release will be offered when it is out.",))
     if candidate.channel == "edge" and not site.allow_edge:
         return Refusal(REFUSED, f"{candidate.version} is an edge build, not a release.",
                        ("Edge builds are only installed when asked for explicitly (--channel edge).",))
@@ -201,6 +213,9 @@ def decide(site: Site, candidate: Manifest) -> Plan | Refusal:
 
     if installed is None:
         warnings.append(f"Adopted: this site is treated as {site.installed_version} from now on.")
+    if installed_withdrawn:
+        warnings.append(f"The installed {site.installed_version} was withdrawn by the project "
+                        f"({installed_withdrawn}): this update replaces it.")
     if candidate.state_migrations:
         warnings.append(f"{candidate.version} changes data outside the database: if it fails to start, "
                         "it is not rolled back automatically.")
