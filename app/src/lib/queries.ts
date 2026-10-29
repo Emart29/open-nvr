@@ -66,12 +66,19 @@ export type CameraAspect = {
   displayAspectOverride?: AspectOverride | null
 }
 
-export type CameraListResp = { cameras: CameraItem[]; total: number }
+export type CameraListResp = {
+  cameras: CameraItem[]
+  total: number
+  /** Active/inactive under the same search and location, whatever `status` picked. */
+  counts?: { all: number; active: number; inactive: number }
+}
 
 export type CameraListParams = {
   skip?: number
   limit?: number
   active_only?: boolean
+  /** All / active / inactive; overrides active_only when given. */
+  status?: 'all' | 'active' | 'inactive'
   q?: string
   /** One location (any case), or no_location for cameras without one. */
   location?: string

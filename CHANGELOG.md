@@ -8,6 +8,20 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Cameras page: bulk actions, grid view, pause recording.** Tick
+  cameras (or "Select all", then "Select all N cameras" across every page
+  matching the filters) and use **Actions** to set or clear location, turn
+  detection on/off, activate/deactivate, pause or resume recording, assign
+  permissions or delete. An **All / Active / Inactive** switch with counts
+  replaces "Active only" (`GET /cameras/` takes `status=` and returns
+  `counts`; `active_only` still works), and the table has a Status column.
+  A **Grid** view shows each camera's still with its stream and recording
+  state, in S/M/L tiles; clicking a card selects it, and **Live** opens the
+  camera in a dialog over the page. Recording can now be paused from the
+  page (per camera or in bulk, for 15 min to 24 h or until resumed) where
+  Settings → Recording allows pausing; the list shows who paused it and
+  until when (`recording_pause` on each camera). Live View's Tours menu
+  gains **New tour**.
 - **OpenNVR Accelerate: hardware flavours.** The detect-pipeline image now
   builds in flavours from one Dockerfile (`ACCEL=cpu|intel`); the `-intel`
   tags carry `onnxruntime-openvino` plus Intel's VA-API, OpenCL and NPU

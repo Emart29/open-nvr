@@ -30,9 +30,6 @@ import { ArrowDownAZ, ArrowLeft, BellRing, ChevronDown, ChevronRight, CopyPlus, 
 import { clsx } from 'clsx'
 import { useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
-import { rebaseToCurrentOrigin } from '../lib/streamUrl'
-import { Modal } from '../components/Modal'
-import { VideoPlayer } from '../components/VideoPlayer'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { PLAIN_GRIDS, PREDEFINED_LAYOUTS, parseGridId, resolveLayout, type LayoutDefinition, type WindowLayoutSettings } from '../lib/liveLayouts'
 import { AUTO_GRID_MAX, buildPages, camerasOf, cycleSeconds, formatDuration, type Slot } from '../lib/tourPlan'
@@ -43,6 +40,7 @@ import { Button, ErrorCard, Skeleton } from '../components/ui'
 import { Field, Input, Select } from '../components/ui/form'
 import { Switch } from '../components/ui/Switch'
 import { CameraThumb } from '../components/live/CameraThumb'
+import { LivePeek } from '../components/live/LivePeek'
 import { IconAction } from '../components/live/IconAction'
 import { addCamera, chunk, closeGaps, fill, firstEmpty, fit, moveTo, placeAt, placeMessage, removeAt, tidy } from '../lib/tourArrange'
 
@@ -938,46 +936,6 @@ function PreviewTile({ cameraId, order, area, cam, cover, bad, selected, onSelec
         </button>
       </span>
     </div>
-  )
-}
-
-/** One camera live, on demand: the picker and the preview show stills only. */
-function LivePeek({ cameraId, cam, onClose }: { cameraId: number; cam: CameraItem | undefined; onClose: () => void }) {
-  const { t } = useTranslation()
-  const info = useQuery({
-    queryKey: ['tour-stream', cameraId],
-    queryFn: async () => (await apiService.getTourStreamInfo(cameraId)).data as { urls?: { webrtc?: string; hls?: string }; token?: string },
-    staleTime: 45 * 60_000,
-  })
-  const name = cam?.name ?? `#${cameraId}`
-  return (
-    <Modal open title={t('tours.liveTitle', { name })} onClose={onClose} widthClassName="w-[calc(100vw-2rem)] max-w-4xl" bodyClassName="p-0">
-      <div className="aspect-video bg-black" data-testid="tour-live-peek">
-        {info.data?.urls ? (
-          <VideoPlayer
-            mode="live"
-            chrome="controls"
-            whepUrl={rebaseToCurrentOrigin(info.data.urls.webrtc)}
-            hlsUrl={rebaseToCurrentOrigin(info.data.urls.hls)}
-            mediamtxToken={info.data.token}
-            onAuthExpired={() => info.refetch()}
-            preferredStreamType="webrtc"
-            autoPlay
-            muted
-            displayAspectOverride={cam?.display_aspect_ratio}
-            cameraId={cameraId}
-            className="w-full h-full"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-sm text-white/60">
-            {info.isError ? t('tours.liveFailed') : t('tours.loading')}
-          </div>
-        )}
-      </div>
-      {cam && (
-        <div className="px-3 py-2 text-xs text-[var(--text-dim)]">{[cam.location, cam.ip_address].filter(Boolean).join(' · ')}</div>
-      )}
-    </Modal>
   )
 }
 
