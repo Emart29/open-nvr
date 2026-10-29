@@ -152,6 +152,9 @@ apply_accel_env() {
                 if [[ -e /dev/accel/accel0 ]]; then export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
                 else export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"; fi
             fi
+            # The ONNX adapters (-intel flavours) run on the iGPU: it takes
+            # dynamic shapes and leaves the NPU to the Tier-0 detector.
+            [[ -n "$(get_env_var ADAPTER_ONNX_PROVIDERS)" ]] || export ADAPTER_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"
             ;;
     esac
 }
@@ -160,7 +163,7 @@ accel_summary() {
     case "$accel" in
         intel)
             local npu="no NPU"; [[ -e /dev/accel/accel0 ]] && npu="NPU"
-            echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (${npu} present)"
+            echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, adapters on ${ADAPTER_ONNX_PROVIDERS:-$(get_env_var ADAPTER_ONNX_PROVIDERS)} (${npu} present)"
             ;;
         *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU)" ;;
     esac

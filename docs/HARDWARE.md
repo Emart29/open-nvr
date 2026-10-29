@@ -14,8 +14,8 @@ app concern.
 | Hardware | Flavour / tag | Decode | Tier-0 detector | Adapters | Status |
 |---|---|---|---|---|---|
 | Any x86-64 or arm64 CPU | `cpu` (plain tag) | software | onnxruntime CPU | onnxruntime CPU | shipped |
-| Intel iGPU — N100, Core i, Core Ultra, Arc | `intel` (`-intel`) | VA-API on the iGPU | OpenVINO on the iGPU | CPU (adapter flavours: Phase 2) | shipped (decode), this release (detector) |
-| Intel NPU — Core Ultra "AI Boost" | `intel` (`-intel`) | n/a (NPU does not decode) | OpenVINO on the NPU | CPU (Phase 2) | this release |
+| Intel iGPU — N100, Core i, Core Ultra, Arc | `intel` (`-intel`) | VA-API on the iGPU | OpenVINO on the iGPU | OpenVINO on the iGPU (`-intel` adapter images) | this release |
+| Intel NPU — Core Ultra "AI Boost" | `intel` (`-intel`) | n/a (NPU does not decode) | OpenVINO on the NPU (default when present) | iGPU by default; `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` to move them | this release |
 | NVIDIA — desktop GPU, Jetson | `nvidia` (`-nvidia`) | NVDEC (`DETECT_HWACCEL=nvidia`) | CUDA / TensorRT | CUDA (`onnxruntime-gpu`) | decode shipped; images Phase 3 |
 | AMD — iGPU, Radeon | later (`-rocm`) | VA-API (shipped) | ROCm | ROCm | on demand |
 | Raspberry Pi, Rockchip | `cpu` | `rpi` / `rkmpp` decode | CPU | CPU | decode shipped |
@@ -41,6 +41,10 @@ macOS and Windows Docker VMs expose no devices. The intel choice:
   exists (`docker-compose.accel-intel-npu.yml` — a separate overlay because
   compose refuses to start when a listed device is absent, and N100-class
   boxes have the iGPU but no NPU),
+- swaps the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package
+  detection) for their `-intel` images with `/dev/dri` passed through and
+  `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:GPU` — the iGPU takes
+  dynamic shapes and leaves the NPU to the always-on Tier-0 detector,
 - fills the defaults an `.env` leaves at the CPU value: `DETECT_HWACCEL=vaapi`,
   `DETECT_ONNX_BACKEND=ort`,
   `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` when `/dev/accel/accel0`
@@ -78,7 +82,7 @@ provider name continues the previous device.
 | Flavour | Base | Inference wheel | Vendor user-space | Arch |
 |---|---|---|---|---|
 | `cpu` | `python:3.11-slim` | `onnxruntime` | Intel VA-API driver (iHD) for decode | amd64, arm64 |
-| `intel` | same | `onnxruntime-openvino` (bundles OpenVINO) | + Intel OpenCL compute runtime and graphics compiler, Level Zero loader, NPU driver and compiler — pinned in `detect-pipeline/scripts/install-intel-runtime.sh` | amd64 |
+| `intel` | same | `onnxruntime-openvino` (bundles OpenVINO) | + Intel OpenCL compute runtime and graphics compiler, Level Zero loader, NPU driver and compiler — pinned in `detect-pipeline/scripts/install-intel-runtime.sh` (the same script builds the adapter flavours in ai-adapter) | amd64 |
 
 The NPU **firmware** is the host's job (`linux-firmware`, loaded by the `ivpu`
 kernel driver — kernel 6.8 or newer); the container only needs the user-space
@@ -94,6 +98,7 @@ tells you when it did:
 | Is this camera decoding on the GPU? | `tier0_decode_config{camera,hwaccel="vaapi"}` — the **effective** backend; `cpu` next to a `vaapi` request means the render node was not reachable |
 | Did core promote cameras to the main stream for a GPU that is not there? | `tier0_mainstream_fallback{camera}` |
 | Is the detector on the NPU? | `tier0_detector_backend{requested,effective}` — `effective="CPUExecutionProvider"` beside an OpenVINO request means the device or its driver is missing; the log says the same once at startup |
+| Is an adapter on the iGPU? | its `GET /hardware/evaluation`: `requested_providers`, `effective_providers`, `accelerator_in_use`; the adapter logs one warning at load when they differ |
 | Is the iGPU busy at all? | `intel_gpu_top` on the host (`Video` engine = decode, `Render/3D` / `Compute` = inference) |
 
 The two classic mistakes, both now visible: setting `DETECT_HWACCEL=vaapi`
@@ -164,6 +169,6 @@ What the numbers say:
 ## Roadmap
 
 - **Phase 1 (this release):** `intel` flavour for the detect-pipeline, `OPENNVR_ACCEL`, this page.
-- **Phase 2:** the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package detection) on the same shared provider resolver, with `-intel` / `-nvidia` flavours.
+- **Phase 2 (this release):** the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package detection) on one shared provider resolver in the SDK, with `-intel` flavours.
 - **Phase 3:** the `nvidia` flavour, a Hardware panel under Settings → AI, benchmark rows per hardware class.
 - Later: ROCm, torch-based adapters per flavour, Coral / Hailo through the accelerator adapter.
