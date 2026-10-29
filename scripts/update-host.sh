@@ -310,9 +310,13 @@ upd_switch_and_verify() {
 upd_restore_cmd() {
     local dir="$1"
     [ -d "$dir" ] || { upd_fail "no backup at $dir"; exit 1; }
+    [ -f "$dir/db.dump" ] && [ -f "$dir/env" ] || { upd_fail "$dir is not a complete backup"; exit 1; }
     upd_lock
     PROJECT=$(upd_project)
     ARGS=$(compose_args) || exit 1
+    # Everything checked before anything changes: a refusal must not leave
+    # the backup's .env in place over a stack still running another release.
+    [ -n "$(upd_cid db)" ] || { upd_fail "the database container is not running; start the stack first"; exit 1; }
     cp "$dir/env" .env || exit 1
     ARGS=$(compose_args) || exit 1
     upd_restore "$dir" "ghcr.io/open-nvr/core:$(get_env_var CORE_TAG)" || exit 1
@@ -337,7 +341,14 @@ run_update() {
         esac
     done
     [ -f .env ] || { upd_fail "No .env here: run this from the OpenNVR folder."; exit 1; }
-    git rev-parse --git-dir >/dev/null 2>&1 || { upd_fail "This OpenNVR folder is not a git checkout."; exit 1; }
+    # Git's own words: "not a git repository" and "dubious ownership" (the
+    # folder belongs to another user, e.g. under sudo) need different fixes.
+    local git_err
+    if ! git_err=$(git rev-parse --git-dir 2>&1 >/dev/null); then
+        upd_fail "git cannot use this OpenNVR folder:"
+        printf '%s\n' "$git_err" | sed 's/^/    /' >&2
+        exit 1
+    fi
     if [ -n "$restore" ]; then upd_restore_cmd "$restore"; return; fi
 
     upd_lock

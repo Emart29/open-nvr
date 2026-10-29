@@ -352,8 +352,14 @@ function Invoke-Update([string[]]$UpdateArgs) {
         }
     }
     if (-not (Test-Path .env)) { Write-UpdFail "No .env here: run this from the OpenNVR folder."; exit 1 }
-    git rev-parse --git-dir *> $null
-    if ($LASTEXITCODE -ne 0) { Write-UpdFail "This OpenNVR folder is not a git checkout."; exit 1 }
+    # Git's own words: "not a git repository" and "dubious ownership" (the
+    # folder belongs to another user) need different fixes.
+    $gitErr = git rev-parse --git-dir 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }
+    if ($LASTEXITCODE -ne 0) {
+        Write-UpdFail "git cannot use this OpenNVR folder:"
+        $gitErr | ForEach-Object { Write-Host "    $_" }
+        exit 1
+    }
 
     Lock-Update
     try {
@@ -364,6 +370,11 @@ function Invoke-Update([string[]]$UpdateArgs) {
 
         if ($restore) {
             if (-not (Test-Path $restore)) { Write-UpdFail "no backup at $restore"; exit 1 }
+            if (-not ((Test-Path (Join-Path $restore "db.dump")) -and (Test-Path (Join-Path $restore "env")))) {
+                Write-UpdFail "$restore is not a complete backup"; exit 1 }
+            # Everything checked before anything changes: a refusal must not leave
+            # the backup's .env in place over a stack still running another release.
+            if (-not (Get-UpdCid "db")) { Write-UpdFail "the database container is not running; start the stack first"; exit 1 }
             Copy-Item (Join-Path $restore "env") .env -Force
             $script:UpdCa = Get-ComposeArgs
             if (-not (Restore-UpdSite $restore "ghcr.io/open-nvr/core:$(Get-EnvVar CORE_TAG)")) { exit 1 }
