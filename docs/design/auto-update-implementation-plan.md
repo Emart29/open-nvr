@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | M0–M2 done except UPD-207 (see [Progress](#10-progress)) |
+| **Status** | M0–M2 done (see [Progress](#10-progress)) |
 | **Revision** | r2 (2026-10-29): review fixes folded in; the updater runs inside the core image; manifests are signed with a project Ed25519 key so online and air-gapped verification are the same code. r1 (2026-10-28): first plan |
 | **Branch** | `feat/auto-update` (one commit per issue) |
 | **Audience** | Whoever implements or reviews this work |
@@ -89,6 +89,17 @@ An interrupted run (power cut) is found by the next `update`: it resumes at step
 - Platforms are named `linux/arm64` by Docker but `linux/arm64/v8` in some indexes; matched with and without the variant.
 - An offline bundle should carry the manifests of earlier releases (`history/vX.Y.Z/`), so a site with no record of its installed release can still be verified offline.
 - `--adopt` means the release's pins and images replace the site's (found on a live dry run).
+
+**UPD-207 live test (2026-10-29).** Three releases built from this branch (0.2.0; 0.2.1 adds a migration; 0.2.2 adds another and reports a wrong version), installed and updated from signed offline bundles with marker data in the database:
+
+| | Windows (`start.ps1`) | Linux (`start.sh`) |
+|---|---|---|
+| 0.2.0 → 0.2.1 | updated, verified, marker kept (96 s) | same |
+| 0.2.1 → 0.2.2 (broken) | caught, rolled back: 0.2.1 again, database restored (0.2.2's table gone), marker kept | same |
+| Tampered bundle | refused before anything changed | — |
+| `--restore` | brought a half-rolled-back site back | — |
+
+Found and fixed on the way: Windows PowerShell 5.1 drops the double quotes inside native arguments, so the restore's SQL reached psql as `-c DROP` (database steps now run from a script copied into the container); `--restore` copied `.env` before checking the database was up; any git failure was reported as "not a git checkout" (now git's own words, e.g. *dubious ownership* under sudo). Not covered live: Docker's classic image store (both engines used containerd; unit-tested). Also found, not in this branch: `scripts/generate-secrets.ps1`, `generate-mediamtx-certs.ps1` and `start-mediamtx.ps1` cannot be parsed by Windows PowerShell 5.1 (UTF-8 without BOM).
 
 ## 6. Engineering rules
 - One issue, one commit on `feat/auto-update` (`feat(update): … (UPD-xxx)`), no Co-Authored-By trailer; not pushed without the owner's go-ahead.
@@ -182,7 +193,7 @@ An interrupted run (power cut) is found by the next `update`: it resumes at step
 | UPD-204 | Done | d44a0949 | restore drops the public schema first |
 | UPD-205 | Done | d44a0949 |  |
 | UPD-206 | Done | c277a3bd | refusals in updater/check.py |
-| UPD-207 | Not started | | |
+| UPD-207 | Done (manual) | 7c9838b6, 83e0ba49 | Live on Windows (start.ps1, Docker Desktop) and Linux (start.sh, Ubuntu 24.04 docker-ce): good update, broken update rolled back with the database, tampered bundle refused, --restore. A CI version of the harness is still to do |
 | UPD-301 | Not started | | |
 | UPD-302 | Not started | | |
 | UPD-303 | Not started | | |
