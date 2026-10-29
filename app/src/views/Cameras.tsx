@@ -577,8 +577,8 @@ export function Cameras() {
         {t('cameraBulk.selectPage')}
       </label>
       <span className="min-w-0 truncate">{selectionNotice()}</span>
-      {(canManageCameras || canPause || canResume) && selected.size > 0 && (
-        <div className="ml-auto shrink-0">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        {(canManageCameras || canPause || canResume) && selected.size > 0 && (
           <CameraBulkMenu
             canManage={canManageCameras}
             canPause={showPause}
@@ -586,8 +586,33 @@ export function Cameras() {
             disabled={mutating}
             onPick={onBulkAction}
           />
-        </div>
-      )}
+        )}
+        {/* Tile size belongs to the grid, so it sits on the grid's strip,
+            small and quiet, rather than beside the Table/Grid switch. */}
+        {view === 'grid' && (
+          <div role="radiogroup" aria-label={t('cameraBulk.tileSize')} className="inline-flex items-center gap-0.5">
+            {(['s', 'm', 'l'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={tile === v}
+                onClick={() => pickTile(v)}
+                title={t(`cameraBulk.tile_${v}`)}
+                aria-label={t(`cameraBulk.tile_${v}`)}
+                data-testid={`camera-tile-${v}`}
+                className={`h-6 w-6 text-[11px] font-medium transition-colors ${
+                  tile === v
+                    ? 'text-[var(--accent)] underline underline-offset-4 decoration-2'
+                    : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                }`}
+              >
+                {v.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 
@@ -1116,35 +1141,6 @@ export function Cameras() {
             ))}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {/* Tile size: a setting of the grid, not a view of its own, so it
-                is smaller and quieter than the Table/Grid switch beside it,
-                labelled, and parted from it by a rule. */}
-            {view === 'grid' && (
-              <div className="flex items-center gap-1.5 border-r border-[var(--border)] pr-3">
-                <span className="text-[11px] text-[var(--text-dim)]">{t('cameraBulk.tileSize')}</span>
-                <div role="radiogroup" aria-label={t('cameraBulk.tileSize')} className="inline-flex items-center gap-0.5">
-                  {(['s', 'm', 'l'] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      role="radio"
-                      aria-checked={tile === v}
-                      onClick={() => pickTile(v)}
-                      title={t(`cameraBulk.tile_${v}`)}
-                      aria-label={t(`cameraBulk.tile_${v}`)}
-                      data-testid={`camera-tile-${v}`}
-                      className={`h-6 w-6 text-[11px] font-medium transition-colors ${
-                        tile === v
-                          ? 'text-[var(--accent)] underline underline-offset-4 decoration-2'
-                          : 'text-[var(--text-dim)] hover:text-[var(--text)]'
-                      }`}
-                    >
-                      {v.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
             {/* Table or grid of thumbnails. */}
             <div role="radiogroup" aria-label={t('cameraBulk.view')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
               {([['table', List], ['grid', LayoutGrid]] as const).map(([v, Icon]) => (
