@@ -2,9 +2,9 @@
 # OpenNVR Accelerate — Intel flavour (iGPU decode, OpenVINO detector on NPU/iGPU)
 # ==========================================
 # start.sh adds this overlay when OPENNVR_ACCEL=intel, or on `auto` when it
-# finds an Intel render node. It swaps detect-pipeline for the ``-intel``
-# image (same code; carries the Intel VA-API, OpenCL and NPU user-space),
-# passes the devices through, and sets the decode/detector defaults.
+# finds an Intel render node. It swaps detect-pipeline and the ONNX adapters
+# for their ``-intel`` images (same code; carry the Intel VA-API, OpenCL and
+# NPU user-space), passes the devices through, and sets the device defaults.
 #
 # Running compose by hand instead of start.sh? Export the three DETECT_*
 # values below (or set them in .env) — an .env that still says
@@ -32,3 +32,43 @@ services:
   opennvr-core:
     environment:
       - DETECT_HWACCEL=${DETECT_HWACCEL:-vaapi}
+  # ── ONNX adapters (ai-adapter -intel flavours): OpenVINO on the iGPU ──
+  # The iGPU rather than the NPU for adapters: it takes dynamic shapes
+  # (plate OCR batches) and leaves the NPU to the always-on Tier-0
+  # detector. ADAPTER_ONNX_PROVIDERS in .env overrides for all of them.
+  # Each keeps the profiles of the service it overrides, so this overlay
+  # never activates an adapter the operator did not enable.
+  yolov8-adapter:
+    image: ghcr.io/open-nvr/yolov8-adapter:${ADAPTER_TAG:-latest}-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
+  yolo-pose-adapter:
+    profiles: [apps, guard-scan-compliance]
+    image: ghcr.io/open-nvr/yolo-pose-adapter:${YOLO_POSE_ADAPTER_TAG:-latest}-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
+  fast-plate-ocr-adapter:
+    profiles: [apps, license-plate-recognition]
+    image: ghcr.io/open-nvr/fast-plate-ocr-adapter:${ADAPTER_TAG:-latest}-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
+  insightface-adapter:
+    profiles: [apps, smart-doorbell]
+    image: ghcr.io/open-nvr/insightface-adapter:${ADAPTER_TAG:-latest}-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
+  package-detection-adapter:
+    profiles: [apps, package-delivery]
+    image: ghcr.io/open-nvr/package-detection-adapter:${ADAPTER_TAG:-latest}-intel
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
