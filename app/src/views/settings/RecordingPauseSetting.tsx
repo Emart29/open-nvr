@@ -21,6 +21,7 @@ import { PauseCircle } from 'lucide-react'
 import { useSnackbar } from '../../components/Snackbar'
 import { Button } from '../../components/ui'
 import { apiService } from '../../lib/apiService'
+import { queryClient } from '../../lib/queries'
 import { extractApiError } from '../../lib/apiError'
 import { usePermissions } from '../../hooks/usePermissions'
 import { useTranslation, useDateFormat, type DateFormatters } from '../../i18n'
@@ -75,6 +76,10 @@ export function RecordingPauseSetting() {
         const { data } = await apiService.setRecordingPauseSetting(next)
         setEnabled(!!data.enabled)
         setPaused(data.paused || {})
+        // The Cameras page shows Pause from this flag, and turning it off
+        // resumes cameras; refetch both rather than wait out their cache.
+        queryClient.invalidateQueries({ queryKey: ['site-info'] })
+        queryClient.invalidateQueries({ queryKey: ['cameras'] })
         showSuccess(next ? t('recordingPause.enabled') : t('recordingPause.disabled', { count: (data.resumed_cameras || []).length }))
       } catch (e: any) {
         showError(extractApiError(e, t('recordingPause.failedSave')))
@@ -88,6 +93,7 @@ export function RecordingPauseSetting() {
     setBusy(cameraId)
     try {
       await apiService.setCameraRecording(Number(cameraId), { enabled: true, reason: 'resumed from Settings' })
+      queryClient.invalidateQueries({ queryKey: ['cameras'] })
       await load()
     } catch (e: any) {
       showError(extractApiError(e, t('recordingPause.failedResume')))

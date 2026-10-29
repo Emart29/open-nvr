@@ -251,3 +251,15 @@ def test_a_bad_resume_delay_never_stops_recording(env, mtx):  # noqa: F811
         s.close()
     assert ("disable", 1) not in mtx
     assert _state(env)[0] == {}
+
+
+def test_the_camera_list_says_who_paused_a_camera_and_until_when(env, mtx):  # noqa: F811
+    _allow(env)
+    assert _pause(env, env.jwt("admin"), reason="cleaning crew", resume_after_s=3600).status_code == 200
+    cams = env.client.get("/api/v1/cameras/", headers=env.jwt("admin")).json()["cameras"]
+    by_id = {c["id"]: c for c in cams}
+    pause = by_id[1]["recording_pause"]
+    assert pause["by"] == "user:admin" and pause["reason"] == "cleaning crew"
+    assert pause["resume_at"] is not None
+    assert by_id[1]["recording_state"] == "off"
+    assert all(c["recording_pause"] is None for c in cams if c["id"] != 1)

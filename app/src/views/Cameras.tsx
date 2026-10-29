@@ -27,7 +27,7 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { Camera as CameraIcon, CameraOff, Download, Pencil, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
+import { Camera as CameraIcon, CameraOff, Download, PauseCircle, Pencil, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
 import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
@@ -35,6 +35,7 @@ import { Pagination } from '../components/ui/Pagination'
 import type { BadgeVariant } from '../components/ui'
 import { AddCameraDialog } from '../components/AddCameraDialog'
 import { CameraExportDialog, CameraImportDialog } from '../components/cameras/CameraImportExport'
+import { RecordingPauseDialog } from '../components/cameras/RecordingPauseDialog'
 import { QrScanner } from '../components/QrScanner'
 import { parseCameraQr } from '../lib/cameraQr'
 import { ASPECT_OPTIONS, isCustomAspect } from '../lib/aspect'
@@ -87,6 +88,8 @@ type Camera = {
   // segment. Absent (undefined) means the endpoint didn't compute it.
   recording_state?: 'recording' | 'not_recording' | 'stalled' | 'never' | 'off' | null
   last_recording_at?: string | null
+  // Set while recording is deliberately paused; resume_at null = until resumed.
+  recording_pause?: { since: string; resume_at: string | null; by: string; reason: string | null } | null
   // ONVIF device metadata
   manufacturer?: string | null
   model?: string | null
@@ -137,8 +140,22 @@ export function Cameras() {
   const fmt = useDateFormat()
   const navigate = useNavigate()
   const { t } = useTranslation()
-  const { hasPermission } = usePermissions()
+  const { hasPermission, isSuperuser } = usePermissions()
   const canManageCameras = hasPermission('cameras.manage')
+  // Pausing needs recordings.pause AND the site's opt-in; resuming is open
+  // to camera managers too, so nobody is stuck with a paused camera.
+  const canPause = hasPermission('recordings.pause')
+  const canResume = canPause || canManageCameras
+  const siteInfo = useQuery({
+    queryKey: ['site-info'],
+    queryFn: async () => (await apiService.getSiteInfo()).data as { recording_pause_enabled?: boolean },
+    staleTime: 60_000,
+    enabled: canPause,
+  })
+  const pauseAllowed = siteInfo.data?.recording_pause_enabled === true
+  // An admin sees Pause even while it is off, and is pointed at the setting.
+  const showPause = canPause && (pauseAllowed || isSuperuser)
+  const [pausing, setPausing] = useState<Camera | null>(null)
   const { showError, showSuccess, showInfo, showWarning } = useSnackbar()
   const confirm = useConfirm()
   // A mutation (delete / bulk op) is in flight. Distinct from the list's own
@@ -292,6 +309,17 @@ export function Cameras() {
     const at = c.last_recording_at ? new Date(c.last_recording_at) : null
     const agoSeconds = at ? Math.max(0, (Date.now() - at.getTime()) / 1000) : null
     const seenAt = at ? `Last segment ${fmt.dateTime(at)}` : undefined
+
+    // Deliberately stopped: say so, and by whom, rather than a bare "Off".
+    const pause = c.recording_pause
+    if (pause && c.is_active) {
+      const title = [
+        t('recordingPause.pausedBy', { by: pause.by, since: fmt.dateTime(pause.since) }),
+        pause.resume_at ? t('recordingPause.resumesAt', { at: fmt.dateTime(pause.resume_at) }) : t('recordingPause.untilResumed'),
+        pause.reason,
+      ].filter(Boolean).join(' · ')
+      return { variant: 'warning', label: t('recordingPause.paused'), title }
+    }
 
     switch (c.recording_state) {
       case 'recording':
@@ -458,6 +486,19 @@ export function Cameras() {
       else showSuccess('Bulk delete completed')
     } catch (e: any) {
       showError(extractApiError(e, 'Bulk delete failed'))
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  const onResumeRecording = async (c: Camera) => {
+    try {
+      setMutating(true)
+      await apiService.setCameraRecording(c.id, { enabled: true, reason: 'resumed from Cameras' })
+      await refreshCameras()
+      showSuccess(t('recordingPause.resumedOk', { name: c.name }))
+    } catch (e: any) {
+      showError(extractApiError(e, t('recordingPause.failedResume')))
     } finally {
       setMutating(false)
     }
@@ -775,7 +816,7 @@ export function Cameras() {
               <TH className="text-xs w-[170px]">{t('camera.address')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.stream')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.recording')}</TH>
-              <TH className="text-xs w-[110px]">{t('camera.actions')}</TH>
+              <TH className="text-xs w-[140px]">{t('camera.actions')}</TH>
             </TR>
           </THead>
           <TBody striped>
@@ -841,10 +882,33 @@ export function Cameras() {
                           <Pencil size={15} />
                         </IconButton>
                       )}
-                      {/* Recording is automatic on an NVR — no manual
-                          start/stop control. The Recording column shows its
-                          live status, derived from the newest written
-                          segment rather than the config flag. */}
+                      {/* Recording is always on unless the site allows
+                          pausing (Settings > Recording); then a pause is
+                          timed or until resumed, and audited. */}
+                      {c.is_active && c.recording_pause && canResume && (
+                        <IconButton
+                          variant="outline"
+                          className="!text-[var(--warning)] !border-[var(--warning)]"
+                          onClick={() => onResumeRecording(c)}
+                          disabled={mutating}
+                          title={t('recordingPause.resume')}
+                          label={`${t('recordingPause.resume')} ${c.name}`}
+                          data-testid={`recording-resume-${c.id}`}
+                        >
+                          <PlayCircle size={15} />
+                        </IconButton>
+                      )}
+                      {c.is_active && !c.recording_pause && showPause && c.mediamtx_provisioned === true && (
+                        <IconButton
+                          variant="outline"
+                          onClick={() => setPausing(c)}
+                          title={t('recordingPause.pause')}
+                          label={`${t('recordingPause.pause')} ${c.name}`}
+                          data-testid={`recording-pause-${c.id}`}
+                        >
+                          <PauseCircle size={15} />
+                        </IconButton>
+                      )}
                       {c.mediamtx_provisioned === true && (
                         <IconButton
                           variant="outline"
@@ -893,6 +957,15 @@ export function Cameras() {
         label={t('camera.camerasNoun')}
       />
       </div>
+      )}
+
+      {pausing && (
+        <RecordingPauseDialog
+          camera={pausing}
+          allowed={pauseAllowed}
+          onClose={() => setPausing(null)}
+          onDone={() => { refreshCameras() }}
+        />
       )}
 
       {/* Edit Camera Dialog */}

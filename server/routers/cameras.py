@@ -715,6 +715,10 @@ def get_cameras(
         )
 
     now = datetime.now(UTC)
+    # One settings read for the page: who paused what, and until when.
+    from services import recording_pause
+
+    pauses = recording_pause.paused(db) if camera_ids else {}
 
     # Populate extra fields for response
     results = []
@@ -745,6 +749,7 @@ def get_cameras(
             c, c_resp.recording_enabled, latest, now, c_resp.live_online,
             online_since.get(c.id),
         )
+        c_resp.recording_pause = pauses.get(str(c.id))
 
         results.append(c_resp)
 
