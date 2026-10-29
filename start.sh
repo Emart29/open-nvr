@@ -82,20 +82,47 @@ get_env_var() {
 # docker-compose.accel-*.yml. The NPU overlay joins when /dev/accel/accel0 is
 # present. The flavour only fills DETECT_* values .env leaves at the CPU
 # default; an explicit operator value (qsv, a provider list) always wins.
+# The flavour image must be pullable (or already local) before we commit to
+# it: flavour tags ride the release (0.2.0-intel), so a main checkout pinned
+# to an older CORE_TAG, or an air-gapped host, would otherwise die on
+# `docker pull`. A missing image means cpu, said out loud — never a dead stack.
+accel_image() {
+    local img
+    img=$(get_env_var "DETECT_PIPELINE_IMAGE")
+    [[ -n "$img" ]] && { echo "$img"; return; }
+    local tag; tag=$(get_env_var "CORE_TAG")
+    echo "ghcr.io/open-nvr/detect-pipeline:${tag:-latest}-$1"
+}
+accel_image_available() {
+    local img="$1"
+    docker image inspect "$img" >/dev/null 2>&1 && return 0
+    docker manifest inspect "$img" >/dev/null 2>&1
+}
+ACCEL_RESOLVED=""
 detect_accel() {
-    local want
+    [[ -n "$ACCEL_RESOLVED" ]] && { echo "$ACCEL_RESOLVED"; return; }
+    local want accel=cpu
     want=$(get_env_var "OPENNVR_ACCEL" | tr '[:upper:]' '[:lower:]')
     case "$want" in
-        cpu|intel) echo "$want"; return ;;
-        ""|auto) ;;
-        *) echo "Unknown OPENNVR_ACCEL=$want (auto|cpu|intel); using cpu" >&2; echo cpu; return ;;
+        cpu|intel) accel="$want" ;;
+        ""|auto)
+            if [[ "$OS" == Linux* ]]; then
+                local v
+                for v in /sys/class/drm/renderD*/device/vendor; do
+                    [[ -r "$v" ]] && [[ "$(cat "$v" 2>/dev/null)" == "0x8086" ]] && { accel=intel; break; }
+                done
+            fi ;;
+        *) echo "Unknown OPENNVR_ACCEL=$want (auto|cpu|intel); using cpu" >&2 ;;
     esac
-    [[ "$OS" == Linux* ]] || { echo cpu; return; }
-    local v
-    for v in /sys/class/drm/renderD*/device/vendor; do
-        [[ -r "$v" ]] && [[ "$(cat "$v" 2>/dev/null)" == "0x8086" ]] && { echo intel; return; }
-    done
-    echo cpu
+    if [[ "$accel" != cpu ]]; then
+        local img; img=$(accel_image "$accel")
+        if ! accel_image_available "$img"; then
+            echo -e "${YELLOW}Accelerate:${NC} the $accel flavour image $img is not available (not published for this CORE_TAG, or no registry access) — staying on cpu. Build it locally and set DETECT_PIPELINE_IMAGE, or wait for a release that ships -$accel tags." >&2
+            accel=cpu
+        fi
+    fi
+    ACCEL_RESOLVED="$accel"
+    echo "$accel"
 }
 accel_args() {
     local accel="$1" args=""

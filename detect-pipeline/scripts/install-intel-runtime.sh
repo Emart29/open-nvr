@@ -56,9 +56,12 @@ apt-get update
 apt-get install -y --no-install-recommends ocl-icd-libopencl1 clinfo \
     ./libze1.deb ./gmm.deb ./igc-core.deb ./igc-opencl.deb ./opencl-icd.deb \
     ./npu/intel-level-zero-npu_*.deb ./npu/intel-driver-compiler-npu_*.deb
-# Prove the three things OpenVINO needs are really there — or fail the build.
+# Prove the pieces OpenVINO needs are really there — or fail the build:
+# the OpenCL ICD (GPU device), the graphics compiler it loads (lands in
+# /usr/local/lib), and the Level Zero NPU driver + its compiler (NPU device).
 test -f /etc/OpenCL/vendors/intel.icd
-ls /usr/lib/x86_64-linux-gnu/libze_intel_vpu.so* >/dev/null
-ls /usr/lib/x86_64-linux-gnu/libigc.so* >/dev/null
+ls /usr/local/lib/libigc.so* >/dev/null
+ls /usr/lib/x86_64-linux-gnu/libze_intel_npu.so* >/dev/null
+ls /usr/lib/x86_64-linux-gnu/libopenvino_intel_npu_compiler.so >/dev/null
 rm -rf /var/lib/apt/lists/* "$tmp"
 echo "intel runtime installed: level-zero $LEVEL_ZERO, compute-runtime $NEO, igc $IGC, npu $NPU"

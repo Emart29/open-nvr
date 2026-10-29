@@ -255,7 +255,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "== Intel user-space present =="
-          docker run --rm "$IMAGE" sh -c "ls /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so && ls /etc/OpenCL/vendors/ && ls /usr/lib/x86_64-linux-gnu/libze_intel_vpu.so* && clinfo --version"
+          docker run --rm "$IMAGE" sh -c "ls /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so /etc/OpenCL/vendors/intel.icd /usr/local/lib/libigc.so.2 /usr/lib/x86_64-linux-gnu/libze_intel_npu.so.1 /usr/lib/x86_64-linux-gnu/libopenvino_intel_npu_compiler.so && clinfo --version"
           echo "== OpenVINO execution provider available =="
           docker run --rm "$IMAGE" python -c "
           import onnxruntime as ort

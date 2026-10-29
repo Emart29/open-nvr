@@ -170,6 +170,13 @@ def ghcr_manifest_exists(image: str, tag: str) -> bool:
 #: release", reported and not failed. Once the tag exists the exemption
 #: ends, and a core image missing at a tagged version is a failure again.
 CORE_IMAGES = ("core", "detect-pipeline", "camera-agent")
+# OpenNVR Accelerate flavours: the same release publishes ``<CORE_TAG>-<flavour>``
+# beside ``<CORE_TAG>`` for the images that have flavours. A flavour tag that
+# is missing is NOT an install killer the way a plain pin is: start.sh checks
+# the flavour image is pullable before selecting it and stays on cpu (with a
+# message) when it is not. So it is reported, never failed — and counted as
+# "release" while the release that publishes it is still pending.
+FLAVOUR_SUFFIXES = ("-intel", "-nvidia", "-rocm")
 
 
 def release_tag_exists(version: str) -> bool:
@@ -216,6 +223,12 @@ def main() -> int:
             # Built by the release this PR is: the v{CORE_TAG} tag does
             # not exist yet, and pushing it is what publishes these.
             status = "release"
+        elif (tag.startswith(core_tag) and tag[len(core_tag):] in FLAVOUR_SUFFIXES
+              and image.rsplit("/", 1)[-1] in CORE_IMAGES):
+            # A hardware flavour of a core image (see FLAVOUR_SUFFIXES):
+            # published by the release tag, and gated by start.sh at run
+            # time, so a miss is informational.
+            status = "release" if pending_release else "flavour"
         elif raw in buildable:
             # Not a release blocker: this service declares a `build:`,
             # so compose builds the image when the pull fails and the
