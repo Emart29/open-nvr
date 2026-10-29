@@ -357,3 +357,22 @@ def test_real_values_are_untouched():
     })
     assert cfg.dispatch_kaic_url == "http://kai-c:8100"
     assert cfg.onnx_providers == "OpenVINOExecutionProvider,CPUExecutionProvider"
+
+
+def test_detector_backend_metric_reports_requested_and_effective():
+    from detect_pipeline import metrics as m
+    from detect_pipeline.run import _export_detector_backend
+
+    class _B:
+        requested = [("OpenVINOExecutionProvider", {"device_type": "NPU"}), "CPUExecutionProvider"]
+        effective = ["CPUExecutionProvider"]
+
+    class _Det:
+        backend_name = "ort"
+        _backend = _B()
+
+    _export_detector_backend(_Det())
+    text = m.metrics.render() if hasattr(m.metrics, "render") else m.render()
+    assert 'tier0_detector_backend{' in text
+    assert 'requested="OpenVINOExecutionProvider(NPU), CPUExecutionProvider"' in text
+    assert 'effective="CPUExecutionProvider"' in text

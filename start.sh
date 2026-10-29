@@ -74,6 +74,98 @@ get_env_var() {
     grep -E "^${key}=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'"
 }
 
+# ── OpenNVR Accelerate: hardware flavour ───────────────────
+# OPENNVR_ACCEL=auto|cpu|intel in .env (default auto). auto reads the host:
+#   intel  Linux with an Intel render node (/sys/class/drm/renderD*, 0x8086)
+#   cpu    everything else — the macOS/Windows Docker VMs expose no devices
+# A flavour is an overlay + the matching image tag suffix (-intel), see
+# docker-compose.accel-*.yml. The NPU overlay joins when /dev/accel/accel0 is
+# present. The flavour only fills DETECT_* values .env leaves at the CPU
+# default; an explicit operator value (qsv, a provider list) always wins.
+# The flavour image must be pullable (or already local) before we commit to
+# it: flavour tags ride the release (0.2.0-intel), so a main checkout pinned
+# to an older CORE_TAG, or an air-gapped host, would otherwise die on
+# `docker pull`. A missing image means cpu, said out loud — never a dead stack.
+accel_image() {
+    local img
+    img=$(get_env_var "DETECT_PIPELINE_IMAGE")
+    [[ -n "$img" ]] && { echo "$img"; return; }
+    local tag; tag=$(get_env_var "CORE_TAG")
+    echo "ghcr.io/open-nvr/detect-pipeline:${tag:-latest}-$1"
+}
+accel_image_available() {
+    local img="$1"
+    docker image inspect "$img" >/dev/null 2>&1 && return 0
+    docker manifest inspect "$img" >/dev/null 2>&1
+}
+ACCEL_RESOLVED=""
+detect_accel() {
+    [[ -n "$ACCEL_RESOLVED" ]] && { echo "$ACCEL_RESOLVED"; return; }
+    local want accel=cpu
+    want=$(get_env_var "OPENNVR_ACCEL" | tr '[:upper:]' '[:lower:]')
+    case "$want" in
+        cpu|intel) accel="$want" ;;
+        ""|auto)
+            if [[ "$OS" == Linux* ]]; then
+                local v
+                for v in /sys/class/drm/renderD*/device/vendor; do
+                    [[ -r "$v" ]] && [[ "$(cat "$v" 2>/dev/null)" == "0x8086" ]] && { accel=intel; break; }
+                done
+            fi ;;
+        *) echo "Unknown OPENNVR_ACCEL=$want (auto|cpu|intel); using cpu" >&2 ;;
+    esac
+    if [[ "$accel" != cpu ]]; then
+        local img; img=$(accel_image "$accel")
+        if ! accel_image_available "$img"; then
+            echo -e "${YELLOW}Accelerate:${NC} the $accel flavour image $img is not available (not published for this CORE_TAG, or no registry access) — staying on cpu. Build it locally and set DETECT_PIPELINE_IMAGE, or wait for a release that ships -$accel tags." >&2
+            accel=cpu
+        fi
+    fi
+    ACCEL_RESOLVED="$accel"
+    echo "$accel"
+}
+accel_args() {
+    local accel="$1" args=""
+    case "$accel" in
+        intel)
+            [[ -f docker-compose.accel-intel.yml ]] || { echo "docker-compose.accel-intel.yml not found" >&2; return 1; }
+            args="-f docker-compose.accel-intel.yml"
+            [[ -e /dev/accel/accel0 ]] && args="$args -f docker-compose.accel-intel-npu.yml"
+            ;;
+    esac
+    echo "$args"
+}
+# The flavour's DETECT_* defaults go into the environment compose reads
+# (shell wins over .env). This must run in the PARENT shell — compose_args
+# is used as $(compose_args), and an export inside that subshell is lost —
+# so every command that builds ARGS calls apply_accel_env first.
+apply_accel_env() {
+    case "$(detect_accel)" in
+        intel)
+            case "$(get_env_var DETECT_HWACCEL)" in ""|cpu) export DETECT_HWACCEL=vaapi ;; esac
+            case "$(get_env_var DETECT_ONNX_BACKEND)" in ""|auto) export DETECT_ONNX_BACKEND=ort ;; esac
+            # Pin the device rather than AUTO: AUTO warms up on CPU and can sit
+            # there for a long time — measured on Arrow Lake: NPU 7.4 ms/frame,
+            # iGPU 7.7, OpenVINO CPU 15.5, AUTO 17.0 after 30 frames. The NPU
+            # also leaves the iGPU to decode and costs almost no CPU.
+            if [[ -z "$(get_env_var DETECT_ONNX_PROVIDERS)" ]]; then
+                if [[ -e /dev/accel/accel0 ]]; then export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
+                else export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"; fi
+            fi
+            ;;
+    esac
+}
+accel_summary() {
+    local accel; accel=$(detect_accel)
+    case "$accel" in
+        intel)
+            local npu="no NPU"; [[ -e /dev/accel/accel0 ]] && npu="NPU"
+            echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (${npu} present)"
+            ;;
+        *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU)" ;;
+    esac
+}
+
 # ── Build Docker Compose profile args ─────────────────────
 compose_args() {
     local args="-f $COMPOSE_FILE"
@@ -112,6 +204,11 @@ compose_args() {
     fi
     local p
     for p in ${example_profile//,/ }; do args="$args --profile $p"; done
+    # Hardware flavour overlay (OpenNVR Accelerate) — see detect_accel above.
+    local accel accel_overlay
+    accel=$(detect_accel)
+    accel_overlay=$(accel_args "$accel") || return 1
+    [[ -n "$accel_overlay" ]] && args="$args $accel_overlay"
     # Default-on apps: occupancy-counting + footage-search ride the always-on
     # Tier-0 stream and need no extra adapter, model, or GPU, so a stock
     # install runs them (profile ``default-apps`` in docker-compose.apps.yml).
@@ -1386,7 +1483,7 @@ run_up() {
     fi
     print_banner
     run_validate || exit 1
-    ARGS=$(compose_args)
+    apply_accel_env; ARGS=$(compose_args)
     configure_nginx_bind_host || exit 1
     configure_webrtc_ice_port || exit 1
     preflight_published_ports "$ARGS" || exit 1
@@ -1420,7 +1517,7 @@ run_build() {
     fi
     print_banner
     run_validate || exit 1
-    ARGS=$(compose_args)
+    apply_accel_env; ARGS=$(compose_args)
     configure_nginx_bind_host || exit 1
     configure_webrtc_ice_port || exit 1
     preflight_published_ports "$ARGS" || exit 1
@@ -1501,7 +1598,8 @@ case "$COMMAND" in
     #
     # Stopping first also frees the ports, so the probe can return to the
     # preferred ICE port when a previous run had to fall back.
-    ARGS=$(compose_args) || exit 1
+    apply_accel_env; ARGS=$(compose_args) || exit 1
+    accel_summary
     echo -e "  ${YELLOW}Stopping all services ...${NC}"
     docker compose $ARGS stop
     run_up

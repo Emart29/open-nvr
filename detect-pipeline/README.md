@@ -366,7 +366,7 @@ so the backend is interchangeable):
 
 | Hardware | Install | Select |
 |---|---|---|
-| Intel N100 / iGPU / NPU | `pip install onnxruntime-openvino` | `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider` |
+| Intel iGPU / NPU (N100, Core Ultra, Arc) | the **`-intel` image flavour** (`ACCEL=intel`: `onnxruntime-openvino` + Intel OpenCL/NPU runtime); bare: `pip install onnxruntime-openvino` | `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` (or `:GPU`, `:CPU`); avoid `AUTO:…`, which warms up on CPU and may stay there |
 | Nvidia / Jetson | `pip install onnxruntime-gpu` | `DETECT_ONNX_PROVIDERS=TensorrtExecutionProvider,CUDAExecutionProvider` |
 | Apple Silicon | `pip install onnxruntime` | `DETECT_ONNX_PROVIDERS=CoreMLExecutionProvider` |
 | Any CPU | already in the container image (`[service]` extra); bare pip installs: `pip install 'detect-pipeline[onnxruntime]'` | `DETECT_ONNX_BACKEND=ort` |
@@ -379,7 +379,13 @@ DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider,CPUExecutionProvider
 ```
 
 CPU is always appended as a fallback, so a missing accelerator provider degrades
-instead of failing. CLI equivalent: `--backend ort --providers OpenVINOExecutionProvider`.
+instead of failing — and because ORT does that *silently*, the service logs a
+warning when the first requested provider is not the one the session runs on,
+and exports `tier0_detector_backend{backend,requested,effective}` so a dashboard
+can see it. A `:device` after a provider name sets its device option
+(`device_type` for OpenVINO, `device_id` for CUDA/TensorRT); OpenVINO's
+multi-device forms keep their commas: `OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`.
+CLI equivalent: `--backend ort --providers OpenVINOExecutionProvider:NPU`.
 
 **Coral (EdgeTPU)** and **Hailo** are *also* backends on this same seam, but they
 need their own model format + SDK (not ORT providers), so they land with the

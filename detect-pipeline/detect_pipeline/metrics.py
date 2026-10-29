@@ -23,6 +23,7 @@ pipeline/gate core stays metric-free and unit-testable. Names follow
     gate_shadow_would_suppress_total{camera}           counter
     tier0_frame_latency_seconds{camera}                histogram
     tier0_decode_config{camera,skip,threads,fast,hwaccel,idle}  info (always 1)
+    tier0_detector_backend{backend,requested,effective}  info (always 1)
 
 Derived KPIs (compute in Prometheus/Grafana or the benchmark harness):
 motion-gate ratio = skipped / (runs + skipped); expensive-call reduction =
@@ -535,3 +536,23 @@ def serve_metrics(port: int = 9109, *, registry: Metrics | None = None,
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), _Handler)
     _t.Thread(target=httpd.serve_forever, name="tier0-metrics", daemon=True).start()
     return httpd
+
+
+def record_detector_backend(backend: str, requested: str, effective: str) -> None:
+    """Export what the Tier-0 detector ACTUALLY runs on.
+
+    The decode twin of this is ``tier0_decode_config``; this one answers "is
+    the detector on the NPU, or did OpenVINO quietly fall back to CPU?". ORT
+    drops a provider it cannot initialise and carries on silently, so
+    ``effective`` (from the live session) is the value that matters;
+    ``requested`` is kept beside it so the fallback is visible in one query:
+    ``tier0_detector_backend{requested!="",effective="CPUExecutionProvider"}``.
+    Human form, e.g. ``OpenVINOExecutionProvider(AUTO:NPU,GPU,CPU)``.
+    """
+    labels = {
+        "backend": str(backend or "unknown"),
+        "requested": str(requested or ""),
+        "effective": str(effective or ""),
+    }
+    metrics.drop_series("tier0_detector_backend", "backend", labels["backend"])
+    metrics.gauge("tier0_detector_backend", 1.0, labels)

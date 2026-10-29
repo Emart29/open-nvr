@@ -22,6 +22,20 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Settings → Recording allows pausing; the list shows who paused it and
   until when (`recording_pause` on each camera). Live View's Tours menu
   gains **New tour**.
+- **OpenNVR Accelerate: hardware flavours.** The detect-pipeline image now
+  builds in flavours from one Dockerfile (`ACCEL=cpu|intel`); the `-intel`
+  tags carry `onnxruntime-openvino` plus Intel's VA-API, OpenCL and NPU
+  user-space, so an Intel iGPU decodes the cameras and the Tier-0 detector
+  runs on the NPU or iGPU through OpenVINO. One setting selects it:
+  `OPENNVR_ACCEL=auto|cpu|intel` in `.env` (auto finds an Intel render
+  node), which makes `start.sh` add `docker-compose.accel-intel.yml` (and
+  the NPU device overlay when `/dev/accel/accel0` exists) and fill the
+  decode/detector defaults (the NPU when the host has one, else the iGPU —
+  pinned, not AUTO, which warms up on CPU). `DETECT_ONNX_PROVIDERS` takes a `:device` per
+  provider (`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`, `:NPU`, `:GPU`,
+  `CUDAExecutionProvider:1`). ORT's silent fallback to CPU is now logged
+  and exported as `tier0_detector_backend{backend,requested,effective}`.
+  Support matrix and benchmark protocol: `docs/HARDWARE.md`.
 - **OpenNVR updates itself, if you let it.** Each release now ships a
   signed manifest (`release-manifest.json`, Ed25519, keys in
   `server/updater/keys.json`) naming its commit, image digests, pins and
@@ -178,6 +192,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **VAAPI decode on Intel iGPUs actually works.** The detect-pipeline image
+  carried only Mesa's AMD VA-API driver, so `DETECT_HWACCEL=vaapi` on any
+  Intel box (N100, Core Ultra, …) failed libva init and silently fell back
+  to software decode — while core promoted those cameras to the main
+  stream. The image now ships Debian's `intel-media-va-driver` (iHD);
+  verified H264/HEVC hardware decode on Arrow Lake.
 - **The "today" search tests no longer fail just after midnight.** The API
   parsed "today" against the wall clock while the rows were stamped a few
   minutes earlier, so a run near local midnight put them on yesterday
