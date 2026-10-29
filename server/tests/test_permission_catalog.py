@@ -113,7 +113,8 @@ def test_upgrade_grants_ptz_to_exactly_the_live_view_roles(db):
     roles = _pre_ha_install(db)
     created = seed_new_permissions(db)
 
-    assert {name for name, _g, _s in created} == HA_NAMES
+    # UPD-301 adds system.update on the same upgrade path, for admins only.
+    assert {name for name, _g, _s in created} == HA_NAMES | {"system.update"}
     assert dict((n, g) for n, g, _s in created)["ptz.control"] == 2
 
     assert "ptz.control" in _perms_of(db, roles["operator"])
@@ -124,7 +125,7 @@ def test_upgrade_grants_ptz_to_exactly_the_live_view_roles(db):
 
     # No role gains any of the other new abilities.
     for role in roles.values():
-        assert not (_perms_of(db, role) & (HA_NAMES - {"ptz.control"}))
+        assert not (_perms_of(db, role) & (HA_NAMES - {"ptz.control"} | {"system.update"}))
 
 
 def test_upgrade_backfill_is_once_only(db):
