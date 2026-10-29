@@ -18,6 +18,7 @@
 #   ./start.sh status       # show container status
 #   ./start.sh validate     # run pre-flight checks only
 #   ./start.sh token        # re-print the first-time setup token
+#   ./start.sh update       # update to the latest release (see --help)
 # ============================================================
 
 set -e
@@ -1380,7 +1381,14 @@ run_up() {
     export_camera_lan_ips
     write_net_hints
     echo -e "  ${GREEN}Starting all services ...${NC}"
-    docker compose $ARGS up -d --remove-orphans
+    # The updater (scripts/update-host.sh) brings the stack up through here
+    # too, with KEEP_ORPHANS=1 (containers from overlays this run was not
+    # told about are not removed) and UP_BUILD=1 (images the release
+    # builds from its own files are rebuilt from the new checkout).
+    local up_flags="--remove-orphans"
+    [ "${KEEP_ORPHANS:-}" = 1 ] && up_flags=""
+    [ "${UP_BUILD:-}" = 1 ] && up_flags="$up_flags --build"
+    docker compose $ARGS up -d $up_flags
     echo ""
     ADMIN_USER=$(get_env_var "DEFAULT_ADMIN_USERNAME")
     ADMIN_USER=${ADMIN_USER:-admin}
@@ -1584,9 +1592,18 @@ case "$COMMAND" in
     echo -e "  ${GRAY}You'll need to accept the new cert in your browser on next visit.${NC}"
     ;;
 
+  update)
+    # Update to a newer release, safely: verify, back up, switch, check,
+    # roll back on failure. The options are listed in the script's header.
+    # shellcheck source=scripts/update-host.sh
+    . "$(dirname "$0")/scripts/update-host.sh"
+    shift
+    run_update "$@"
+    ;;
+
   *)
     echo -e "${RED}Unknown command: $COMMAND${NC}"
-    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs]"
+    echo "Usage: ./start.sh [start|restart|up|build|down|logs|status|validate|token|refresh-net|install|reconfigure|refresh-certs|update]"
     exit 1
     ;;
 esac
