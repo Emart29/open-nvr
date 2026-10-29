@@ -18,10 +18,11 @@
 #     (checked out to ./release-src), so a tag cut before the tools
 #     existed is still described by its own files.
 #
-# Needs: secret RELEASE_SIGNING_KEY (base64 raw Ed25519 private key, from
+# Needs, in the `release` environment (deployments limited to main): secret
+# RELEASE_SIGNING_KEY (base64 raw Ed25519 private key, from
 # `python -m updater keygen`) and variable RELEASE_SIGNING_KEY_ID (its id
-# in server/updater/keys.json at that tag). Without the secret the manifest
-# is built and uploaded as a workflow artifact only, unsigned.
+# in server/updater/keys.json). Without the secret the manifest is built
+# and uploaded as a workflow artifact only, unsigned.
 #
 # Release-specific facts an operator must know (a new required secret,
 # the oldest version this one upgrades from, urgency) go in
@@ -46,6 +47,9 @@ jobs:
   manifest:
     name: build + sign + attach
     runs-on: ubuntu-latest
+    # The signing key is a secret of the `release` environment, which only
+    # main may deploy to: a workflow edited on another branch cannot sign.
+    environment: release
     permissions:
       contents: write   # upload the release assets
       actions: read     # see whether the other publish has finished
