@@ -16,6 +16,7 @@ release key is never involved.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -25,7 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO / "server"), str(REPO / "scripts" / "release")]
 
 import make_manifest as mk  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: E402
     Ed25519PrivateKey,
 )
 from updater import manifest  # noqa: E402
@@ -77,7 +78,10 @@ def main() -> int:
             for p in sorted(out.rglob("*")):
                 if p.is_file():
                     t.add(p, arcname=p.relative_to(out).as_posix())
+        # The unpacked copy would double the disk the test needs (images.tar).
+        shutil.rmtree(out)
         print(f"{tar.name}: {tar.stat().st_size / 1e9:.2f} GB, commit {commit[:8]}, migration head {head}")
+    shutil.rmtree(work / "bundles", ignore_errors=True)
     return 0
 
 
