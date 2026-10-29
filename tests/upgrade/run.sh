@@ -20,7 +20,7 @@
 #      a plain HTTP folder) and installed from the bundle it serves.
 #
 # Linux, Docker with compose, git, python3 with `cryptography`. Uses the
-# host's ports 80/443 and the opennvr_* container names: never run it next
+# host's ports 18080/18443 and the opennvr_* container names: never run it next
 # to a stack you care about. Run from anywhere:
 #     tests/upgrade/run.sh            (UPGRADE_TEST_KEEP=1 to leave it all up)
 
@@ -113,6 +113,22 @@ bash scripts/generate-secrets.sh --write >/dev/null 2>&1
 sed -i -e "s/^CORE_TAG=.*/CORE_TAG=$V0/" -e 's/^OPENNVR_DEFAULT_APPS=.*/OPENNVR_DEFAULT_APPS=off/' .env
 # No detect-pipeline image exists for the test versions.
 echo "DETECT_PIPELINE_IMAGE=ghcr.io/open-nvr/detect-pipeline:0.1.8" >> .env
+# Nothing here goes through nginx from the host: keep it off 80/443.
+printf 'NGINX_HOST_HTTP_PORT=18080\nNGINX_HOST_HTTPS_PORT=18443\n' >> .env
+# What the launcher's port check meets on this host, for the log.
+python3 -c '
+import os, socket
+for p in (80, 443):
+    s = socket.socket()
+    try:
+        s.bind(("0.0.0.0", p)); r = "bindable"
+    except OSError as e:
+        r = f"{e.errno} {e.strerror}"
+    finally:
+        s.close()
+    print(f"  port {p} as uid {os.geteuid()}: {r}")
+print("  ip_unprivileged_port_start:", open("/proc/sys/net/ipv4/ip_unprivileged_port_start").read().strip())
+' || true
 mkdir -p "$WORK/b0" && tar -xf "$WORK/opennvr-$V0-offline.tar" -C "$WORK/b0" images.tar
 docker load -q -i "$WORK/b0/images.tar" >/dev/null && rm -rf "$WORK/b0"
 ./start.sh up > "$WORK/install.log" 2>&1 || { tail -40 "$WORK/install.log"; fail "./start.sh up"; }
