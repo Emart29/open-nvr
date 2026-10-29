@@ -164,6 +164,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **VAAPI decode on Intel iGPUs actually works.** The detect-pipeline image
+  carried only Mesa's AMD VA-API driver, so `DETECT_HWACCEL=vaapi` on any
+  Intel box (N100, Core Ultra, …) failed libva init and silently fell back
+  to software decode — while core promoted those cameras to the main
+  stream. The image now ships Debian's `intel-media-va-driver` (iHD);
+  verified H264/HEVC hardware decode on Arrow Lake.
 - **The "today" search tests no longer fail just after midnight.** The API
   parsed "today" against the wall clock while the rows were stamped a few
   minutes earlier, so a run near local midnight put them on yesterday
