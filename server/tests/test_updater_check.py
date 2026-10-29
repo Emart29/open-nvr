@@ -146,6 +146,16 @@ def test_state_migrations_make_rollback_manual():
     assert plan.rollback == "manual" and any("not rolled back" in w for w in plan.warnings)
 
 
+def test_adopting_replaces_what_is_there_with_the_release():
+    """--adopt promises the release's files and images replace the site's:
+    a value that differs from the record is not kept as a hand-set override."""
+    plan = check.decide(site(env={"CORE_TAG": "main", "ADAPTER_TAG": "main"},
+                             site_images=(f"{CORE}:main", "postgres:16-alpine"), adopt=True), NEW)
+    assert plan.pins == {"CORE_TAG": "0.1.9", "ADAPTER_TAG": "0.1.9"}
+    assert {i.ref for i in plan.images} == {f"{CORE}:0.1.9", "postgres:15-alpine"}
+    assert any("CORE_TAG=main is replaced" in w for w in plan.warnings)
+
+
 def test_adopting_an_unmanaged_site():
     plan = check.decide(site(head="3" * 40, core_image_id=sha("7"), adopt=True), NEW)
     assert isinstance(plan, check.Plan) and plan.from_commit == "3" * 40

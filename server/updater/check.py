@@ -163,15 +163,22 @@ def decide(site: Site, candidate: Manifest) -> Plan | Refusal:
                         "When that is done, run the update again with --accept-manual."))
 
     # ── What changes: pins and images ─────────────────────────────────
+    # A value that differs from the installed release's was chosen by the
+    # operator and is kept. Adopting is the exception: the site does not
+    # match its record, so the release's own values replace whatever is
+    # there, and the plan says what they replace.
+    keep_overrides = installed is not None and not site.adopt
     warnings: list[str] = []
     pins: dict[str, str] = {}
     for key, new in candidate.pins.items():
         current = site.env.get(key, "")
         released = installed.pins.get(key) if installed else None
-        if installed is not None and current and current != released:
+        if keep_overrides and current and current != released:
             warnings.append(f"{key}={current} was set by hand (the release had {released}); left as it is.")
             continue
         if current != new:
+            if site.adopt and current:
+                warnings.append(f"{key}={current} is replaced by the release's {new}.")
             pins[key] = new
 
     images: list[PlannedImage] = []
@@ -182,7 +189,7 @@ def decide(site: Site, candidate: Manifest) -> Plan | Refusal:
         if target is None or repo in seen:
             continue  # built locally, or not part of the release (compose handles it)
         seen.add(repo)
-        old = installed.image_for(repo) if installed else None
+        old = installed.image_for(repo) if keep_overrides else None
         if old is not None and ref != old.ref:
             warnings.append(f"{ref} is not the image the release named ({old.ref}); left as it is.")
             continue
