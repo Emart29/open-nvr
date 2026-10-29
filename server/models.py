@@ -1669,10 +1669,13 @@ class CameraZone(Base):
 class CameraTour(Base):
     """A Live View tour: camera sets a display board cycles through.
 
-    ``steps`` is ``[{label, layout_id, duration_s, camera_ids}, ...]``.
+    ``pages`` is ``[{label, layout_id, duration_s, camera_ids}, ...]``, one
+    entry per screenful. The column is still named ``steps``: tours began
+    as steps that paged through more cameras than their layout held, and
+    such a row is split into pages when it is read (routers/tours.py).
     Camera ids are kept as plain JSON, not a join table: a camera can be
     hard-deleted, and a tour must survive that by simply dropping it on
-    read (routers/tours.py filters every step to the viewer's cameras).
+    read (routers/tours.py filters every page to the viewer's cameras).
     Global like the window layouts it references; seeing one needs
     ``live.view``, changing one needs ``cameras.manage``.
     """
@@ -1682,7 +1685,7 @@ class CameraTour(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    steps = Column(JSON, nullable=False)
+    pages = Column("steps", JSON, nullable=False)
     # How the wall draws and reacts: {"fit": "fit"|"fill", "alerts": {...}};
     # see routers/tours.py TourSettings. NULL = the defaults.
     settings = Column(JSON, nullable=True)

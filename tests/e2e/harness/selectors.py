@@ -326,7 +326,7 @@ NO_CAMERA_CHIP = Selector(name="empty tile chip", text="NO CAMERA")
 # ===========================================================================
 TOUR_WALL = Selector(name="tour wall", testid="tour-wall")
 TOUR_NAME = Selector(name="tour name in the bar", testid="tour-name")
-TOUR_STEP = Selector(name="tour step label in the bar", testid="tour-step")
+TOUR_PAGE_LABEL = Selector(name="tour page label in the bar", testid="tour-page-label")
 TOUR_TILE_NAME = Selector(
     name="tour tile camera name",
     testid="tour-tile-name",
