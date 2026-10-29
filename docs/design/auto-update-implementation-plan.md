@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | M0–M2 done (see [Progress](#10-progress)) |
+| **Status** | M0–M3 done; M4 policy done (see [Progress](#10-progress)) |
 | **Revision** | r2 (2026-10-29): review fixes folded in; the updater runs inside the core image; manifests are signed with a project Ed25519 key so online and air-gapped verification are the same code. r1 (2026-10-28): first plan |
 | **Branch** | `feat/auto-update` (one commit per issue) |
 | **Audience** | Whoever implements or reviews this work |
@@ -52,7 +52,7 @@ Every update is verified, backed up first, health-checked afterwards and rolled 
 | D5 | **Channels**: `stable` (release tags, the default) and `edge` (main builds pinned by commit, never applied automatically). | Client sites run releases. |
 | D6 | **Levels, off by default**: off → notify → manual → auto (window, patch releases only unless widened, random delay, `urgent` skips the delay). | Offline-first: nothing calls out unless asked. |
 | D7 | **`.env`**: backed up, and only the pin keys the manifest lists are edited. A pin that differs from the installed release's manifest value was set by the operator on purpose: left alone, with a warning. | `.env` belongs to the operator. |
-| D8 | **Run state lives on the host** (`data/updates/state.json`); the DB table that the UI reads (M3) is a copy, rewritten after any restore. | A DB restore must not erase the record of the run doing it; status must be writable while core is down. |
+| D8 | **Run state lives on the host** (`data/updates/state.env`), and core reads it through a read-only mount; core asks for an update by writing `data/update-requests/request.env`, which the host runner picks up (r2.2: replaces the planned DB copy, which `psql` from the host would have had to keep in step). | A DB restore must not erase the record of the run doing it; status must be writable while core is down. |
 | D9 | **Images are pulled by digest and then tagged locally** with the pinned tag; compose keeps using tags. Verification compares the running containers' image IDs with the manifest. From a bundle, `docker load` brings the tags and the IDs are checked the same way. | One mechanism for online and offline; a tag cannot be swapped under us. |
 | D10 | **Checkout**: `git checkout -B opennvr-release <commit>` after checking the commit is the manifest's; a tracked file changed by the operator refuses the update and lists the files. | No detached HEAD; never overwrite an operator's edits. |
 | D11 | **Air-gapped**: one file per release (`opennvr-<ver>-offline.tar`: signed manifest, `git bundle`, `docker save` of every image), applied with `update --bundle <file>`; delta bundles carry only changed images; a site with many NVRs can run a local mirror that the updater points at instead of GitHub. Verification is never switched off. | The most security-sensitive sites get offline verification, not no verification. |
@@ -194,12 +194,12 @@ Found and fixed on the way: Windows PowerShell 5.1 drops the double quotes insid
 | UPD-205 | Done | d44a0949 |  |
 | UPD-206 | Done | c277a3bd | refusals in updater/check.py |
 | UPD-207 | Done (manual) | 7c9838b6, 83e0ba49 | Live on Windows (start.ps1, Docker Desktop) and Linux (start.sh, Ubuntu 24.04 docker-ce): good update, broken update rolled back with the database, tampered bundle refused, --restore. A CI version of the harness is still to do |
-| UPD-301 | Not started | | |
-| UPD-302 | Not started | | |
-| UPD-303 | Not started | | |
-| UPD-304 | Not started | | |
+| UPD-301 | Done | 60888cf9 | No DB table after all: file hand-off (data/updates read-only into core, data/update-requests read-write); policy in SecuritySetting; system.update for admins only |
+| UPD-302 | Done | 60888cf9 | GET status, PUT policy, POST/DELETE request; audited |
+| UPD-303 | Done | a9c65098, 4b547396 | --from-queue tick; systemd/launchd/Scheduled Task (S4U when allowed, else logged-on) |
+| UPD-304 | Done | d5aa344a | Live on a fresh stack: setup + MFA login, policy saved to the host, Update now lands as request.env, runner tick handles it once and the page shows the result |
 | UPD-305 | Not started | | |
-| UPD-401 | Not started | | |
+| UPD-401 | Done | a9c65098 | updater/policy.py + 'python -m updater due' |
 | UPD-402 | Not started | | |
 | UPD-403 | Not started | | |
 | UPD-501 | Not started | | |
