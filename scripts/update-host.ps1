@@ -133,6 +133,22 @@ function Unlock-Update { Remove-Item (Join-Path $UpdDir ".lock") -Force -ErrorAc
 
 # ── backups ──────────────────────────────────────────────────────────
 
+# Run a shell script inside a container. Copied in as a file, never passed
+# as an argument: Windows PowerShell 5.1 does not escape the double quotes
+# inside a native command's argument, so `sh -c '... -c "DROP SCHEMA x"'`
+# reaches psql as `-c DROP` (found by the UPD-207 rollback test).
+function Invoke-InContainer([string]$Cid, [string]$Script) {
+    $file = Join-Path (Get-Location).Path "$UpdDir\container-step.sh"
+    [IO.File]::WriteAllText($file, ($Script -replace "`r`n", "`n") + "`n", $Utf8NoBom)
+    docker cp $file "${Cid}:/tmp/opennvr-update-step.sh" | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    docker exec $Cid sh /tmp/opennvr-update-step.sh | Out-Host
+    $ok = ($LASTEXITCODE -eq 0)
+    docker exec $Cid rm -f /tmp/opennvr-update-step.sh | Out-Null
+    Remove-Item $file -ErrorAction SilentlyContinue
+    return $ok
+}
+
 function Backup-UpdSite([string]$Dir) {
     New-Item -ItemType Directory -Force $Dir | Out-Null
     Write-UpdSay "Backing up the database ..."
@@ -140,8 +156,8 @@ function Backup-UpdSite([string]$Dir) {
     if (-not $db) { Write-UpdFail "the database container is not running"; return $false }
     # Dumped inside the container and copied out: never through a PowerShell
     # pipe or redirect, which re-encodes the binary archive and corrupts it.
-    docker exec $db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc -d "$POSTGRES_DB" -f /tmp/opennvr-update.dump' | Out-Host
-    if ($LASTEXITCODE -ne 0) { return $false }
+    if (-not (Invoke-InContainer $db 'set -e
+pg_dump -U "$POSTGRES_USER" -Fc -d "$POSTGRES_DB" -f /tmp/opennvr-update.dump')) { return $false }
     docker cp "${db}:/tmp/opennvr-update.dump" (Join-Path $Dir "db.dump") | Out-Null
     if ($LASTEXITCODE -ne 0) { return $false }
     docker exec $db rm -f /tmp/opennvr-update.dump | Out-Null
@@ -170,10 +186,14 @@ function Restore-UpdSite([string]$Dir, [string]$Image) {
     if (-not $db) { Write-UpdFail "the database container is not running"; return $false }
     docker cp (Join-Path $Dir "db.dump") "${db}:/tmp/opennvr-restore.dump" | Out-Null
     if ($LASTEXITCODE -ne 0) { return $false }
-    $restore = 'set -e; psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q -c "DROP SCHEMA public CASCADE" -c "CREATE SCHEMA public"; ' +
-               'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error /tmp/opennvr-restore.dump; rm -f /tmp/opennvr-restore.dump'
-    docker exec $db sh -c $restore | Out-Host
-    if ($LASTEXITCODE -ne 0) { return $false }
+    $restore = @'
+set -e
+export PGOPTIONS="-c client_min_messages=warning"
+psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q -c "DROP SCHEMA public CASCADE" -c "CREATE SCHEMA public"
+pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error /tmp/opennvr-restore.dump
+rm -f /tmp/opennvr-restore.dump
+'@
+    if (-not (Invoke-InContainer $db $restore)) { return $false }
     $abs = (Resolve-Path $Dir).Path
     foreach ($v in $UpdVolumes) {
         if (-not (Test-Path (Join-Path $Dir "$v.tgz"))) { continue }

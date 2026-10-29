@@ -149,6 +149,7 @@ upd_restore() {
     docker cp "$dir/db.dump" "$db:/tmp/opennvr-restore.dump" >/dev/null || return 1
     docker exec "$db" sh -c '
         set -e
+        export PGOPTIONS="-c client_min_messages=warning"
         psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q \
             -c "DROP SCHEMA public CASCADE" -c "CREATE SCHEMA public"
         pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error /tmp/opennvr-restore.dump
