@@ -193,7 +193,7 @@ Found and fixed on the way: Windows PowerShell 5.1 drops the double quotes insid
 | UPD-204 | Done | d44a0949 | restore drops the public schema first |
 | UPD-205 | Done | d44a0949 |  |
 | UPD-206 | Done | c277a3bd | refusals in updater/check.py |
-| UPD-207 | Done (manual) | 7c9838b6, 83e0ba49 | Live on Windows (start.ps1, Docker Desktop) and Linux (start.sh, Ubuntu 24.04 docker-ce): good update, broken update rolled back with the database, tampered bundle refused, --restore. CI version: tests/upgrade/run.sh + upgrade-test.yml (7b59e7f5); release building, signing and cleanup proven in WSL, the install and three scenarios inside the script not yet (the WSL disk ran out): first full run will be GitHub's |
+| UPD-207 | Done (manual) | 7c9838b6, 83e0ba49 | Live on Windows (start.ps1, Docker Desktop) and Linux (start.sh, Ubuntu 24.04 docker-ce): good update, broken update rolled back with the database, tampered bundle refused, --restore. CI version: tests/upgrade/run.sh + upgrade-test.yml (7b59e7f5); all four scenarios pass on GitHub's runner (first full run, PR #720); it found the launcher refusing 80/443 to a non-root Linux user (b132c2dd) |
 | UPD-301 | Done | 60888cf9 | No DB table after all: file hand-off (data/updates read-only into core, data/update-requests read-write); policy in SecuritySetting; system.update for admins only |
 | UPD-302 | Done | 60888cf9 | GET status, PUT policy, POST/DELETE request; audited |
 | UPD-303 | Done | a9c65098, 4b547396 | --from-queue tick; systemd/launchd/Scheduled Task (S4U when allowed, else logged-on) |

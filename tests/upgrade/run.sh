@@ -37,6 +37,10 @@ cleanup() {
     [ "${UPGRADE_TEST_KEEP:-}" = 1 ] && { echo "kept: $WORK"; return; }
     [ -d "$WORK/site" ] && (cd "$WORK/site" && docker compose -f docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true)
     [ -n "${MIRROR_PID:-}" ] && kill "$MIRROR_PID" 2>/dev/null
+    # The stack's containers left root-owned files (certificates, data):
+    # remove them as root, with a test image that is still here.
+    [ -d "$WORK/site" ] && docker run --rm --user 0 --entrypoint rm -v "$WORK:/w" \
+        "ghcr.io/open-nvr/core:$V0" -rf /w/site >/dev/null 2>&1
     docker rmi "ghcr.io/open-nvr/core:$V0" "ghcr.io/open-nvr/core:$V1" "ghcr.io/open-nvr/core:$V2" \
         "ghcr.io/open-nvr/core:$V3" >/dev/null 2>&1 || true
     git -C "$WORK/rel" worktree prune 2>/dev/null || true
@@ -115,20 +119,6 @@ sed -i -e "s/^CORE_TAG=.*/CORE_TAG=$V0/" -e 's/^OPENNVR_DEFAULT_APPS=.*/OPENNVR_
 echo "DETECT_PIPELINE_IMAGE=ghcr.io/open-nvr/detect-pipeline:0.1.8" >> .env
 # Nothing here goes through nginx from the host: keep it off 80/443.
 printf 'NGINX_HOST_HTTP_PORT=18080\nNGINX_HOST_HTTPS_PORT=18443\n' >> .env
-# What the launcher's port check meets on this host, for the log.
-python3 -c '
-import os, socket
-for p in (80, 443):
-    s = socket.socket()
-    try:
-        s.bind(("0.0.0.0", p)); r = "bindable"
-    except OSError as e:
-        r = f"{e.errno} {e.strerror}"
-    finally:
-        s.close()
-    print(f"  port {p} as uid {os.geteuid()}: {r}")
-print("  ip_unprivileged_port_start:", open("/proc/sys/net/ipv4/ip_unprivileged_port_start").read().strip())
-' || true
 mkdir -p "$WORK/b0" && tar -xf "$WORK/opennvr-$V0-offline.tar" -C "$WORK/b0" images.tar
 docker load -q -i "$WORK/b0/images.tar" >/dev/null && rm -rf "$WORK/b0"
 ./start.sh up > "$WORK/install.log" 2>&1 || { tail -40 "$WORK/install.log"; fail "./start.sh up"; }
