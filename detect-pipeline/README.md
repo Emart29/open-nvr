@@ -366,7 +366,7 @@ so the backend is interchangeable):
 
 | Hardware | Install | Select |
 |---|---|---|
-| Intel iGPU / NPU (N100, Core Ultra, Arc) | the **`-intel` image flavour** (`ACCEL=intel`: `onnxruntime-openvino` + Intel OpenCL/NPU runtime); bare: `pip install onnxruntime-openvino` | `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU` — or `:NPU`, `:GPU`, `:CPU` to pin a device |
+| Intel iGPU / NPU (N100, Core Ultra, Arc) | the **`-intel` image flavour** (`ACCEL=intel`: `onnxruntime-openvino` + Intel OpenCL/NPU runtime); bare: `pip install onnxruntime-openvino` | `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` (or `:GPU`, `:CPU`); avoid `AUTO:…`, which warms up on CPU and may stay there |
 | Nvidia / Jetson | `pip install onnxruntime-gpu` | `DETECT_ONNX_PROVIDERS=TensorrtExecutionProvider,CUDAExecutionProvider` |
 | Apple Silicon | `pip install onnxruntime` | `DETECT_ONNX_PROVIDERS=CoreMLExecutionProvider` |
 | Any CPU | already in the container image (`[service]` extra); bare pip installs: `pip install 'detect-pipeline[onnxruntime]'` | `DETECT_ONNX_BACKEND=ort` |

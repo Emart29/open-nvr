@@ -144,7 +144,14 @@ apply_accel_env() {
         intel)
             case "$(get_env_var DETECT_HWACCEL)" in ""|cpu) export DETECT_HWACCEL=vaapi ;; esac
             case "$(get_env_var DETECT_ONNX_BACKEND)" in ""|auto) export DETECT_ONNX_BACKEND=ort ;; esac
-            [[ -n "$(get_env_var DETECT_ONNX_PROVIDERS)" ]] || export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU"
+            # Pin the device rather than AUTO: AUTO warms up on CPU and can sit
+            # there for a long time — measured on Arrow Lake: NPU 7.4 ms/frame,
+            # iGPU 7.7, OpenVINO CPU 15.5, AUTO 17.0 after 30 frames. The NPU
+            # also leaves the iGPU to decode and costs almost no CPU.
+            if [[ -z "$(get_env_var DETECT_ONNX_PROVIDERS)" ]]; then
+                if [[ -e /dev/accel/accel0 ]]; then export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
+                else export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"; fi
+            fi
             ;;
     esac
 }

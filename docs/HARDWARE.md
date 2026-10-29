@@ -43,13 +43,14 @@ macOS and Windows Docker VMs expose no devices. The intel choice:
   boxes have the iGPU but no NPU),
 - fills the defaults an `.env` leaves at the CPU value: `DETECT_HWACCEL=vaapi`,
   `DETECT_ONNX_BACKEND=ort`,
-  `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`.
+  `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` when `/dev/accel/accel0`
+  exists, else `:GPU`.
   An explicit operator value (`qsv`, a pinned `:NPU`) always wins.
 
 `start.sh` prints the decision on every start:
 
 ```
-Accelerate: intel flavour — iGPU decode (vaapi), detector on OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU (NPU present)
+Accelerate: intel flavour — iGPU decode (vaapi), detector on OpenVINOExecutionProvider:NPU (NPU present)
 ```
 
 Running compose by hand instead of `start.sh`: add the overlay(s) with `-f`
@@ -63,9 +64,9 @@ an optional `:device`, which becomes that provider's device option
 
 | Setting | Runs on |
 |---|---|
-| `OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU` | the first device that can take the model, in that order (default) |
-| `OpenVINOExecutionProvider:NPU` | the NPU, CPU fallback |
-| `OpenVINOExecutionProvider:GPU` | the iGPU / Arc |
+| `OpenVINOExecutionProvider:NPU` | the NPU, CPU fallback (default when the host has one) |
+| `OpenVINOExecutionProvider:GPU` | the iGPU / Arc (default otherwise) |
+| `OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU` | OpenVINO's AUTO — **not recommended**: it starts on CPU while the accelerator compiles and can stay there; measured 17.0 ms/frame after 30 frames against 7.4 on the pinned NPU |
 | `OpenVINOExecutionProvider:CPU` | OpenVINO's own CPU engine |
 | `CUDAExecutionProvider:1` | the second NVIDIA GPU |
 
@@ -116,8 +117,14 @@ The same recipe on every hardware class, so rows compare:
 | Measure | cpu flavour | intel flavour |
 |---|---|---|
 | H264 720p decode | software | VA-API on the iGPU, ~45× real time per stream |
-| Tier-0 detector, yolo26n @ 640, ms/frame | 10 (onnxruntime CPU) | NPU / iGPU: pending validation |
+| Tier-0 detector, yolo26n @ 640, ms/frame (single stream, 30-frame average) | 10 (onnxruntime CPU, all cores) | **7.4 NPU**, 7.7 iGPU, 15.5 OpenVINO CPU, 17.0 AUTO |
 | Cameras per box at 70% CPU | pending | pending |
+
+The detector row is latency on an otherwise idle box; the number that matters
+for an NVR is CPU *freed*: the service caps each CPU detector at
+`DETECT_CV_THREADS` (2 by default) so its per-frame cost is far above the
+all-cores 10 ms, while the NPU figure costs almost no CPU at all and leaves
+the iGPU to decode. The cameras-per-box rows capture that.
 
 Rows fill in as the benchmark runs; the raw harness is `tools/usecase_eval.py`
 and the rig is documented in `docs/FAKE_CAMERAS.md`.

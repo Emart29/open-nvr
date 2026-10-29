@@ -25,9 +25,10 @@ services:
       - DETECT_HWACCEL=${DETECT_HWACCEL:-vaapi}
       - DETECT_HWACCEL_DEVICE=${DETECT_HWACCEL_DEVICE:-/dev/dri/renderD128}
       - DETECT_ONNX_BACKEND=${DETECT_ONNX_BACKEND:-ort}
-      # AUTO picks the first device that can take the model: NPU, else iGPU,
-      # else CPU. Pin with :NPU / :GPU once the benchmark says which wins.
-      - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU}
+      # The iGPU; docker-compose.accel-intel-npu.yml overrides this to the
+      # NPU when the host has one. Pinned rather than AUTO: AUTO warms up on
+      # CPU and can stay there (measured: NPU 7.4 ms, iGPU 7.7, AUTO 17.0).
+      - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-OpenVINOExecutionProvider:GPU}
   opennvr-core:
     environment:
       - DETECT_HWACCEL=${DETECT_HWACCEL:-vaapi}

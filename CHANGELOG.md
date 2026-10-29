@@ -16,7 +16,8 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `OPENNVR_ACCEL=auto|cpu|intel` in `.env` (auto finds an Intel render
   node), which makes `start.sh` add `docker-compose.accel-intel.yml` (and
   the NPU device overlay when `/dev/accel/accel0` exists) and fill the
-  decode/detector defaults. `DETECT_ONNX_PROVIDERS` takes a `:device` per
+  decode/detector defaults (the NPU when the host has one, else the iGPU —
+  pinned, not AUTO, which warms up on CPU). `DETECT_ONNX_PROVIDERS` takes a `:device` per
   provider (`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`, `:NPU`, `:GPU`,
   `CUDAExecutionProvider:1`). ORT's silent fallback to CPU is now logged
   and exported as `tier0_detector_backend{backend,requested,effective}`.

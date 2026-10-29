@@ -5,3 +5,7 @@ services:
   detect-pipeline:
     devices:
       - /dev/accel:/dev/accel
+    environment:
+      # The NPU is the fastest device for the Tier-0 detector and leaves the
+      # iGPU free to decode, at almost no CPU.
+      - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-OpenVINOExecutionProvider:NPU}
