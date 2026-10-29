@@ -267,7 +267,7 @@ def run_check(tmp_path, monkeypatch, published: dict, *extra):
     (repo / ".env").write_text("CORE_TAG=0.1.8\nADAPTER_TAG=0.1.8\nSECRET=abc\n")
     (work / "images.in").write_text(f"{CORE}:0.1.8\npostgres:15-alpine\n")
 
-    def fetch(version, base=None):
+    def fetch(version, base=None, channel="stable"):
         if version not in published:
             raise manifest.ManifestError("nope")
         return published[version]

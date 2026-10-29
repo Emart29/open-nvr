@@ -191,6 +191,13 @@ upd_prune_backups() {
 
 upd_fetch_commit() {
     local tag="$1" commit="$2" bundle="$3"
+    if [ -z "$tag" ]; then
+        # An edge build: an untagged main commit, fetched by its hash, which
+        # is the signed manifest's own (so nothing else can stand in for it).
+        git fetch -q origin "$commit" || return 1
+        git cat-file -e "$commit^{commit}" || return 1
+        return 0
+    fi
     if [ -n "$bundle" ]; then
         git fetch -q "$bundle/repo.bundle" "refs/tags/$tag:refs/tags/$tag" || return 1
     else

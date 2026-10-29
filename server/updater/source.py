@@ -14,14 +14,18 @@ from updater.manifest import MANIFEST_NAME, SIGNATURE_NAME, ManifestError
 GITHUB_RELEASES = "https://github.com/open-nvr/open-nvr/releases"
 
 
-def urls(version: str | None, base: str | None = None) -> tuple[str, str]:
-    """Manifest and signature URLs for *version* (None = the latest stable).
+def urls(version: str | None, base: str | None = None, *, channel: str = "stable") -> tuple[str, str]:
+    """Manifest and signature URLs for *version* (None = the newest on *channel*).
 
-    GitHub: ``…/releases/latest/download/<file>`` or ``…/releases/download/vX.Y.Z/<file>``.
+    GitHub: ``…/releases/latest/download/<file>`` or ``…/releases/download/vX.Y.Z/<file>``;
+    the newest edge build is on the rolling ``edge`` pre-release.
     A mirror (``UPDATE_SOURCE_URL``) keeps a simpler layout:
-    ``<base>/latest/<file>`` and ``<base>/vX.Y.Z/<file>``.
+    ``<base>/latest/<file>``, ``<base>/vX.Y.Z/<file>`` and ``<base>/edge/<file>``.
     """
-    if base is None or base.rstrip("/") == GITHUB_RELEASES:
+    github = base is None or base.rstrip("/") == GITHUB_RELEASES
+    if version is None and channel == "edge":
+        root = f"{GITHUB_RELEASES}/download/edge" if github else f"{base.rstrip('/')}/edge"
+    elif github:
         root = f"{GITHUB_RELEASES}/latest/download" if version is None else f"{GITHUB_RELEASES}/download/v{version}"
     else:
         base = base.rstrip("/")
@@ -29,12 +33,13 @@ def urls(version: str | None, base: str | None = None) -> tuple[str, str]:
     return f"{root}/{MANIFEST_NAME}", f"{root}/{SIGNATURE_NAME}"
 
 
-def fetch(version: str | None, base: str | None = None, *, timeout: float = 30.0) -> tuple[bytes, bytes]:
+def fetch(version: str | None, base: str | None = None, *, channel: str = "stable",
+          timeout: float = 30.0) -> tuple[bytes, bytes]:
     """(manifest bytes, signature bytes) over HTTPS; ManifestError when absent."""
     import httpx
 
     out = []
-    for url in urls(version, base):
+    for url in urls(version, base, channel=channel):
         try:
             r = httpx.get(url, follow_redirects=True, timeout=timeout)
         except httpx.HTTPError as exc:

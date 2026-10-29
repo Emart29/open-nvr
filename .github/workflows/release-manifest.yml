@@ -131,3 +131,70 @@ jobs:
           gh release upload "$TAG" dist/release-manifest.json dist/release-manifest.json.sig \
             dist/release-revocations.json dist/release-revocations.json.sig --clobber
           echo "attached the signed manifest to $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  # Edge (UPD-504): a signed manifest for each main build, on the rolling
+  # `edge` pre-release, for test sites that run `update --channel edge`.
+  # Never installed automatically (updater/policy.py). Versioned
+  # X.Y.(Z+1)-edge.<run>: after the last release, before the next one.
+  edge:
+    name: edge manifest for main
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Both image publishes done for this commit?
+        id: ready
+        run: |
+          set -euo pipefail
+          go=true
+          for wf in publish-images.yml publish-detect-pipeline.yml; do
+            state="$(gh run list --workflow "$wf" --commit "$SHA" --event push --limit 1 \
+                       --json status,conclusion --jq '.[0] | "\(.status)/\(.conclusion)"')"
+            echo "$wf: $state"
+            [ "$state" = "completed/success" ] || go=false
+          done
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        if: steps.ready.outputs.go == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Build, sign and publish the edge manifest
+        if: steps.ready.outputs.go == 'true'
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_SIGNING_KEY_ID: ${{ vars.RELEASE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          pip install --quiet "cryptography>=46"
+          base=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' server/main.py)
+          IFS=. read -r major minor patch <<< "${base%%-*}"
+          version="${major}.${minor}.$((patch + 1))-edge.${{ github.run_number }}"
+          # publish-images tags each main build sha-<7 chars> (type=sha,format=short).
+          python scripts/release/make_manifest.py --channel edge --version "$version" \
+            --commit "$SHA" --pin "CORE_TAG=sha-${SHA:0:7}" --out dist
+          if [ ! -f dist/release-manifest.json.sig ]; then
+            echo "::warning::unsigned (no RELEASE_SIGNING_KEY): edge manifest not published"
+            exit 0
+          fi
+          if ! gh release view edge >/dev/null 2>&1; then
+            gh release create edge --prerelease --title "Edge (main)" --target main \
+              --notes "The newest main build, for test sites only: ./start.sh update --channel edge"
+          fi
+          gh release upload edge dist/release-manifest.json dist/release-manifest.json.sig --clobber
+          echo "edge $version ($SHA) published" >> "$GITHUB_STEP_SUMMARY"

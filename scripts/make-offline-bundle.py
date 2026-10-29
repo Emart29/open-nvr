@@ -117,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
         release = manifest.parse(json.loads(raw))
         say(f"OpenNVR {release.version}: this checkout trusts no release key, so the signature is checked only at the site")
 
+    if release.channel != "stable":
+        raise SystemExit("Edge builds are not bundled: an air-gapped site runs releases.")
+
     with tempfile.TemporaryDirectory(prefix="opennvr-bundle-") as tmp:
         out = Path(tmp)
         source.save(out, raw, sig)

@@ -129,7 +129,7 @@ def _check(a: argparse.Namespace) -> int:
         if a.bundle:
             raw, sig = source.from_dir(a.bundle)
         else:
-            raw, sig = source.fetch(a.to, a.source_url)
+            raw, sig = source.fetch(a.to, a.source_url, channel=a.channel)
         candidate = manifest.verify(raw, sig)
         # Withdrawn releases: from the bundle (as it was when made) or the
         # current list online. A list that fails its check stops here.

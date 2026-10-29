@@ -223,6 +223,13 @@ function Remove-OldUpdBackups {
 # ── getting the release onto the host (no downtime yet) ─────────────
 
 function Get-UpdCommit([string]$Tag, [string]$Commit, [string]$Bundle) {
+    if (-not $Tag) {
+        # An edge build: an untagged main commit, fetched by its hash.
+        git fetch -q origin $Commit | Out-Host
+        if ($LASTEXITCODE -ne 0) { return $false }
+        git cat-file -e "$Commit^{commit}" | Out-Host
+        return ($LASTEXITCODE -eq 0)
+    }
     if ($Bundle) { git fetch -q (Join-Path $Bundle "repo.bundle") "refs/tags/${Tag}:refs/tags/${Tag}" | Out-Host }
     else { git fetch -q origin "refs/tags/${Tag}:refs/tags/${Tag}" | Out-Host }
     if ($LASTEXITCODE -ne 0) { return $false }

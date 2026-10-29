@@ -188,8 +188,11 @@ def use_source(root: Path) -> None:
 SOURCE = REPO
 
 
-def build(version: str, commit: str, extra: dict, registry: Registry, *, channel: str = "stable") -> dict:
-    env_pins = pins_lib.load_env_pins(pins_lib.ENV_EXAMPLE)
+def build(version: str, commit: str, extra: dict, registry: Registry, *, channel: str = "stable",
+          pin_overrides: dict[str, str] | None = None) -> dict:
+    """*pin_overrides* replace .env.example's pins: an edge build of main pins
+    CORE_TAG to the sha-<commit> images CI published for it."""
+    env_pins = {**pins_lib.load_env_pins(pins_lib.ENV_EXAMPLE), **(pin_overrides or {})}
     refs, pins = release_images(env_pins)
     if channel == "stable" and pins.get("CORE_TAG") != version:
         raise SystemExit(f".env.example pins CORE_TAG={pins.get('CORE_TAG')!r}, but this is release {version}")
@@ -206,7 +209,8 @@ def build(version: str, commit: str, extra: dict, registry: Registry, *, channel
         "channel": channel,
         "released_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "git_commit": commit,
-        "git_tag": f"v{version}",
+        # An edge build is an untagged main commit: fetched by its hash.
+        "git_tag": f"v{version}" if channel == "stable" else "",
         "alembic_head": head,
         "alembic_revisions": revisions,
         "min_upgrade_from": None,
@@ -214,7 +218,7 @@ def build(version: str, commit: str, extra: dict, registry: Registry, *, channel
         "urgent": False,
         "state_migrations": False,
         "manual_steps": [],
-        "notes_url": f"https://github.com/open-nvr/open-nvr/releases/tag/v{version}",
+        "notes_url": f"https://github.com/open-nvr/open-nvr/releases/tag/{'v' + version if channel == 'stable' else 'edge'}",
         "pins": pins,
         "images": images,
     }
@@ -232,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--version", required=True)
     ap.add_argument("--commit", required=True)
     ap.add_argument("--channel", default="stable", choices=("stable", "edge"))
+    ap.add_argument("--pin", action="append", default=[], metavar="KEY=VALUE",
+                    help="override a pin from .env.example (edge: CORE_TAG=sha-<short commit>)")
     ap.add_argument("--extra", type=Path)
     ap.add_argument("--out", type=Path, default=Path("dist"))
     ap.add_argument("--source", type=Path, help="checkout of the release tag to describe (default: this one)")
@@ -240,7 +246,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.source:
         use_source(args.source)
     extra = json.loads(args.extra.read_text(encoding="utf-8")) if args.extra else {}
-    doc = build(args.version.removeprefix("v"), args.commit, extra, Registry(), channel=args.channel)
+    overrides = dict(p.split("=", 1) for p in args.pin)
+    doc = build(args.version.removeprefix("v"), args.commit, extra, Registry(), channel=args.channel,
+                pin_overrides=overrides)
     args.out.mkdir(parents=True, exist_ok=True)
     raw = (json.dumps(doc, indent=2) + "\n").encode("utf-8")
     (args.out / man.MANIFEST_NAME).write_bytes(raw)
