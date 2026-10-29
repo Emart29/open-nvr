@@ -554,6 +554,25 @@ run_update() {
         [[ "$answer" =~ ^[Yy]$ ]] || { upd_say "Nothing changed."; return 0; }
     fi
 
+    # A mirror (UPDATE_SOURCE_URL) that serves bundles, as one made by
+    # scripts/make-offline-bundle.py --mirror-dir does: this platform's
+    # bundle brings the release's files and images, so an air-gapped
+    # network needs no registry. Without one, images come from registries.
+    local src_url="${UPDATE_SOURCE_URL:-$(get_env_var UPDATE_SOURCE_URL)}"
+    if [ -z "$bundle" ] && [ -n "$src_url" ]; then
+        local url="${src_url%/}/v$to_v/opennvr-${PLATFORM//\//-}-offline.tar"
+        upd_say "Fetching the bundle from the mirror ..."
+        if curl -fsSL -o "$UPD_DIR/mirror-bundle.tar" "$url"; then
+            rm -rf "$UPD_DIR/bundle" && mkdir -p "$UPD_DIR/bundle"
+            tar -xf "$UPD_DIR/mirror-bundle.tar" -C "$UPD_DIR/bundle" || { upd_fail "the mirror's bundle could not be unpacked"; exit 1; }
+            rm -f "$UPD_DIR/mirror-bundle.tar"
+            bundle="$UPD_DIR/bundle"
+            UPD_BUILD=0
+        else
+            upd_say "No bundle for $PLATFORM on the mirror; images come from their registries."
+        fi
+    fi
+
     # 1. Everything onto the host first: nothing has stopped yet.
     upd_fetch_commit "$tag" "$commit" "$bundle" || { upd_fail "Could not get the release's files; nothing changed."; exit 1; }
     upd_fetch_images "$bundle" || { upd_fail "Could not get the release's images; nothing changed."; exit 1; }

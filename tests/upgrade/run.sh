@@ -15,7 +15,9 @@
 #   1. 99.0.0 -> 99.0.1 updates, migrates and keeps the data;
 #   2. 99.0.1 -> 99.0.2 is caught and rolled back: 99.0.1 again, the
 #      database restored (no upd_test_c), the data kept, the checkout clean;
-#   3. a bundle changed by one byte is refused before anything changes.
+#   3. a bundle changed by one byte is refused before anything changes;
+#   4. 99.0.3 (good again) is found on a local mirror (UPDATE_SOURCE_URL,
+#      a plain HTTP folder) and installed from the bundle it serves.
 #
 # Linux, Docker with compose, git, python3 with `cryptography`. Uses the
 # host's ports 80/443 and the opennvr_* container names: never run it next
@@ -27,14 +29,16 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=${UPGRADE_TEST_DIR:-$(mktemp -d /tmp/opennvr-upgrade.XXXXXX)}
 PY=${PYTHON:-python3}
-V0=99.0.0 V1=99.0.1 V2=99.0.2
+V0=99.0.0 V1=99.0.1 V2=99.0.2 V3=99.0.3
 
 step() { echo; echo "===== $*"; }
 fail() { echo "UPGRADE TEST FAILED: $*" >&2; exit 1; }
 cleanup() {
     [ "${UPGRADE_TEST_KEEP:-}" = 1 ] && { echo "kept: $WORK"; return; }
     [ -d "$WORK/site" ] && (cd "$WORK/site" && docker compose -f docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true)
-    docker rmi "ghcr.io/open-nvr/core:$V0" "ghcr.io/open-nvr/core:$V1" "ghcr.io/open-nvr/core:$V2" >/dev/null 2>&1 || true
+    [ -n "${MIRROR_PID:-}" ] && kill "$MIRROR_PID" 2>/dev/null
+    docker rmi "ghcr.io/open-nvr/core:$V0" "ghcr.io/open-nvr/core:$V1" "ghcr.io/open-nvr/core:$V2" \
+        "ghcr.io/open-nvr/core:$V3" >/dev/null 2>&1 || true
     git -C "$WORK/rel" worktree prune 2>/dev/null || true
     rm -rf "$WORK"
 }
@@ -92,12 +96,13 @@ release() { # version, version the image reports
 release "$V0" "$V0"
 migration 99aa00000001 "$base_head" upd_test_b; release "$V1" "$V1"
 migration 99aa00000002 99aa00000001 upd_test_c; release "$V2" "$V2-broken"
-for v in $V0 $V1 $V2; do
+release "$V3" "$V3"
+for v in $V0 $V1 $V2 $V3; do
     git archive --format=tar "v$v" | docker build -q -t "ghcr.io/open-nvr/core:$v" \
         --build-arg "GIT_COMMIT=$(git rev-parse "v$v^{commit}")" - >/dev/null
     echo "  built core:$v"
 done
-$PY "$REPO/tests/upgrade/make_bundles.py" "$WORK" $V0 $V1 $V2
+$PY "$REPO/tests/upgrade/make_bundles.py" "$WORK" $V0 $V1 $V2 $V3
 
 step "install $V0 from its bundle"
 git clone -q "$WORK/rel" "$WORK/site"
@@ -152,5 +157,26 @@ before=$(docker inspect opennvr_core --format '{{.Id}}')
 if ./start.sh update --bundle "$WORK/tampered.tar" --yes; then fail "the tampered bundle was accepted"; fi
 expect "core container" "$(docker inspect opennvr_core --format '{{.Id}}')" "$before"
 expect "version" "$(version)" "$V1"
+
+step "4. $V1 -> $V3 from a local mirror"
+# The layout scripts/make-offline-bundle.py --mirror-dir writes.
+platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
+mirror="$WORK/mirror"
+mkdir -p "$mirror/latest" "$mirror/v$V3"
+tar -xf "$WORK/opennvr-$V3-offline.tar" -C "$mirror/latest" release-manifest.json release-manifest.json.sig
+cp "$mirror/latest/"release-manifest.json* "$mirror/v$V3/"
+cp "$WORK/opennvr-$V3-offline.tar" "$mirror/v$V3/opennvr-${platform//\//-}-offline.tar"
+# Served on the stack network's gateway: the host and the updater's
+# container both reach it there.
+gateway=$(docker network inspect site_opennvr_internal --format '{{(index .IPAM.Config 0).Gateway}}')
+(cd "$mirror" && exec $PY -m http.server 8765 --bind 0.0.0.0 >/dev/null 2>&1) &
+MIRROR_PID=$!
+sleep 2
+UPDATE_SOURCE_URL="http://$gateway:8765" OPENNVR_UPDATE_VERIFY_TIMEOUT=240 ./start.sh update --yes || fail "the update from the mirror"
+expect "version" "$(version)" "$V3"
+expect "migration" "$(sql 'select version_num from alembic_version')" 99aa00000002
+expect "test tables" "$(tables)" "upd_test_b,upd_test_c,upd_test_marker"
+expect "marker" "$(sql 'select note from upd_test_marker')" "$marker"
+expect "history" "$(tail -1 data/updates/history.log | awk '{print $2, $3, $4}')" "$V1 $V3 succeeded"
 
 step "upgrade test passed"

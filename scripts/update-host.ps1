@@ -544,6 +544,28 @@ function Invoke-Update([string[]]$UpdateArgs) {
             if ($answer -notmatch '^[Yy]$') { Write-UpdSay "Nothing changed."; return }
         }
 
+        # A mirror (UPDATE_SOURCE_URL) that serves bundles: this platform's
+        # bundle brings the release's files and images (see update-host.sh).
+        $srcUrl = if ($env:UPDATE_SOURCE_URL) { $env:UPDATE_SOURCE_URL } else { Get-EnvVar "UPDATE_SOURCE_URL" }
+        if (-not $bundle -and $srcUrl) {
+            $url = "$($srcUrl.TrimEnd('/'))/v$toV/opennvr-$($script:UpdPlatform -replace '/', '-')-offline.tar"
+            $tarFile = Join-Path $UpdDir "mirror-bundle.tar"
+            Write-UpdSay "Fetching the bundle from the mirror ..."
+            $saved = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'   # 5.1's progress bar is slower than the download
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $tarFile -UseBasicParsing -ErrorAction Stop
+                Remove-Item "$UpdDir\bundle" -Recurse -Force -ErrorAction SilentlyContinue
+                New-Item -ItemType Directory -Force "$UpdDir\bundle" | Out-Null
+                tar -xf $tarFile -C "$UpdDir\bundle"
+                if ($LASTEXITCODE -ne 0) { Write-UpdFail "the mirror's bundle could not be unpacked"; exit 1 }
+                Remove-Item $tarFile -Force
+                $bundle = "$UpdDir\bundle"
+                $script:UpdNoBuild = $true
+            } catch {
+                Write-UpdSay "No bundle for $($script:UpdPlatform) on the mirror; images come from their registries."
+            } finally { $ProgressPreference = $saved }
+        }
+
         # 1. Everything onto the host first: nothing has stopped yet.
         if (-not (Get-UpdCommit (Get-UpdKV $plan GIT_TAG) (Get-UpdKV $plan GIT_COMMIT) $bundle)) {
             Write-UpdFail "Could not get the release's files; nothing changed."; exit 1 }

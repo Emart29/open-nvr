@@ -18,6 +18,13 @@ withdrawn releases; the signed manifests of the releases before it (a site
 with no record of what it runs is checked against them); a git bundle of
 the release tag; and the images, pulled by digest for the site's platform.
 
+For a network of many NVRs with no internet, ``--mirror-dir DIR`` writes
+into a folder to serve over HTTP(S) instead (run it once per platform):
+manifests under ``vX.Y.Z/`` and ``latest/``, the withdrawn list, and
+``vX.Y.Z/opennvr-<platform>-offline.tar``. Each NVR with
+``UPDATE_SOURCE_URL=<that URL>`` then checks the mirror and fetches its
+bundle by itself, so Update now and automatic updates work there too.
+
 ``--site-images`` is the site's own image list, so the bundle holds only
 what that site runs; make it on the site with ``./start.sh update
 --list-images > site-images.txt``. Without it, every image of the release
@@ -85,8 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--extra-image", action="append", default=[], help="a local image to add (repeatable)")
     ap.add_argument("--source-url", help="a mirror instead of GitHub releases")
     ap.add_argument("--git-url", default=GIT_URL)
-    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--out", type=Path, help="the bundle file")
+    ap.add_argument("--mirror-dir", type=Path,
+                    help="write into a mirror folder instead (serve it, and set UPDATE_SOURCE_URL on the sites)")
     a = ap.parse_args(argv)
+    if not a.out and not a.mirror_dir:
+        ap.error("give --out FILE or --mirror-dir DIR")
 
     platform = a.platform or run("docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}")
     raw, sig = source.fetch(a.version, a.source_url)
@@ -160,13 +171,56 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             run("docker", "save", "-o", str(out / "images.tar"), *refs)  # older Docker: no --platform
 
-        a.out.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(a.out, "w") as t:
+        target = a.out
+        if a.mirror_dir:
+            target = a.mirror_dir / f"v{release.version}" / bundle_name(platform)
+            _fill_mirror(a.mirror_dir, out, release.version)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(target, "w") as t:
             for p in sorted(out.rglob("*")):
                 if p.is_file():
                     t.add(p, arcname=p.relative_to(out).as_posix())
-    say(f"Wrote {a.out} ({a.out.stat().st_size / 1e9:.2f} GB). On the site: ./start.sh update --bundle {a.out.name}")
+    say(f"Wrote {target} ({target.stat().st_size / 1e9:.2f} GB).")
+    if a.mirror_dir:
+        say(f"Serve {a.mirror_dir} over HTTP(S) and set UPDATE_SOURCE_URL=<its URL> in each site's .env.")
+    else:
+        say(f"On the site: ./start.sh update --bundle {target.name}")
     return 0
+
+
+def bundle_name(platform: str) -> str:
+    """The file a mirror serves for one platform (update-host.* fetch it by this name)."""
+    return f"opennvr-{platform.replace('/', '-')}-offline.tar"
+
+
+def _fill_mirror(mirror: Path, bundle: Path, version: str) -> None:
+    """The mirror layout the updater reads (updater/source.py): vX.Y.Z/ and
+    latest/ for manifests, latest/ for the withdrawn list, and the earlier
+    releases' manifests under their own versions."""
+    def copy(src: Path, dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for name in (manifest.MANIFEST_NAME, manifest.SIGNATURE_NAME,
+                     revocations.NAME, revocations.SIGNATURE_NAME):
+            if (src / name).is_file():
+                shutil.copyfile(src / name, dst / name)
+
+    copy(bundle, mirror / f"v{version}")
+    for old in (bundle / "history").glob("v*") if (bundle / "history").is_dir() else ():
+        copy(old, mirror / old.name)
+    # latest/ follows the newest release in the mirror, not the last one added.
+    current = mirror / "latest" / manifest.MANIFEST_NAME
+    newest = True
+    if current.is_file():
+        try:
+            newest = not manifest.is_newer(json.loads(current.read_bytes())["version"], version)
+        except (ValueError, KeyError, manifest.ManifestError):
+            newest = True
+    if newest:
+        copy(bundle, mirror / "latest")
+    else:
+        for name in (revocations.NAME, revocations.SIGNATURE_NAME):  # always the current list
+            if (bundle / name).is_file():
+                shutil.copyfile(bundle / name, mirror / "latest" / name)
 
 
 if __name__ == "__main__":
