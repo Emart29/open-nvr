@@ -21,6 +21,7 @@
 #   ./start.sh update --accept-manual the release's manual steps are done
 #   ./start.sh update --restore DIR   put a backup back (the escape hatch)
 #   ./start.sh update --from-queue    one tick of the runner (the timer runs it)
+#   ./start.sh update --list-images   this site's images (for make-offline-bundle.py)
 #   sudo ./start.sh auto-update enable|disable|status   that timer
 #
 # Files: data/updates/ (plan, state, the installed and candidate manifests)
@@ -231,9 +232,11 @@ upd_fetch_images() {
 upd_up() {
     # start.sh's own `up`, without --remove-orphans (it would remove the
     # containers this site runs from overlays compose was not told about)
-    # and rebuilding the images the release builds from its own files.
+    # and rebuilding the images the release builds from its own files --
+    # except from a bundle: an air-gapped site cannot build (that needs the
+    # internet), and the bundle brings whatever it must use instead.
     # In a subshell: run_up exits on failure, and we must reach the rollback.
-    ( KEEP_ORPHANS=1 UP_BUILD=1 run_up ) >"$UPD_DIR/up.log" 2>&1
+    ( KEEP_ORPHANS=1 UP_BUILD="${UPD_BUILD:-1}" run_up ) >"$UPD_DIR/up.log" 2>&1
 }
 
 upd_verify() {
@@ -460,6 +463,12 @@ run_update() {
             --channel) extra+=(--channel "$2"); shift 2 ;;
             --restore) restore="$2"; shift 2 ;;
             --from-queue) upd_queue; return ;;
+            --list-images)
+                # For scripts/make-offline-bundle.py: what this site runs.
+                ARGS=$(compose_args) || exit 1
+                # shellcheck disable=SC2086
+                docker compose $ARGS config --images
+                return ;;
             *) upd_fail "unknown option: $1"; exit 1 ;;
         esac
     done
@@ -514,6 +523,7 @@ run_update() {
         tar -xf "$bundle_file" -C "$UPD_DIR/bundle" || { upd_fail "the bundle could not be unpacked"; exit 1; }
         bundle="$UPD_DIR/bundle"
         extra+=(--bundle /work/bundle)
+        UPD_BUILD=0
     fi
     [ -n "$to" ] && extra+=(--to "$to")
 

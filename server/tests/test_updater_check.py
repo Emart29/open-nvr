@@ -113,6 +113,12 @@ def test_arm64_matches_the_v8_variant():
     assert next(i for i in plan.images if i.ref.startswith(CORE)).accept == (sha("d"), sha("f"))
 
 
+def test_an_image_loaded_from_a_bundle_is_proved_by_its_platform_manifest():
+    img = manifest.Image(ref=f"{CORE}:0.1.9", digest=sha("d"), ids={"linux/arm64/v8": sha("f")},
+                         platform_manifests={"linux/arm64/v8": sha("6"), "linux/amd64": sha("7")})
+    assert check.accepted_ids(img, "linux/arm64") == (sha("d"), sha("f"), sha("6"))
+
+
 def test_a_containerd_store_reports_the_registry_digest_as_id():
     plan = check.decide(site(core_image_id=sha("a")), NEW)
     assert isinstance(plan, check.Plan)

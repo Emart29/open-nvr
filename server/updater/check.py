@@ -102,10 +102,16 @@ def repository(ref: str) -> str:
 
 
 def accepted_ids(image: Image, platform: str) -> tuple[str, ...]:
-    """The digests that may be the local image ID of *image* on *platform*.
-    ``linux/arm64`` matches a manifest's ``linux/arm64/v8``."""
-    ids = [i for p, i in image.ids.items() if p == platform or p.startswith(platform + "/")]
-    return (image.digest, *ids) if ids else ()
+    """The digests that may be the local image ID of *image* on *platform*:
+    the registry index digest (containerd store, pulled), the config digest
+    (classic store), and the platform's own manifest digest (containerd
+    store, loaded from a bundle). ``linux/arm64`` matches ``linux/arm64/v8``."""
+    def ours(p: str) -> bool:
+        return p == platform or p.startswith(platform + "/")
+    ids = [i for p, i in image.ids.items() if ours(p)]
+    if not ids:
+        return ()
+    return (image.digest, *ids, *(d for p, d in image.platform_manifests.items() if ours(p)))
 
 
 def decide(site: Site, candidate: Manifest) -> Plan | Refusal:

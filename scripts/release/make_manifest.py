@@ -91,8 +91,8 @@ class Registry:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.read(), dict(r.headers)
 
-    def resolve(self, ref: str) -> tuple[str, dict[str, str]]:
-        """(registry digest, {platform: image ID}) for *ref*."""
+    def resolve(self, ref: str) -> tuple[str, dict[str, str], dict[str, str]]:
+        """(registry digest, {platform: image ID}, {platform: platform manifest digest}) for *ref*."""
         host, repo, tag = self.split(ref)
         body, headers = self._get(host, repo, f"manifests/{tag}", _INDEX_TYPES + _MANIFEST_TYPES)
         digest = headers.get("Docker-Content-Digest") or headers.get("docker-content-digest")
@@ -100,6 +100,7 @@ class Registry:
             raise RuntimeError(f"{ref}: registry sent no digest")
         doc = json.loads(body)
         ids: dict[str, str] = {}
+        per_platform: dict[str, str] = {}
         if doc.get("mediaType") in _INDEX_TYPES or "manifests" in doc:
             for entry in doc["manifests"]:
                 plat = entry.get("platform") or {}
@@ -108,12 +109,15 @@ class Registry:
                 name = f"{plat['os']}/{plat['architecture']}" + (f"/{plat['variant']}" if plat.get("variant") else "")
                 sub, _ = self._get(host, repo, f"manifests/{entry['digest']}", _MANIFEST_TYPES)
                 ids[name] = json.loads(sub)["config"]["digest"]
+                per_platform[name] = entry["digest"]
         else:
             config_digest = doc["config"]["digest"]
             cfg, _ = self._get(host, repo, f"blobs/{config_digest}", ("application/json", "*/*"))
             c = json.loads(cfg)
-            ids[f"{c.get('os', 'linux')}/{c.get('architecture', 'amd64')}"] = config_digest
-        return digest, ids
+            name = f"{c.get('os', 'linux')}/{c.get('architecture', 'amd64')}"
+            ids[name] = config_digest
+            per_platform[name] = digest  # a single-platform image is its own manifest
+        return digest, ids, per_platform
 
 
 def _module_values(path: Path) -> dict:
@@ -192,8 +196,8 @@ def build(version: str, commit: str, extra: dict, registry: Registry, *, channel
     head, revisions = alembic_graph(SOURCE / "server" / "migrations" / "versions")
     images = []
     for ref in refs:
-        digest, ids = registry.resolve(ref)
-        images.append({"ref": ref, "digest": digest, "ids": ids})
+        digest, ids, per_platform = registry.resolve(ref)
+        images.append({"ref": ref, "digest": digest, "ids": ids, "platform_manifests": per_platform})
         print(f"  {ref}  {digest[:19]}…  {', '.join(sorted(ids))}", file=sys.stderr)
     doc = {
         "schema": man.SCHEMA,

@@ -39,7 +39,8 @@ class FakeRegistry:
     def resolve(self, ref):
         self.asked.append(ref)
         h = format(abs(hash(ref)) % 16**60, "060x")
-        return "sha256:d" + h + "abc", {"linux/amd64": "sha256:a" + h + "abc", "linux/arm64": "sha256:b" + h + "abc"}
+        return ("sha256:d" + h + "abc", {"linux/amd64": "sha256:a" + h + "abc", "linux/arm64": "sha256:b" + h + "abc"},
+                {"linux/amd64": "sha256:e" + h + "abc", "linux/arm64": "sha256:f" + h + "abc"})
 
 
 def test_the_alembic_head_is_alembics(mk):

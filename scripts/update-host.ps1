@@ -9,6 +9,7 @@
 #
 #   .\start.ps1 update [--to 0.1.9] [--bundle F.tar] [--dry-run] [--yes]
 #                      [--adopt] [--accept-manual] [--channel edge] [--restore DIR]
+#   .\start.ps1 update --list-images   this site's images (for make-offline-bundle.py)
 #
 # Written for Windows PowerShell 5.1: no &&, no ternary, and every native
 # command is checked through $LASTEXITCODE. `up` runs in a child PowerShell
@@ -259,8 +260,10 @@ function Get-UpdImages([string]$Bundle) {
 
 function Invoke-UpdUp {
     # start.ps1's own `up` in a child PowerShell, without --remove-orphans
-    # and rebuilding the images the release builds from its own files.
-    $env:KEEP_ORPHANS = "1"; $env:UP_BUILD = "1"
+    # and rebuilding the images the release builds from its own files --
+    # except from a bundle: an air-gapped site cannot build.
+    $env:KEEP_ORPHANS = "1"
+    $env:UP_BUILD = if ($script:UpdNoBuild) { "0" } else { "1" }
     try {
         $shell = (Get-Process -Id $PID).Path
         # $PSScriptRoot is scripts\ here (this file is dot-sourced from there).
@@ -438,6 +441,12 @@ function Invoke-Update([string[]]$UpdateArgs) {
             "--channel"       { $extra += @("--channel", $UpdateArgs[++$i]) }
             "--restore"       { $restore = $UpdateArgs[++$i] }
             "--from-queue"    { Invoke-UpdateQueue; return }
+            "--list-images"   {
+                # For scripts\make-offline-bundle.py: what this site runs.
+                $ca = Get-ComposeArgs
+                docker compose @ca config --images
+                return
+            }
             default           { Write-UpdFail "unknown option: $($UpdateArgs[$i])"; exit 1 }
         }
     }
@@ -511,6 +520,7 @@ function Invoke-Update([string[]]$UpdateArgs) {
             if ($LASTEXITCODE -ne 0) { Write-UpdFail "the bundle could not be unpacked"; exit 1 }
             $bundle = "$UpdDir\bundle"
             $extra += @("--bundle", "/work/bundle")
+            $script:UpdNoBuild = $true
         }
         if ($to) { $extra += @("--to", $to) }
 

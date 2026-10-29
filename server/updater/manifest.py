@@ -102,6 +102,10 @@ class Image:
     #: Image ID (config digest) per platform, e.g. ``{"linux/amd64": "sha256:…"}``:
     #: what ``docker inspect``/``docker load`` show on a host of that platform.
     ids: dict[str, str]
+    #: The registry manifest digest of each platform's image (an entry of the
+    #: index). An offline bundle holds single-platform images, and a
+    #: containerd image store reports that digest as the loaded image's ID.
+    platform_manifests: dict[str, str] = field(default_factory=dict)
 
     @property
     def repository(self) -> str:
@@ -196,7 +200,11 @@ def parse(doc: dict) -> Manifest:
         if not isinstance(ids, dict) or not ids or not all(
                 isinstance(p, str) and isinstance(i, str) and _DIGEST.match(i) for p, i in ids.items()):
             raise ManifestError(f"image {ref} has no image IDs")
-        images.append(Image(ref=ref, digest=digest, ids=dict(ids)))
+        per_platform = item.get("platform_manifests") or {}
+        if not isinstance(per_platform, dict) or not all(
+                isinstance(p, str) and isinstance(d, str) and _DIGEST.match(d) for p, d in per_platform.items()):
+            raise ManifestError(f"image {ref} has malformed platform manifests")
+        images.append(Image(ref=ref, digest=digest, ids=dict(ids), platform_manifests=dict(per_platform)))
     if not images:
         raise ManifestError("manifest lists no images")
 
