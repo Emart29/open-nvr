@@ -218,7 +218,12 @@ upd_fetch_images() {
             docker pull -q "$repo@$digest" >/dev/null || return 1
             docker tag "$repo@$digest" "$ref" || return 1
         fi
-        id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)
+        id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
+        if [ -z "$id" ]; then
+            # A delta bundle leaves out what the site should already have.
+            upd_fail "$ref is neither in the bundle nor on this host: make a full bundle (no --since)"
+            return 1
+        fi
         case ",$accept," in
             *",$id,"*) ;;
             *) upd_fail "$ref is $id, not the image the release signed"; return 1 ;;

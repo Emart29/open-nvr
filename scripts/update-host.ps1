@@ -250,6 +250,11 @@ function Get-UpdImages([string]$Bundle) {
             if ($LASTEXITCODE -ne 0) { return $false }
         }
         $id = docker image inspect --format '{{.Id}}' $ref 2>$null
+        if (-not $id) {
+            # A delta bundle leaves out what the site should already have.
+            Write-UpdFail "$ref is neither in the bundle nor on this host: make a full bundle (no --since)"
+            return $false
+        }
         if ($accept -notcontains $id) { Write-UpdFail "$ref is $id, not the image the release signed"; return $false }
     }
     Write-UpdOk "All release images are here and match the signed manifest."

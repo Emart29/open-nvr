@@ -25,6 +25,11 @@ manifests under ``vX.Y.Z/`` and ``latest/``, the withdrawn list, and
 ``UPDATE_SOURCE_URL=<that URL>`` then checks the mirror and fetches its
 bundle by itself, so Update now and automatic updates work there too.
 
+``--since VERSION`` makes a delta bundle for a site already on VERSION: only
+the images that changed since it go in (often a few hundred MB instead of
+several GB). The site still checks every image the release names, so one
+it does not have stops the update before anything changes.
+
 ``--site-images`` is the site's own image list, so the bundle holds only
 what that site runs; make it on the site with ``./start.sh update
 --list-images > site-images.txt``. Without it, every image of the release
@@ -90,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--platform", help="the site's Docker platform, e.g. linux/arm64 (default: this machine's)")
     ap.add_argument("--site-images", type=Path, help="the site's image list (./start.sh update --list-images)")
     ap.add_argument("--extra-image", action="append", default=[], help="a local image to add (repeatable)")
+    ap.add_argument("--since", metavar="VERSION",
+                    help="a delta bundle for a site on VERSION: only the images that changed since it")
     ap.add_argument("--source-url", help="a mirror instead of GitHub releases")
     ap.add_argument("--git-url", default=GIT_URL)
     ap.add_argument("--out", type=Path, help="the bundle file")
@@ -140,9 +147,18 @@ def main(argv: list[str] | None = None) -> int:
         wanted = None
         if a.site_images:
             wanted = {repository(line.strip()) for line in a.site_images.read_text().splitlines() if line.strip()}
+        unchanged: set[str] = set()
+        if a.since:
+            # The site already has every image the base release had: the
+            # same digest means the same image, so it can stay out.
+            base = manifest.parse(json.loads(source.fetch(a.since.removeprefix("v"), a.source_url)[0]))
+            unchanged = {i.digest for i in base.images}
         refs = []
         for img in release.images:
             if wanted is not None and img.repository not in wanted:
+                continue
+            if img.digest in unchanged:
+                say(f"  same as in {a.since}: {img.ref}")
                 continue
             accept = accepted_ids(img, platform)
             if not accept:
