@@ -11,6 +11,8 @@ The host mounts the OpenNVR folder read-only at /repo and
   21 needs the operator, 1 error.
 * ``verify`` (the image that should now run) — exit 0 when the stack is
   that release and healthy, 30 when it is not.
+* ``due`` — exit 0 when the update found should be installed automatically
+  now (updater/policy.py), 11 with the reason when not.
 * ``keygen`` — a new release signing key.
 """
 
@@ -21,7 +23,9 @@ import json
 import os
 import re
 import sys
+import uuid
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 from updater import check, envfile, manifest, source, verify
@@ -73,7 +77,50 @@ def _load_installed(work: Path, version: str, base: str | None, bundle: Path | N
     return found
 
 
+class _Tee:
+    """Write to the terminal and keep a copy (check.log, for the app)."""
+
+    def __init__(self, stream, copy: list[str]):
+        self.stream, self.copy = stream, copy
+
+    def write(self, text: str) -> int:
+        self.copy.append(text)
+        return self.stream.write(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+
+def _note_seen(work: Path, version: str) -> None:
+    """When this version was first found: the automatic delay counts from it."""
+    seen = envfile.read_env(work / "candidate-seen.env")
+    if seen.get("VERSION") != version:
+        envfile.write_kv(work / "candidate-seen.env",
+                         {"VERSION": version, "FIRST_SEEN": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")})
+
+
 def cmd_check(a: argparse.Namespace) -> int:
+    """`_check`, with its outcome recorded for the app: check.env (when,
+    and the exit code) and check.log (what it said)."""
+    said: list[str] = []
+    out, err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = _Tee(out, said), _Tee(err, said)
+    try:
+        code = _check(a)
+    finally:
+        sys.stdout, sys.stderr = out, err
+    now = datetime.now(UTC)
+    try:
+        a.work.mkdir(parents=True, exist_ok=True)
+        envfile.write_kv(a.work / "check.env", {"CHECKED_AT": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                                "CHECKED_EPOCH": str(int(now.timestamp())), "CODE": str(code)})
+        (a.work / "check.log").write_text("".join(said), encoding="utf-8")
+    except OSError:
+        pass  # the record is for the app; the check itself already answered
+    return code
+
+
+def _check(a: argparse.Namespace) -> int:
     work: Path = a.work
     for stale in ("plan.json", "plan.env", "pins.env", "images.txt"):
         (work / stale).unlink(missing_ok=True)
@@ -105,9 +152,14 @@ def cmd_check(a: argparse.Namespace) -> int:
         print(result.reason)
         for line in result.advice:
             print(f"  - {line}")
+        if result.code == check.NEEDS_OPERATOR:
+            # Kept so the app can show the update and the steps it needs.
+            source.save(work / "candidate", raw, sig)
+            _note_seen(work, candidate.version)
         return result.code
 
     source.save(work / "candidate", raw, sig)
+    _note_seen(work, candidate.version)
     (work / "plan.json").write_text(json.dumps(asdict(result), indent=2) + "\n", encoding="utf-8")
     envfile.write_kv(work / "plan.env", {
         "FROM_VERSION": result.from_version, "TO_VERSION": result.to_version, "KIND": result.kind,
@@ -145,6 +197,36 @@ def cmd_verify(a: argparse.Namespace) -> int:
         return FAILED_VERIFY
     print(f"OpenNVR {expected.version} is running and healthy.")
     return 0
+
+
+NOT_DUE = 11
+
+
+def cmd_due(a: argparse.Namespace) -> int:
+    """Exit 0 when the update the host found should be installed now, else
+    11 with the reason (updater/policy.py)."""
+    from updater import policy as pol
+
+    work: Path = a.work
+    p = pol.Policy.from_env(envfile.read_env(a.policy_file))
+    try:
+        raw, sig = source.from_dir(work / "candidate")
+        candidate = manifest.verify(raw, sig)
+    except manifest.ManifestError as exc:
+        print(f"Not now: {exc}")
+        return NOT_DUE
+    seed_file = work / "site-seed"
+    if not seed_file.is_file():
+        seed_file.write_text(uuid.uuid4().hex + "\n", encoding="utf-8")
+    seen = envfile.read_env(work / "candidate-seen.env")
+    first_seen = None
+    if seen.get("VERSION") == candidate.version and seen.get("FIRST_SEEN"):
+        first_seen = datetime.fromisoformat(seen["FIRST_SEEN"].replace("Z", "+00:00"))
+    ok, why = pol.due(p, candidate, a.installed_version or installed_version(),
+                      local_now=datetime.fromisoformat(a.local_time), utc_now=datetime.now(UTC),
+                      first_seen=first_seen, seed=seed_file.read_text(encoding="utf-8").strip())
+    print(f"{candidate.version}: {why}")
+    return 0 if ok else NOT_DUE
 
 
 def cmd_keygen(a: argparse.Namespace) -> int:
@@ -190,6 +272,13 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--platform", required=True)
     v.add_argument("--timeout", type=float, default=300.0)
     v.set_defaults(func=cmd_verify)
+
+    d = sub.add_parser("due", help="should the update found be installed automatically now?")
+    d.add_argument("--work", type=Path, default=Path("/work"))
+    d.add_argument("--policy-file", type=Path, required=True)
+    d.add_argument("--local-time", required=True, help="the site's local time, YYYY-MM-DDTHH:MM")
+    d.add_argument("--installed-version")
+    d.set_defaults(func=cmd_due)
 
     k = sub.add_parser("keygen", help="a new release signing key")
     k.add_argument("--id", required=True)
