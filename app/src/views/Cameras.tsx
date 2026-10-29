@@ -512,34 +512,37 @@ export function Cameras() {
   // "All 10 on this page selected. Select all 20" and "All 20 selected.
   // Clear selection", in the selection strip above the list.
   const selectionNotice = () => {
-    if (total <= cameras.length) return null
-    if (everythingSelected) {
-      return (
-        <span className="text-[var(--text-dim)]">
-          {t('cameraBulk.allSelected', { count: total })}{' '}
-          <button
-            type="button"
-            className="text-[var(--accent)] hover:underline"
-            onClick={clearSelection}
-            data-testid="camera-clear-selection"
-          >
-            {t('cameraBulk.clearSelection')}
-          </button>
-        </span>
-      )
-    }
-    if (!pageAllSelected) return null
+    if (selected.size === 0) return null
+    // Extending a ticked page to every page, while there are more pages.
+    const offerAll = pageAllSelected && !everythingSelected && total > cameras.length
     return (
       <span className="text-[var(--text-dim)]">
-        {t('cameraBulk.pageSelected', { count: cameras.length })}{' '}
+        {everythingSelected && total > cameras.length
+          ? t('cameraBulk.allSelected', { count: total })
+          : t('cameraBulk.selected', { count: selected.size })}
+        {offerAll && (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="text-[var(--accent)] hover:underline disabled:opacity-60"
+              onClick={selectAllPages}
+              disabled={selectingAll}
+              data-testid="camera-select-all-pages"
+            >
+              {t('cameraBulk.selectAllPages', { count: total })}
+            </button>
+            <span aria-hidden="true"> · </span>
+          </>
+        )}
+        {!offerAll && ' '}
         <button
           type="button"
-          className="text-[var(--accent)] hover:underline disabled:opacity-60"
-          onClick={selectAllPages}
-          disabled={selectingAll}
-          data-testid="camera-select-all-pages"
+          className="text-[var(--accent)] hover:underline"
+          onClick={clearSelection}
+          data-testid="camera-clear-selection"
         >
-          {t('cameraBulk.selectAllPages', { count: total })}
+          {t('cameraBulk.clearSelection')}
         </button>
       </span>
     )
@@ -557,22 +560,34 @@ export function Cameras() {
     />
   )
 
-  // Selection strip above the list, in both views. Always there and of fixed
-  // height, so ticking a page or taking "Select all N" moves nothing. Its box
-  // sits in line with the list's own: the table's checkbox column (12px cell
-  // padding), or the cards' boxes (8px in, 24px wide).
+  // Selection strip, the list's top edge in both views: what is selected on
+  // the left, what to do with it on the right. Always there and of fixed
+  // height, so selecting moves nothing on the page. Its box sits in line with
+  // the list's own: the table's checkbox column (12px cell padding), or the
+  // cards' boxes (8px in, 24px wide).
   const renderSelectionBar = () => (
     <div
-      className={`flex h-9 items-center gap-2 border border-[var(--border)] bg-[var(--panel)] pr-3 text-[13px] ${view === 'grid' ? 'pl-2' : 'pl-3'}`}
+      className={`flex h-10 shrink-0 items-center gap-2 border border-[var(--border)] bg-[var(--panel)] pr-2 text-[13px] ${view === 'grid' ? 'pl-2 mb-2' : 'pl-3 border-b-0'}`}
       data-testid="camera-selection-bar"
     >
-      <label className="inline-flex shrink-0 items-center gap-2 cursor-pointer">
+      <label className={`inline-flex shrink-0 items-center leading-none cursor-pointer ${view === 'grid' ? 'gap-0.5' : 'gap-2'}`}>
         {view === 'grid'
           ? <span className="flex h-6 w-6 items-center justify-center">{pageCheckbox('camera-select-page')}</span>
           : pageCheckbox('camera-select-page')}
         {t('cameraBulk.selectPage')}
       </label>
       <span className="min-w-0 truncate">{selectionNotice()}</span>
+      {(canManageCameras || canPause || canResume) && selected.size > 0 && (
+        <div className="ml-auto shrink-0">
+          <CameraBulkMenu
+            canManage={canManageCameras}
+            canPause={showPause}
+            canResume={canResume}
+            disabled={mutating}
+            onPick={onBulkAction}
+          />
+        </div>
+      )}
     </div>
   )
 
@@ -856,6 +871,12 @@ export function Cameras() {
   const onBulkAction = async (action: BulkAction) => {
     const count = selected.size
     switch (action) {
+      case 'assign':
+        setShowBulkLocation(false)
+        setShowBulkAssign(true)
+        return
+      case 'delete':
+        return onBulkDelete()
       case 'location':
         setShowBulkAssign(false)
         setBulkLocation('')
@@ -1095,59 +1116,33 @@ export function Cameras() {
             ))}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {(canManageCameras || canPause || canResume) && selected.size > 0 ? (
-              <>
-                <span className="text-[12px] text-[var(--text-dim)]">{t('cameraBulk.selected', { count: selected.size })}</span>
-                <CameraBulkMenu
-                  canManage={canManageCameras}
-                  canPause={showPause}
-                  canResume={canResume}
-                  disabled={mutating}
-                  onPick={onBulkAction}
-                />
-                {canManageCameras && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={`h-7 ${showBulkAssign ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
-                    onClick={() => { setShowBulkLocation(false); setShowBulkAssign((s) => !s) }}
-                    aria-expanded={showBulkAssign}
-                    disabled={mutating}
-                  >
-                    Assign permissions
-                  </Button>
-                )}
-                {canManageCameras && (
-                  <Button size="sm" variant="danger" className="h-7" onClick={onBulkDelete} disabled={mutating}>
-                    Delete selected ({selected.size})
-                  </Button>
-                )}
-              </>
-            ) : page === 1 && !hasNext && cameras.length > 0 ? (
-              <span className="text-[11px] font-mono tabular-nums text-[var(--text-dim)]">
-                {cameras.length} {cameras.length === 1 ? t('camera.cameraNoun') : t('camera.camerasNoun')}
-              </span>
-            ) : null}
-            {/* Tile size, grid only. */}
+            {/* Tile size: a setting of the grid, not a view of its own, so it
+                is smaller and quieter than the Table/Grid switch beside it,
+                labelled, and parted from it by a rule. */}
             {view === 'grid' && (
-              <div role="radiogroup" aria-label={t('cameraBulk.tileSize')} className="inline-flex h-9 border border-[var(--border)] bg-[var(--bg-2)]">
-                {(['s', 'm', 'l'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={tile === v}
-                    onClick={() => pickTile(v)}
-                    title={t(`cameraBulk.tile_${v}`)}
-                    aria-label={t(`cameraBulk.tile_${v}`)}
-                    data-testid={`camera-tile-${v}`}
-                    className={`w-8 text-[12px] font-medium border-l first:border-l-0 border-[var(--border)] transition-colors ${
-                      tile === v ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-dim)] hover:text-[var(--text)]'
-                    }`}
-                  >
-                    {v.toUpperCase()}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 border-r border-[var(--border)] pr-3">
+                <span className="text-[11px] text-[var(--text-dim)]">{t('cameraBulk.tileSize')}</span>
+                <div role="radiogroup" aria-label={t('cameraBulk.tileSize')} className="inline-flex items-center gap-0.5">
+                  {(['s', 'm', 'l'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={tile === v}
+                      onClick={() => pickTile(v)}
+                      title={t(`cameraBulk.tile_${v}`)}
+                      aria-label={t(`cameraBulk.tile_${v}`)}
+                      data-testid={`camera-tile-${v}`}
+                      className={`h-6 w-6 text-[11px] font-medium transition-colors ${
+                        tile === v
+                          ? 'text-[var(--accent)] underline underline-offset-4 decoration-2'
+                          : 'text-[var(--text-dim)] hover:text-[var(--text)]'
+                      }`}
+                    >
+                      {v.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {/* Table or grid of thumbnails. */}
@@ -1172,98 +1167,6 @@ export function Cameras() {
             </div>
           </div>
         </div>
-
-        {/* Bulk location: same third-row pattern as bulk assign below. */}
-        {canManageCameras && showBulkLocation && selected.size > 0 && (
-          <form
-            className={`flex flex-wrap items-center gap-3 border-t border-[var(--border)] text-[13px] ${TITLE_PANEL_BODY_CLASS}`}
-            onSubmit={(e) => { e.preventDefault(); void onBulkLocation() }}
-          >
-            <span className="text-[var(--text-dim)]">{t('cameraBulk.moveTo')}</span>
-            <input
-              autoFocus
-              list="camera-bulk-locations"
-              value={bulkLocation}
-              maxLength={200}
-              onChange={(e) => setBulkLocation(e.target.value)}
-              placeholder={t('cameraBulk.locationPlaceholder')}
-              aria-label={t('camera.location')}
-              data-testid="camera-bulk-location-input"
-              className="h-9 w-72 max-w-full border border-[var(--border)] bg-[var(--bg-2)] px-2.5 text-[13px] outline-none transition-colors focus:border-[var(--accent)]"
-            />
-            <datalist id="camera-bulk-locations">
-              {(locations?.locations ?? []).map((l) => <option key={l.location} value={l.location} />)}
-            </datalist>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="ghost" className="h-7" onClick={() => setShowBulkLocation(false)}>{t('common.cancel')}</Button>
-              <Button size="sm" variant="outline" className="h-7" onClick={() => void onBulkLocation(true)} disabled={mutating}>
-                {t('cameraBulk.clearLocation')}
-              </Button>
-              <button
-                type="submit"
-                disabled={mutating || !bulkLocation.trim()}
-                className={TITLE_ACTION_CLASS}
-                data-testid="camera-bulk-location-apply"
-              >
-                {t('cameraBulk.applyTo', { count: selected.size })}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Bulk assign: a third row of the same panel, since it acts on the
-            selection the row above just announced. */}
-        {canManageCameras && showBulkAssign && selected.size > 0 && (
-          <div className={`flex flex-wrap items-center gap-3 border-t border-[var(--border)] text-[13px] ${TITLE_PANEL_BODY_CLASS}`}>
-            <span className="text-[var(--text-dim)]">Assign to user</span>
-            <div className="relative w-64 max-w-full">
-              <input
-                placeholder="Type username or email"
-                aria-label="User to assign"
-                value={userQuery}
-                onChange={(e) => { setUserQuery(e.target.value); setBulkUserId('') }}
-                className="h-9 w-full border border-[var(--border)] bg-[var(--bg-2)] px-2.5 text-[13px] outline-none transition-colors placeholder:text-[color-mix(in_oklab,var(--text-dim)_50%,transparent)] focus:border-[var(--accent)] focus:placeholder:text-[color-mix(in_oklab,var(--text-dim)_20%,transparent)]"
-              />
-              {userQuery && bulkUserId === '' && (
-                <div className="absolute z-10 mt-1 w-full bg-[var(--panel)] border border-[var(--border)] max-h-56 overflow-auto">
-                  {usersLoading ? (
-                    <div className="px-2 py-1 text-[var(--text-dim)]">Searching…</div>
-                  ) : userOptions.length === 0 ? (
-                    <div className="px-2 py-1 text-[var(--text-dim)]">No users</div>
-                  ) : (
-                    userOptions.map(u => (
-                      <button
-                        type="button"
-                        key={u.id}
-                        className="block w-full text-left px-2 py-1 hover:bg-[var(--panel-2)]"
-                        onClick={() => { setBulkUserId(u.id); setUserQuery(u.username) }}
-                      >
-                        <span className="text-[var(--text)]">{u.username}</span>
-                        <span className="text-[var(--text-dim)]"> · {u.email}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-            <Checkbox className="!items-center !text-[13px]" label={t('camera.canView')} checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} />
-            <Checkbox className="!items-center !text-[13px]" label={t('camera.canManage')} checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} />
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="ghost" className="h-7" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
-              {/* Same quiet accent as Add camera; until a user is picked it
-                  is plainly unavailable rather than a dimmed solid block. */}
-              <button
-                type="button"
-                onClick={onBulkAssign}
-                disabled={mutating || bulkUserId === ''}
-                title={bulkUserId === '' ? 'Pick a user first' : undefined}
-                className={TITLE_ACTION_CLASS}
-              >
-                Apply to {selected.size} selected
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {canManageCameras && showImport && (
@@ -1289,8 +1192,126 @@ export function Cameras() {
         />
       )}
 
-      {!camsQuery.isPending && cameras.length > 0 && renderSelectionBar()}
-
+      <div className="flex min-h-0 flex-col">
+        {!camsQuery.isPending && cameras.length > 0 && renderSelectionBar()}
+        {/* Bulk location and assign: popups, so the list never moves. */}
+        {canManageCameras && showBulkLocation && selected.size > 0 && (
+          <Modal
+            open
+            title={t('cameraBulk.locationTitle', { count: selected.size })}
+            onClose={() => setShowBulkLocation(false)}
+            widthClassName="w-[440px]"
+            data-testid="camera-bulk-location-dialog"
+          >
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void onBulkLocation() }}>
+              <Field label={t('camera.location')} hint={t('cameraBulk.locationHint')}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    autoFocus
+                    list="camera-bulk-locations"
+                    value={bulkLocation}
+                    maxLength={200}
+                    onChange={(e) => setBulkLocation(e.target.value)}
+                    placeholder={t('cameraBulk.locationPlaceholder')}
+                    data-testid="camera-bulk-location-input"
+                  />
+                )}
+              </Field>
+              <datalist id="camera-bulk-locations">
+                {(locations?.locations ?? []).map((l) => <option key={l.location} value={l.location} />)}
+              </datalist>
+              <div className="flex items-center gap-2">
+                {/* Away from Apply, and confirmed: it wipes every selected
+                    camera's location at once. */}
+                <Button
+                  variant="ghost"
+                  className="mr-auto !text-[var(--danger)]"
+                  onClick={async () => {
+                    if (await confirm({
+                      title: t('cameraBulk.confirmClearLocationTitle', { count: selected.size }),
+                      confirmLabel: t('cameraBulk.clearLocation'),
+                      danger: true,
+                    })) void onBulkLocation(true)
+                  }}
+                  disabled={mutating}
+                >
+                  {t('cameraBulk.clearLocation')}
+                </Button>
+                <Button variant="ghost" onClick={() => setShowBulkLocation(false)}>{t('common.cancel')}</Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={mutating || !bulkLocation.trim()}
+                  data-testid="camera-bulk-location-apply"
+                >
+                  {t('cameraBulk.applyTo', { count: selected.size })}
+                </Button>
+              </div>
+            </form>
+          </Modal>
+        )}
+        {canManageCameras && showBulkAssign && selected.size > 0 && (
+          <Modal
+            open
+            title={t('cameraBulk.assignTitle', { count: selected.size })}
+            onClose={() => setShowBulkAssign(false)}
+            widthClassName="w-[440px]"
+            data-testid="camera-bulk-assign-dialog"
+          >
+            <div className="space-y-4 text-[13px]">
+              <Field label={t('cameraBulk.assignUser')}>
+                {(id) => (
+                  <div className="relative">
+                    <Input
+                      id={id}
+                      autoFocus
+                      placeholder="Type username or email"
+                      value={userQuery}
+                      onChange={(e) => { setUserQuery(e.target.value); setBulkUserId('') }}
+                    />
+                    {userQuery && bulkUserId === '' && (
+                      <div className="absolute z-10 mt-1 w-full bg-[var(--panel)] border border-[var(--border)] max-h-56 overflow-auto">
+                        {usersLoading ? (
+                          <div className="px-2 py-1 text-[var(--text-dim)]">Searching…</div>
+                        ) : userOptions.length === 0 ? (
+                          <div className="px-2 py-1 text-[var(--text-dim)]">No users</div>
+                        ) : (
+                          userOptions.map(u => (
+                            <button
+                              type="button"
+                              key={u.id}
+                              className="block w-full text-left px-2 py-1 hover:bg-[var(--panel-2)]"
+                              onClick={() => { setBulkUserId(u.id); setUserQuery(u.username) }}
+                            >
+                              <span className="text-[var(--text)]">{u.username}</span>
+                              <span className="text-[var(--text-dim)]"> · {u.email}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Field>
+              <div className="flex items-center gap-4">
+                <Checkbox className="!items-center !text-[13px]" label={t('camera.canView')} checked={bulkCanView} onChange={(e) => setBulkCanView(e.target.checked)} />
+                <Checkbox className="!items-center !text-[13px]" label={t('camera.canManage')} checked={bulkCanManage} onChange={(e) => setBulkCanManage(e.target.checked)} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setShowBulkAssign(false)}>{t('common.cancel')}</Button>
+                <Button
+                  variant="primary"
+                  onClick={onBulkAssign}
+                  disabled={mutating || bulkUserId === ''}
+                  title={bulkUserId === '' ? 'Pick a user first' : undefined}
+                >
+                  {t('cameraBulk.applyTo', { count: selected.size })}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
       {/* Cameras table. table-fixed with explicit widths is what keeps this
           from ever scrolling sideways: the fixed columns come to ~560px and
           Camera absorbs the rest, so content length no longer drives layout.
@@ -1332,7 +1353,7 @@ export function Cameras() {
           {/* Sticks while the rows scroll under it. */}
           <THead className="sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
             <TR>
-              <TH className="w-[26px] !pr-0">{pageCheckbox('camera-select-page-header')}</TH>
+              <TH className="w-[26px] !pr-0" aria-label={t('cameraBulk.selectPage')} />
               <TH className="text-xs">{t('nav.cameras')}</TH>
               <TH className="text-xs w-[150px]">{t('camera.location')}</TH>
               <TH className="text-xs w-[100px]">{t('cameraBulk.status')}</TH>
@@ -1400,6 +1421,7 @@ export function Cameras() {
           </TBody>
         </Table>
       )}
+      </div>
 
       {/* The server filters by status before counting, so total is exact. */}
       {(page > 1 || hasNext) && (

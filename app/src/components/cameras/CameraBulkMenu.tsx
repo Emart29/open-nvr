@@ -12,11 +12,12 @@ export type BulkAction =
   | 'detection-on' | 'detection-off'
   | 'activate' | 'deactivate'
   | 'pause' | 'resume'
+  | 'assign' | 'delete'
 
 /**
- * "Actions" for the cameras ticked in the list. Each group shows only to
- * someone allowed to do it: camera managers edit, pausing needs
- * recordings.pause, resuming either.
+ * "Actions" for the cameras ticked in the list: every bulk operation in one
+ * menu. Each group shows only to someone allowed to do it: camera managers
+ * edit, assign and delete, pausing needs recordings.pause, resuming either.
  */
 export function CameraBulkMenu({
   canManage, canPause, canResume, disabled, onPick,
@@ -42,7 +43,12 @@ export function CameraBulkMenu({
     ...(canPause ? [['pause', t('recordingPause.pause')] as Item] : []),
     ...(canResume ? [['resume', t('recordingPause.resume')] as Item] : []),
   ]
-  const groups = recording.length ? [...manage, recording] : manage
+  const groups = [
+    ...manage,
+    ...(recording.length ? [recording] : []),
+    ...(canManage ? [[['assign', t('cameraBulk.assignPermissions')]] as Item[]] : []),
+    ...(canManage ? [[['delete', t('cameraBulk.delete')]] as Item[]] : []),
+  ]
   if (groups.length === 0) return null
 
   return (
@@ -74,7 +80,10 @@ export function CameraBulkMenu({
                   type="button"
                   role="menuitem"
                   data-testid={`camera-bulk-${action}`}
-                  className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-[var(--panel-2)] focus-visible:bg-[var(--panel-2)] focus:outline-none"
+                  className={clsx(
+                    'w-full text-left px-3 py-1.5 text-[13px] hover:bg-[var(--panel-2)] focus-visible:bg-[var(--panel-2)] focus:outline-none',
+                    action === 'delete' && 'text-[var(--danger)]',
+                  )}
                   onClick={() => { setOpen(false); onPick(action) }}
                 >
                   {label}
