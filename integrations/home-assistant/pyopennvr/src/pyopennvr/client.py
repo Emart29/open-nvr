@@ -322,6 +322,27 @@ class OpenNVRClient:
                                   json=_body({"question": question}),
                                   correlation_id=correlation_id)
 
+    # ── OpenNVR updates ──────────────────────────────────────────────────
+
+    async def get_update_status(self) -> dict:
+        """``GET /system/update`` (contract 1.2, ``update_install``): the
+        update the host found (``available``, or None), the run in progress,
+        a pending request, whether the host's runner is alive, the policy."""
+        return await self.request("GET", "/system/update")
+
+    async def request_update(self, version: str, *,
+                             correlation_id: str | None = None) -> dict:
+        """Ask the host to install ``version``, which must be the update it
+        found (contract 1.2, ``update_install``; scope ``system.update``).
+        The host's runner picks it up within a minute; 409 says why not."""
+        return await self.request("POST", "/system/update/request",
+                                  json={"version": version}, correlation_id=correlation_id)
+
+    async def cancel_update_request(self, *, correlation_id: str | None = None) -> dict:
+        """Withdraw a request the runner has not started yet."""
+        return await self.request("DELETE", "/system/update/request",
+                                  correlation_id=correlation_id)
+
     # ── entities ─────────────────────────────────────────────────────────
 
     async def get_entities(self, etag: str | None = None) -> EntityCatalog | None:

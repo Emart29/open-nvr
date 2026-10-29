@@ -454,7 +454,7 @@ def test_every_token_route_is_a_real_route():
                 "routers.streams", "routers.timeline_events", "routers.alerts_inbox",
                 "routers.events", "routers.zones", "routers.live_state", "routers.media",
                 "routers.site_mode", "routers.entities", "routers.search",
-                "routers.api_tokens"):
+                "routers.api_tokens", "routers.system_update"):
         app.include_router(importlib.import_module(mod).router, prefix="/api/v1")
     # OpenAPI paths are full templates on every FastAPI version; app.routes
     # nests included routers from 0.140 on.

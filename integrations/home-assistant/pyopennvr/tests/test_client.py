@@ -228,6 +228,22 @@ async def test_open_session():
         fixture("system_info")).passthrough_allowlist
 
 
+async def test_update_status_and_request():
+    async with fake_site({("GET", "/api/v1/system/update"): fixture("update_status"),
+                          ("POST", "/api/v1/system/update/request"): {"request": "r1"},
+                          ("DELETE", "/api/v1/system/update/request"): {"ok": True}}) as (
+            base, session, rec):
+        client = OpenNVRClient(base, TOKEN, session)
+        status = await client.get_update_status()
+        asked = await client.request_update("0.2.1", correlation_id="c1")
+        await client.cancel_update_request()
+    assert status["available"]["version"] == "0.2.1" and status["runner"]["running"] is True
+    assert asked == {"request": "r1"}
+    assert rec.requests[1]["body"] == b'{"version": "0.2.1"}'
+    assert rec.requests[1]["headers"]["X-Correlation-Id"] == "c1"
+    assert [r["method"] for r in rec.requests] == ["GET", "POST", "DELETE"]
+
+
 async def test_search_summary_and_describe():
     async with fake_site({("GET", "/api/v1/search/summary"): fixture("search_summary"),
                           ("POST", "/api/v1/cameras/2/describe"): fixture("camera_describe")}) as (

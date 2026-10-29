@@ -162,6 +162,27 @@ def test_seeing_needs_settings_view_acting_needs_system_update(env, host):  # no
     assert env.client.delete(f"{URL}/request", headers=env.jwt("vera")).status_code == 403
 
 
+def test_a_token_may_ask_for_the_update_only_with_its_scope_and_never_set_policy(env, host):  # noqa: F811
+    """Home Assistant's Install button (UPD-305): a token with system.update
+    asks for the update the host found; without it, or for the policy, no."""
+    from tests.test_api_tokens import _as, _mint
+
+    _found(host[0])
+    _policy(env)
+    plain = _mint(env, scopes=["settings.view"])["token"]
+    assert env.client.get(URL, headers=_as(plain)).status_code == 200
+    assert env.client.post(f"{URL}/request", headers=_as(plain), json={"version": "9.9.9"}).status_code == 403
+    can = _mint(env, scopes=["settings.view", "system.update"])["token"]
+    assert env.client.put(f"{URL}/policy", headers=_as(can), json={"mode": "auto"}).status_code == 403
+    r = env.client.post(f"{URL}/request", headers=_as(can), json={"version": "9.9.9"})
+    assert r.status_code == 202, r.text
+    assert env.client.delete(f"{URL}/request", headers=_as(can)).status_code == 200
+    # Only someone who holds system.update can put it in a token.
+    r = env.client.post("/api/v1/api-tokens", headers=env.jwt("vera"),
+                        json={"name": "x", "scopes": ["settings.view", "system.update"]})
+    assert r.status_code in (403, 422)
+
+
 def test_system_update_is_seeded_for_admins_only():
     from services.permission_catalog import UPGRADE_PATH_PERMISSIONS
 
