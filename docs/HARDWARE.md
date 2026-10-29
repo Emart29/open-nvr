@@ -77,6 +77,22 @@ an optional `:device`, which becomes that provider's device option
 OpenVINO's multi-device forms keep their commas — a token that is not a
 provider name continues the previous device.
 
+### Model shapes on accelerators
+
+OpenVINO compiles a graph for a device. A model exported with a **fixed**
+input (yolo26n, yolov8n: `[1, 3, 640, 640]`) compiles once and is the
+easy case. A model exported with **dynamic axes** (`[batch, 3, height,
+width]` — Ultralytics `dynamic=True`, e.g. `yolo11n-pose`) is not: the NPU
+plugin cannot run it at all, and on the Arrow Lake box the iGPU driver
+hard-reset the host twice while compiling it for `GPU` (the fixed-size
+models ran fine on the same device). So on an OpenVINO device other than
+`CPU` the adapters compile static: the SDK passes `disable_dynamic_shapes`
+(compile for the first inference's shapes; `ADAPTER_ONNX_DYNAMIC_SHAPES=1`
+opts out), and an adapter that knows its size pins it with `reshape_input`
+before the session is built — `yolo_pose` pins `[1, 3, 448, 448]` and
+reports `input_shape_pinned` in `/hardware/evaluation`. Prefer fixed-size
+exports for anything meant to run on an accelerator.
+
 ## What each flavour carries
 
 | Flavour | Base | Inference wheel | Vendor user-space | Arch |
@@ -165,10 +181,18 @@ What the numbers say:
   package power on top of CPU load; a desktop-class CPU in a closed cabinet
   needs real airflow. Watch `x86_pkg_temp` (`/sys/class/thermal`) during a
   benchmark; the Settings → AI → Hardware panel (Phase 3) will show it.
+- **The iGPU driver matters as much as the package.** The same box also
+  reset twice at 48 °C, idle, with the test container capped at 8 cores —
+  each time within 30 s of the pose adapter starting on `GPU`, i.e. during
+  the dynamic-shape compile (see "Model shapes on accelerators"). It runs
+  Ubuntu 24.04's 6.8 GA kernel, where Arrow Lake's iGPU is driven by i915
+  with Meteor Lake firmware; the HWE kernel (`linux-generic-hwe-24.04`) is
+  the one Intel validates the Arrow Lake graphics stack on. Move an Intel
+  Core Ultra host to the HWE kernel before running inference on its iGPU.
 
 ## Roadmap
 
 - **Phase 1 (this release):** `intel` flavour for the detect-pipeline, `OPENNVR_ACCEL`, this page.
-- **Phase 2 (this release):** the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package detection) on one shared provider resolver in the SDK, with `-intel` flavours.
+- **Phase 2 (this release):** the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package detection) on one shared provider resolver in the SDK, with `-intel` flavours and static compiles on accelerators (ai-adapter #69, #70).
 - **Phase 3:** the `nvidia` flavour, a Hardware panel under Settings → AI, benchmark rows per hardware class.
 - Later: ROCm, torch-based adapters per flavour, Coral / Hailo through the accelerator adapter.
