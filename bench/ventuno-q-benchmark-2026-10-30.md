@@ -52,3 +52,27 @@ Caveats recorded: the first NPU "run" (12 ms, 239 % CPU at 10 cams) was the STUB
 
 ## In-stack on the NPU, 8 cameras (the ten minus the parked vehicles/tamper)
 16.0 frames/s, 0 dropped, 15.7 inferences/s, wall 19–34 ms per camera (anpr and demo1, 1080p sources: 110–130 ms — letterboxing a large frame on a busy core), detect-pipeline 214 %, host 54 % idle.
+
+## Adapters on the NPU (ai-adapter feat/accelerate-qualcomm images built on the box)
+End-to-end `POST /infer` with a 1080p JPEG (crowd clip), 30 calls after warm-up, median. Includes JPEG decode, letterbox and HTTP on the ARM cores.
+| adapter | device | /infer median | p90 | min | cold start to healthy |
+|---|---|---|---|---|---|
+| yolov8 (yolo26n) | HTP | 59–67 ms | 75–82 | 42 | 10 s (graph compile), 4 s with the cached graph |
+| yolov8 (yolo26n) | CPU | 152 ms | 287 | 140 | 4 s |
+`/hardware/evaluation`: verdict ok, `accelerator_in_use: true`, effective QNN. The HTP's own share is ~9 ms; the rest is JPEG decode and preprocessing on a busy CPU — the adapter path is now bounded by image handling, not inference.
+First build trap: python:slim lacks libatomic1; the HTP backend dlopens it and the adapter silently served on CPU with the plugin listed (fixed in the Dockerfiles).
+| yolo-pose (yolo11n-pose, pinned 448) | HTP | 48–69 ms | 65–93 | 32 | 8 s / 6 s cached |
+| yolo-pose | CPU | 113 ms | 196 | 108 | 4 s |
+| package-detection (yolov8n-package, pinned 416) | HTP | 55 ms | 61–65 | 36 | 8 s / 6 s cached |
+| package-detection | CPU | 103 ms | 267 | 100 | 4 s |
+| fast-plate-ocr (cct-s-v2, one 280×140 crop) | HTP | 79 ms | 123 | 59 | 142 s (model download + compile) |
+| fast-plate-ocr | CPU | 276 ms | 396 | 230 | 140 s (model download) |
+| fast-plate-ocr | QNN GPU (Adreno) | never became healthy in 240 s | | | |
+Dynamic-axes exports (pose, package) only reach the HTP once pinned: the SDK writes `<model>.QNNExecutionProvider.fixed.onnx` before compiling. Parakeet: the box's legacy Docker builder skipped the heredoc weights bake (CI's BuildKit runs it); baked by hand for the measurement.
+| fast-plate-ocr (model cache mounted) | HTP | 66–84 ms | 102–116 | 58 | 4 s cached graph |
+| fast-plate-ocr (model cache mounted) | CPU | 272 ms | 363 | 224 | 4 s |
+| parakeet (3 s 16 kHz clip) | HTP | loads; /infer 500: QNN partition fails at an Expand node (dynamic-length graphs) | | | 24 s |
+| parakeet | CPU | 581 ms | 945 | 495 | 12 s |
+| insightface (buffalo_l, 1080p frame) | HTP | 57–60 ms | 72–74 | 36 | 18–20 s (five graphs compiled), 8 s with cached graphs |
+| insightface | CPU | 436–485 ms | 613–724 | 405 | 6 s |
+Found on the way: derived files written beside the pack were globbed by InsightFace as models and broke the next start; the SDK now keeps them in `.opennvr-accel/` inside the model directory.

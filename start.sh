@@ -209,7 +209,7 @@ accel_summary() {
             echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, ${adapters} (${npu} present)"
             ;;
         qualcomm)
-            echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp), adapters on cpu"
+            echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp); adapters: yolov8, yolo-pose, insightface, package-detection, fast-plate-ocr on the NPU (override <NAME>_ONNX_PROVIDERS or ADAPTER_ONNX_PROVIDERS in .env)"
             ;;
         *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU / a Qualcomm NPU)" ;;
     esac

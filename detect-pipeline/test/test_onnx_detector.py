@@ -507,7 +507,7 @@ def test_ort_backend_attaches_plugin_provider_through_session_options(monkeypatc
     assert "backend_type" not in calls["opts"].added[0][1]
     assert b.effective[0] == "QNNExecutionProvider"
     # first build compiled from the model and cached the graph next to it
-    ctx = tmp_path / "m.onnx.QNNExecutionProvider.ctx.onnx"
+    ctx = tmp_path / ".opennvr-accel" / "m.onnx.QNNExecutionProvider.ctx.onnx"
     assert ctx.exists() and calls["models"] == [str(model)]
     assert calls["opts"].config["ep.context_enable"] == "1"
     # second build loads the cache instead of the model
@@ -550,7 +550,7 @@ def test_ort_backend_reports_cpu_when_the_plugin_compiled_nothing(monkeypatch, t
         b = OrtBackend(str(model), providers="QNNExecutionProvider:htp")
     assert b.effective == ["CPUExecutionProvider"]
     assert "could not use QNNExecutionProvider(htp)" in caplog.text
-    assert not (tmp_path / "m.onnx.QNNExecutionProvider.ctx.onnx").exists()
+    assert not (tmp_path / ".opennvr-accel" / "m.onnx.QNNExecutionProvider.ctx.onnx").exists()
 
 
 def test_ort_backend_falls_back_to_the_providers_list_when_the_plugin_has_no_device(monkeypatch, tmp_path, caplog):
