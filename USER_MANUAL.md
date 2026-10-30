@@ -129,17 +129,22 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   does, from still pictures: the layout you chose, every tile in its place,
   and tiles without a camera left empty (numbered here, dark on the wall).
   Drag a tile onto another to swap the two, ✕ to remove one (its tile is
-  left empty and no other camera moves; **Close gaps** packs them up again),
-  or sort A to Z or by location. A camera ticked in the list fills the first
+  left empty and no other camera moves; **Close gaps** packs them up again).
+  A camera ticked in the list fills the first
   empty tile. To
   put a camera on a particular tile, drag it from the list onto the tile, or
   click the tile, then the camera. A camera already in the step moves there
   instead of showing twice, and the editor says so. Pictures are stills; **▶** on any camera opens it live, only
   when asked. Filling in each camera's Location (North, South, Branch 12…)
   is what makes this quick.
+- **Checks while you edit.** The top bar always counts how many of your
+  cameras are on the tour, and the camera list marks each one that is **Not on
+  tour**. **Save tour** warns you if any are left out, but you can still save.
+  Each page shows how many of its tiles have cameras; empty tiles stay dark on
+  the wall.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
   crops it to fill its tile, which suits portrait and fisheye cameras.
-- **Page changes.** **Start the next page early** (on by default) plays the
+- **Page changes.** **Load the next page in advance** (on by default) plays the
   next page's cameras, hidden, for the last 5 seconds of a page, so they are
   already playing when it shows; the display PC plays two pages for those
   seconds. **When the page changes** is a short **Crossfade** (default) or a
@@ -149,16 +154,15 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   to see; the bar says how many were left out. Changing or deleting a tour
   needs the right to manage every camera in it; anyone else can run it.
 
-**Alarms on the wall.** Turn on **Bring alarms to the front** in a tour's
+**Alarms on the wall.** Turn on **Interrupt the tour when an alarm happens** in a tour's
 settings and an alert on one of its cameras takes over the wall: the
 camera fills the screen with a red frame and a banner saying what happened
 and when, and up to four alarming cameras share the wall. After **Show
-for** (30 s by default) the tour carries on exactly where it was; **Back to
+each alarm for** (30 s by default) the tour carries on exactly where it was; **Back to
 tour** or **Esc** returns at once. Choose what counts — alerts from apps and
 camera analytics (with a lowest severity), the camera's own alarms
 (motion, tamper, line crossing), or both — and whether only the tour's
-cameras or any camera the screen can see may take over. **Cool-down per
-camera** stops one busy camera from holding the wall.
+cameras or any camera the screen can see may take over. **Same camera can interrupt again after** stops one busy camera from holding the wall.
 
 Running a tour on a display board:
 

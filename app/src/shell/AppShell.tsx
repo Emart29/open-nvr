@@ -396,7 +396,7 @@ export function AppShell() {
               value={language}
               onChange={(event) => setLanguage(event.target.value as typeof language)}
               aria-label={t('language.label')}
-              className="h-8 cursor-pointer appearance-none bg-transparent pr-2 text-xs font-medium uppercase text-inherit outline-none"
+              className="h-8 max-w-[3.75rem] sm:max-w-none cursor-pointer bg-transparent text-xs font-medium uppercase text-inherit outline-none"
             >
               <option value="en">EN — {t('language.english')}</option>
               <option value="fr">FR — {t('language.french')}</option>

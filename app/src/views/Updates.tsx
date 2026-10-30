@@ -22,7 +22,7 @@ import { useTranslation } from '../i18n'
 import { useAuth } from '../auth/AuthContext'
 import { durationFieldError } from '../utils/mediamtxDuration'
 import { Link } from 'react-router-dom'
-import { ChevronDown, Check, X, RotateCcw, AlertTriangle, FileText, Settings } from 'lucide-react'
+import { Check, X, RotateCcw, AlertTriangle, FileText, Settings } from 'lucide-react'
 
 type Jsonish = any
 type ConfigSection = 'global' | 'defaults' | 'streams'
@@ -81,7 +81,7 @@ function Select({ label, value, onChange, options, disabled }: { label: string; 
       <label className="block text-sm font-medium mb-1">{label}</label>
       <div className="relative">
         <select
-          className="w-full appearance-none border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50"
+          className="w-full border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
@@ -92,9 +92,6 @@ function Select({ label, value, onChange, options, disabled }: { label: string; 
             </option>
           ))}
         </select>
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[var(--text-dim)]">
-          <ChevronDown size={14} />
-        </div>
       </div>
     </div>
   )
@@ -433,7 +430,7 @@ export function Updates() {
         <label className="text-xs font-semibold text-[var(--text-dim)] uppercase tracking-wider mb-1 block">{t('updates.section')}</label>
         <div className="relative">
           <select 
-            className="w-full appearance-none bg-[var(--bg)] border border-[var(--border)] py-2 pl-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[color-mix(in_oklab,var(--accent)_45%,var(--border))]"
+            className="w-full bg-[var(--bg)] border border-[var(--border)] py-2 pl-3 text-sm focus:outline-none focus:ring-2 focus:ring-[color-mix(in_oklab,var(--accent)_45%,var(--border))]"
             value={activeSection}
             onChange={(e) => setActiveSection(e.target.value as ConfigSection)}
           >
@@ -441,9 +438,6 @@ export function Updates() {
             <option value="global">{t('updates.global')}</option>
             <option value="streams">{t('updates.streams')}</option>
           </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-dim)]">
-             <ChevronDown size={14} />
-          </div>
         </div>
         </div>
 

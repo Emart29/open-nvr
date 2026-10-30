@@ -8,6 +8,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Tour editor redesign.** The tour's name, on/off and summary sit on one
+  row, and its settings open in a dialog. Each page shows how many of its tiles
+  have cameras, the top bar counts how many of your cameras are on the tour, and
+  **Save tour** warns when some are left out. The camera list says where each
+  camera is used, marks those **Not on tour**, and highlights the camera on a
+  clicked tile. **Add remaining** replaces **Add all**, so adding never repeats
+  a camera. A full page offers to put the camera on a new page, removing a page
+  with cameras asks first, and the preview is drawn as the screen it stands for.
+  From 1280 px wide the editor fits the window and its lists scroll inside
+  themselves.
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where
@@ -42,6 +52,8 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Dropdown arrows sat flush against the right edge** on every page. One
+  global rule now draws them, in place of the per-page workarounds.
 - **`start.sh` read `.env` values with their inline comments.** `get_env_var`
   returned `auto   # auto (cvdnn …)` for the `DETECT_ONNX_BACKEND=auto` line
   `.env.example` ships, so the accelerator flavours' `""|auto)` match never
