@@ -53,6 +53,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`tier0_detector_backend` now shows an accelerator fallback.** `requested`
+  was taken after ONNX Runtime had dropped a provider the wheel lacks, or
+  after a session that failed to build had been rebuilt on CPU, so in exactly
+  the two cases the metric exists for it read `requested=CPU, effective=CPU`
+  and the documented `requested != effective` check never fired. The original
+  request is kept; the startup log warns once in both cases.
 - **`start.sh` checks the Compose version and puts every container back on
   every network it declares.** Compose 2.24.x — what Ubuntu 24.04's
   `docker-compose-v2` package ships — attaches a container's networks one at

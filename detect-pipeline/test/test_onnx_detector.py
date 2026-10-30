@@ -326,6 +326,38 @@ def test_ort_backend_exposes_effective_providers_and_warns_on_fallback(caplog):
     assert "could not use OpenVINOExecutionProvider(NPU)" in caplog.text
 
 
+def test_ort_backend_keeps_the_request_when_the_wheel_lacks_the_provider(monkeypatch, caplog, tmp_path):
+    """A plain-onnxruntime wheel asked for OpenVINO: resolve_providers drops
+    it before the session. ``requested`` must still say OpenVINO, so the
+    tier0_detector_backend metric shows requested != effective rather than a
+    CPU run that went as planned."""
+    import logging
+    import sys
+    import types
+
+    class _Sess(_FakeSession):
+        def __init__(self, path, sess_options=None, providers=None):
+            super().__init__(_output([]))
+
+        def get_providers(self):
+            return ["CPUExecutionProvider"]
+
+    fake = types.ModuleType("onnxruntime")
+    fake.InferenceSession = _Sess
+    fake.SessionOptions = _FakeSessionOptions
+    fake.get_available_providers = lambda: ["CPUExecutionProvider"]
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake)
+    model = tmp_path / "m.onnx"
+    model.write_bytes(b"x")
+
+    with caplog.at_level(logging.WARNING):
+        b = OrtBackend(str(model), providers="OpenVINOExecutionProvider:NPU")
+    assert b.requested == [("OpenVINOExecutionProvider", {"device_type": "NPU"})]
+    assert b.effective == ["CPUExecutionProvider"]
+    assert b.fallback_error is None
+    assert "could not use OpenVINOExecutionProvider(NPU)" in caplog.text
+
+
 def test_ort_backend_falls_back_to_cpu_when_the_accelerator_cannot_start(monkeypatch, caplog, tmp_path):
     """OpenVINO raising at session creation (device not passed through,
     driver missing) must leave Tier-0 running on CPU with the reason kept,
@@ -356,7 +388,9 @@ def test_ort_backend_falls_back_to_cpu_when_the_accelerator_cannot_start(monkeyp
 
     with caplog.at_level(logging.ERROR):
         b = OrtBackend(str(model), providers="OpenVINOExecutionProvider:GPU")
-    assert b.requested == ["CPUExecutionProvider"]
+    # ``requested`` keeps what was asked for: the metric shows the fallback as
+    # requested != effective, not as a CPU run that went as planned.
+    assert b.requested == [("OpenVINOExecutionProvider", {"device_type": "GPU"})]
     assert b.effective == ["CPUExecutionProvider"]
     assert b.fallback_error.startswith("RuntimeError: clGetPlatformIDs")
     assert "could not start on OpenVINOExecutionProvider(GPU)" in caplog.text

@@ -73,10 +73,8 @@ from types import SimpleNamespace
 from detect_pipeline.bench import (
     detector_backend_info,
     detector_latency,
-    frame_to_bgr,
     latency_stats,
 )
-from detect_pipeline.frame_source import Frame
 
 
 def test_latency_stats_median_p90_min():
@@ -86,6 +84,14 @@ def test_latency_stats_median_p90_min():
     assert s["min_ms"] == 7.0
     assert s["p90_ms"] == 10.0          # the one 30 ms outlier sits above p90
     assert latency_stats([])["median_ms"] is None
+
+
+def test_latency_stats_p90_is_nearest_rank_not_bankers_rounding():
+    # 26 samples: round(0.9 * 25) == 22 (ties go to even) would pick the 4th
+    # largest; nearest rank ceil(0.9 * 26) - 1 == 23 picks the 3rd largest.
+    s = latency_stats([float(i) for i in range(1, 27)])
+    assert s["p90_ms"] == 24.0
+    assert latency_stats([5.0])["p90_ms"] == 5.0
 
 
 class _CountingDetector:
@@ -106,71 +112,84 @@ def _ticking_clock(step=0.005):
     return clock
 
 
-def test_detector_latency_skips_warmup_and_cycles_a_short_source():
+class _Source:
+    """A reopenable source that records opens and closes, like a generator."""
+
+    def __init__(self, items, endless=False):
+        self.items, self.endless = items, endless
+        self.opens, self.closes, self.taken = 0, 0, []
+
+    def __call__(self):
+        self.opens += 1
+        return self._gen()
+
+    def _gen(self):
+        try:
+            i = 0
+            while True:
+                if i >= len(self.items) and not self.endless:
+                    return
+                item = self.items[i % len(self.items)] if self.items else i
+                self.taken.append(item)
+                yield item
+                i += 1
+        finally:
+            self.closes += 1
+
+
+def test_detector_latency_skips_warmup_and_reopens_a_short_source():
     det = _CountingDetector()
-    samples = detector_latency(
-        ["a", "b", "c"], det, n=20, warmup=5, to_image=lambda f: f, clock=_ticking_clock(),
-    )
+    src = _Source(["a", "b", "c"])
+    samples = detector_latency(src, det, n=20, warmup=5, to_image=lambda f: f,
+                               clock=_ticking_clock())
     assert det.calls == 25              # warm-up runs happen, untimed
     assert len(samples) == 20           # a 3-frame source still yields n samples
     assert all(abs(x - 5.0) < 1e-6 for x in samples)
+    assert src.opens == 9 and src.closes == 9   # reopened, nothing buffered, all closed
 
 
-def test_detector_latency_reads_a_live_source_only_as_far_as_needed():
-    def endless():
-        i = 0
-        while True:
-            yield i
-            i += 1
-    taken = []
-    detector_latency(endless(), _CountingDetector(), n=3, warmup=2,
-                     to_image=lambda f: taken.append(f) or f)
-    assert taken == [0, 1, 2, 3, 4]
+def test_detector_latency_reads_a_live_source_only_as_far_as_needed_and_closes_it():
+    src = _Source([], endless=True)
+    detector_latency(src, _CountingDetector(), n=3, warmup=2, to_image=lambda f: f)
+    assert src.taken == [0, 1, 2, 3, 4]
+    assert src.opens == 1 and src.closes == 1
 
 
 def test_detector_latency_empty_source_raises():
     import pytest
 
     with pytest.raises(RuntimeError):
-        detector_latency([], _CountingDetector(), n=3, warmup=0, to_image=lambda f: f)
+        detector_latency(lambda: iter([]), _CountingDetector(), n=3, warmup=0,
+                         to_image=lambda f: f)
 
 
-def test_frame_to_bgr_shape():
-    w, h = 8, 4
-    img = frame_to_bgr(Frame(bytes(w * h * 3 // 2), w, h, 0, 0.0))
-    assert img.shape == (h, w, 3)
-
-
-def _det(effective, fallback_error=None):
+def _det(requested, effective, fallback_error=None):
     return SimpleNamespace(backend_name="ort", _backend=SimpleNamespace(
-        effective=effective, fallback_error=fallback_error))
+        requested=requested, effective=effective, fallback_error=fallback_error))
+
+
+_NPU = ("OpenVINOExecutionProvider", {"device_type": "NPU"})
 
 
 def test_backend_info_on_the_npu():
-    info = detector_backend_info(
-        _det(["OpenVINOExecutionProvider", "CPUExecutionProvider"]),
-        "OpenVINOExecutionProvider:NPU",
-    )
+    info = detector_backend_info(_det([_NPU], ["OpenVINOExecutionProvider", "CPUExecutionProvider"]))
     assert info["fell_back"] is False
-    assert info["requested"] == "OpenVINOExecutionProvider:NPU"
+    assert info["requested"] == "OpenVINOExecutionProvider(NPU)"
     assert info["effective"].startswith("OpenVINOExecutionProvider")
 
 
-def test_backend_info_flags_a_provider_the_wheel_does_not_carry():
-    # resolve_providers dropped OpenVINO before the session; the backend's own
-    # `requested` says CPU, so only the --providers value reveals the fallback.
-    info = detector_backend_info(_det(["CPUExecutionProvider"]), "OpenVINOExecutionProvider:NPU")
+def test_backend_info_flags_a_request_that_ran_on_cpu():
+    # OrtBackend.requested keeps the request whether the wheel lacked the
+    # provider or the session failed to build; effective tells the truth.
+    info = detector_backend_info(_det([_NPU], ["CPUExecutionProvider"]))
     assert info["fell_back"] is True
-
-
-def test_backend_info_flags_a_session_that_failed_to_build():
-    info = detector_backend_info(
-        _det(["CPUExecutionProvider"], "RuntimeError: no NPU"), "OpenVINOExecutionProvider:NPU",
-    )
+    info = detector_backend_info(_det([_NPU], ["CPUExecutionProvider"], "RuntimeError: no NPU"))
     assert info["fell_back"] is True
     assert info["fallback_error"] == "RuntimeError: no NPU"
 
 
 def test_backend_info_cpu_baseline_is_not_a_fallback():
-    assert detector_backend_info(_det(["CPUExecutionProvider"]), "CPUExecutionProvider")["fell_back"] is False
-    assert detector_backend_info(_det([]), None)["fell_back"] is False
+    assert detector_backend_info(_det(["CPUExecutionProvider"], ["CPUExecutionProvider"]))["fell_back"] is False
+    assert detector_backend_info(_det([], []))["fell_back"] is False
+    # a cvdnn detector has no requested/effective at all
+    assert detector_backend_info(SimpleNamespace(backend_name="cvdnn", _backend=object()))["fell_back"] is False

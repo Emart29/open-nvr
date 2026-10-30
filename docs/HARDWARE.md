@@ -264,7 +264,10 @@ stays on its LAN; a run on your laptop measures your laptop.
 
 ### First results — Intel Core Ultra 9 285K (Arrow Lake, 24 cores, iGPU + NPU)
 
-Single-stream detector latency, yolo26n @ 640, 30-frame average, idle box:
+Single-stream detector latency, yolo26n @ 640, 30-frame **mean** from a hand-run
+probe, idle box. (`bench.py --latency`, added later, reports the **median**; a
+re-run with it will differ by the statistic, not the hardware — re-measure the
+whole table rather than mixing rows.)
 
 | Device | ms/frame |
 |---|---|

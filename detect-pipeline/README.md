@@ -489,11 +489,13 @@ python -m detect_pipeline.bench ... --providers CPUExecutionProvider --threads 0
 # [yolo26n] OpenVINOExecutionProvider, CPUExecutionProvider: median=… ms p90=… ms min=… ms over 30 frames | session build … s
 ```
 
-Each row prints the provider ONNX Runtime **actually** ran on. If the requested
-accelerator could not start (wheel without it, device not passed through, driver
-missing), the run prints `WARNING: … NOT accelerator numbers` and exits 2, so a
-CPU fallback can't pass for an NPU result. `--threads` sets the ORT CPU pool for a
-CPU baseline (the service pins 2; `0` = all cores).
+Each row prints the provider ONNX Runtime **actually** ran on, the input size the
+model accepted (a fixed-shape export overrides `--input`) and the CPU thread count
+that ran (`--threads`; unset is ORT's service default of 2, `0` = all cores, so set
+it for a CPU baseline). If the requested accelerator could not start (wheel without
+it, device not passed through, driver missing), either mode prints
+`WARNING: … NOT accelerator numbers` and exits 2, so a CPU fallback can't pass for
+an NPU result.
 
 Run it on your real clip set / hardware — **do not publish invented numbers**.
 
