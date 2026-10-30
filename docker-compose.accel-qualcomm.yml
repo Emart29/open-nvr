@@ -60,9 +60,8 @@ services:
   # ── ONNX adapters (ai-adapter -qualcomm flavours): QNN on the Hexagon NPU ──
   # Each adapter follows <NAME>_ONNX_PROVIDERS, then the shared
   # ADAPTER_ONNX_PROVIDERS, then a default that is the NPU only where the
-  # model is proven on it (static-shape graphs: the detectors, pose, the
-  # InsightFace pack); dynamic-shape graphs (plate OCR batches, speech) stay
-  # on CPU until measured. The HTP is one device shared by everything on it;
+  # model is measured on it (docs/HARDWARE.md, 'what runs where'). The
+  # HTP is one device shared by everything on it;
   # the Tier-0 detector has first claim. Each keeps the profiles of the
   # service it overrides, so this overlay never activates an adapter the
   # operator did not enable. Same host bits as detect-pipeline above.
@@ -143,7 +142,7 @@ services:
       - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
       - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
     environment:
-      # Plate crops come in batches of varying size: a dynamic-shape graph
-      # the HTP would recompile per shape. CPU until measured otherwise.
-      - ADAPTER_ONNX_PROVIDERS=${FAST_PLATE_OCR_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-CPUExecutionProvider}}
+      # Measured on the HTP: 79 ms a plate end-to-end vs 276 ms on CPU
+      # (single crop per call). The QNN GPU backend hung at load.
+      - ADAPTER_ONNX_PROVIDERS=${FAST_PLATE_OCR_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
       - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}

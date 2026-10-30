@@ -97,17 +97,17 @@ through QNN, a second target for dynamic-shape graphs.
 | Video decode | software | — | no ffmpeg path to the Qualcomm video core |
 | Tier-0 detector (yolo26n) | NPU (`QNNExecutionProvider:htp`) | `DETECT_ONNX_PROVIDERS` | proven: 8.6 ms on the device, 16 cameras clean |
 | yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | proven: `/infer` 59–67 ms end-to-end vs 152 ms on CPU (1080p JPEG; the HTP share is ~9 ms) |
-| yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | static 640 export; measured below |
+| yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | proven: `/infer` 48–69 ms end-to-end vs 113 ms on CPU; the dynamic export is pinned to 448 for the HTP |
 | InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | detector + recogniser, static shapes; measured below |
-| Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | static export; measured below |
-| Plate OCR adapter | CPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | plate crops batch by count: dynamic shape, recompiled per shape on the HTP |
+| Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | proven: `/infer` 55 ms vs 103 ms on CPU; dynamic export pinned to 416 |
+| Plate OCR adapter | NPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | proven: 79 ms a plate vs 276 ms on CPU (single crop per call); the QNN GPU backend hung at load |
 | Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | dynamic-length audio; not yet measured on the HTP |
 | Whisper, BLIP, CLIP, open-vocab, Ollama | CPU | — | ctranslate2 / torch / Ollama: no Hexagon backend in those engines |
 
 `start.sh` prints the decision on every start:
 
 ```
-Accelerate: qualcomm flavour — software decode, detector on QNNExecutionProvider:htp (Hexagon NPU via /dev/fastrpc-cdsp); adapters: yolov8, yolo-pose, insightface, package-detection on the NPU, fast-plate-ocr on cpu (override <NAME>_ONNX_PROVIDERS or ADAPTER_ONNX_PROVIDERS in .env)
+Accelerate: qualcomm flavour — software decode, detector on QNNExecutionProvider:htp (Hexagon NPU via /dev/fastrpc-cdsp); adapters: yolov8, yolo-pose, insightface, package-detection, fast-plate-ocr on the NPU (override <NAME>_ONNX_PROVIDERS or ADAPTER_ONNX_PROVIDERS in .env)
 ```
 
 ### Device shorthand

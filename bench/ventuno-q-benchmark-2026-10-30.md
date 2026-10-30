@@ -61,3 +61,11 @@ End-to-end `POST /infer` with a 1080p JPEG (crowd clip), 30 calls after warm-up,
 | yolov8 (yolo26n) | CPU | 152 ms | 287 | 140 | 4 s |
 `/hardware/evaluation`: verdict ok, `accelerator_in_use: true`, effective QNN. The HTP's own share is ~9 ms; the rest is JPEG decode and preprocessing on a busy CPU — the adapter path is now bounded by image handling, not inference.
 First build trap: python:slim lacks libatomic1; the HTP backend dlopens it and the adapter silently served on CPU with the plugin listed (fixed in the Dockerfiles).
+| yolo-pose (yolo11n-pose, pinned 448) | HTP | 48–69 ms | 65–93 | 32 | 8 s / 6 s cached |
+| yolo-pose | CPU | 113 ms | 196 | 108 | 4 s |
+| package-detection (yolov8n-package, pinned 416) | HTP | 55 ms | 61–65 | 36 | 8 s / 6 s cached |
+| package-detection | CPU | 103 ms | 267 | 100 | 4 s |
+| fast-plate-ocr (cct-s-v2, one 280×140 crop) | HTP | 79 ms | 123 | 59 | 142 s (model download + compile) |
+| fast-plate-ocr | CPU | 276 ms | 396 | 230 | 140 s (model download) |
+| fast-plate-ocr | QNN GPU (Adreno) | never became healthy in 240 s | | | |
+Dynamic-axes exports (pose, package) only reach the HTP once pinned: the SDK writes `<model>.QNNExecutionProvider.fixed.onnx` before compiling. Parakeet: the box's legacy Docker builder skipped the heredoc weights bake (CI's BuildKit runs it); baked by hand for the measurement.
