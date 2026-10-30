@@ -111,7 +111,7 @@ Ports the appliance exposes, and to whom:
 
 * Linux LTS — Ubuntu 24.04 LTS or Debian 12; Raspberry Pi OS (64-bit)
   on S. Unattended security updates on; kernel from the distribution.
-* Docker Engine from Docker's repository (not a snap), Compose v2.
+* Docker Engine from Docker's repository (not a snap), Compose v2 **2.26.1 or newer**. Ubuntu 24.04's own `docker-compose-v2` package is 2.24.6, which randomly leaves a new container off one of its networks (docker/compose#11533); `start.sh` warns and re-attaches, but install Docker's `docker-compose-plugin` instead.
   The compose project runs as the distribution's `docker` group; no
   container is privileged except the opt-in one-click installer,
   which is off unless `APPS_INSTALL_ENABLED=true`.
