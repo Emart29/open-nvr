@@ -42,6 +42,21 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`start.sh` checks the Compose version and puts every container back on
+  every network it declares.** Compose 2.24.x — what Ubuntu 24.04's
+  `docker-compose-v2` package ships — attaches a container's networks one at
+  a time after creating it and randomly drops one (docker/compose#11533,
+  fixed in 2.26.1). On the Ventuno Q benchmark board `opennvr-core` came up
+  on `opennvr_apps` only: 1,900 "could not translate host name db" errors in
+  45 minutes while its health check stayed green, and `nats` lost
+  `opennvr_apps` the same way. Pre-flight now warns below 2.26.1 with the
+  upgrade path, and after every `up` the resolved config is compared with
+  what Docker actually attached; a missing secondary network is reconnected
+  and said out loud. Services with a single network, in a profile or overlay
+  this run was not told about, or in `network_mode`, are left alone.
+  `tests/host-hardening/test_compose_networks.sh` (12 checks, fake `docker`
+  on PATH).
+
 - **`start.sh` read `.env` values with their inline comments.** `get_env_var`
   returned `auto   # auto (cvdnn …)` for the `DETECT_ONNX_BACKEND=auto` line
   `.env.example` ships, so the accelerator flavours' `""|auto)` match never
