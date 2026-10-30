@@ -280,3 +280,120 @@ jobs:
           assert mgr.running_ids() == set()
           print('boot-graph ok')
           "
+
+  # Qualcomm flavour: same source, ACCEL=qualcomm (plain onnxruntime plus the
+  # onnxruntime-qnn plugin provider, which bundles the Qualcomm AI Runtime).
+  # arm64 only — the Hexagon NPU lives in Dragonwing / Snapdragon SoCs.
+  build-and-push-qualcomm:
+    name: detect-pipeline image (qualcomm)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.1"
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/open-nvr/detect-pipeline
+          flavor: |
+            suffix=-qualcomm,onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=OpenNVR detect-pipeline (qualcomm)
+            org.opencontainers.image.description=Tier-0 detection, Qualcomm flavour: ONNX Runtime QNN detector on the Hexagon NPU (software decode).
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.vendor=OpenNVR
+      - name: Build${{ github.event_name != 'pull_request' && ' + push' || ' (no push)' }}
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./detect-pipeline
+          file: detect-pipeline/Dockerfile
+          # arm64 only: onnxruntime-qnn ships Linux wheels for aarch64 (and
+          # x86_64 for AOT compilation only), and the NPU is in arm64 SoCs.
+          platforms: linux/arm64
+          build-args: |
+            ACCEL=qualcomm
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ github.event_name == 'pull_request' && 'ghcr.io/open-nvr/detect-pipeline:local-smoke-qualcomm' || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=detect-pipeline-qualcomm
+          cache-to: type=gha,scope=detect-pipeline-qualcomm,mode=max
+      - name: Sign (Sigstore keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          test -n "$DIGEST"
+          cosign sign --yes "ghcr.io/open-nvr/detect-pipeline@${DIGEST}"
+          echo "signed ghcr.io/open-nvr/detect-pipeline@${DIGEST} (qualcomm)" >> "$GITHUB_STEP_SUMMARY"
+      # The runner has no Hexagon DSP, and the image is arm64 (run under QEMU
+      # via buildx's binfmt), so this proves the flavour is *wired*: the QNN
+      # plugin wheel imports, the service registers it, and the device
+      # shorthand resolves. Inference on the NPU is the benchmark harness's
+      # job on real hardware (docs/HARDWARE.md).
+      - name: Set up QEMU (arm64 smoke)
+        if: github.event_name == 'pull_request'
+        uses: docker/setup-qemu-action@v3
+      - name: Smoke-test the built image (PR only)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ghcr.io/open-nvr/detect-pipeline:local-smoke-qualcomm
+        run: |
+          set -euo pipefail
+          echo "== QNN plugin provider wheel present, with the HTP runtime =="
+          docker run --rm --platform linux/arm64 "$IMAGE" python -c "
+          import os, onnxruntime as ort, onnxruntime_qnn as q
+          print('onnxruntime', ort.__version__, 'onnxruntime-qnn', q.__version__)
+          for p in (q.get_library_path(), q.get_qnn_htp_path()):
+              assert os.path.exists(p), p
+          assert os.path.exists(os.path.join(os.path.dirname(q.get_qnn_htp_path()), 'libQnnHtpV73Skel.so'))
+          "
+          echo "== the service registers the plugin and resolves the shorthand =="
+          docker run --rm --platform linux/arm64 "$IMAGE" python -c "
+          import onnxruntime as ort
+          from detect_pipeline.onnx_detector import available_providers, resolve_providers, describe_providers
+          avail = available_providers(ort, 'QNNExecutionProvider:htp')
+          assert 'QNNExecutionProvider' in avail, avail
+          p = resolve_providers('QNNExecutionProvider:htp', avail)
+          assert p[0] == ('QNNExecutionProvider', {'backend_type': 'htp'}), p
+          print(describe_providers(p))
+          "
+          echo "== boot graph (service disabled) =="
+          docker run --rm --platform linux/arm64 -e DETECT_PIPELINE_ENABLED=false "$IMAGE" python -c "
+          import detect_pipeline.run as r, detect_pipeline.bus as b
+          cfg = r.config_from_env({'DETECT_PIPELINE_ENABLED': 'false'})
+          mgr = r.build_manager(cfg, b.EventSink(lambda s, d: None))
+          mgr.reconcile()
+          assert mgr.running_ids() == set()
+          print('boot-graph ok')
+          "

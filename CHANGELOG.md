@@ -18,7 +18,38 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   device instead of leaving detect-pipeline in a restart loop
   (the adapters do the same, ai-adapter #74). `docs/HARDWARE.md` gains a
   "What runs where" table.
+- **OpenNVR Accelerate: Qualcomm Hexagon NPU (`-qualcomm` flavour).** A
+  third hardware flavour of the detect-pipeline image: `ACCEL=qualcomm`
+  adds `onnxruntime-qnn`, the Qualcomm AI Runtime *plugin* execution
+  provider, next to plain ONNX Runtime. `start.sh` picks it on `auto` when
+  an arm64 host has the Hexagon compute DSP (`/dev/fastrpc-cdsp`) —
+  Dragonwing IQ8 / QCS8275 and Snapdragon boards on Qualcomm's Ubuntu —
+  via `docker-compose.accel-qualcomm.yml`, which lends the container the
+  DSP node and the host's two fastrpc libraries. The Tier-0 detector then
+  runs on the HTP (`DETECT_ONNX_PROVIDERS=QNNExecutionProvider:htp`); the
+  service registers the plugin library itself (`onnx_detector
+  .register_plugin_providers`), so a plugin provider is no longer dropped by
+  the "requested ∩ available" filter, attaches it by device, and caches
+  its compiled graph next to the model (`<model>.QNNExecutionProvider
+  .ctx.onnx`) so the detector pool's sessions after the first skip the
+  ~6 s compile; that cache is also how `tier0_detector_backend{effective}`
+  tells an NPU that took the graph from one whose device failed (the
+  session keeps listing the provider either way). New
+  `DETECT_ONNX_PROVIDER_OPTIONS=key=value,…` passes any provider option
+  through. Decode stays in
+  software; adapters stay on their cpu images. Measured on an Arduino
+  Ventuno Q (QCS8275): see `docs/HARDWARE.md`.
 
+### Fixed
+
+- **`start.sh` read `.env` values with their inline comments.** `get_env_var`
+  returned `auto   # auto (cvdnn …)` for the `DETECT_ONNX_BACKEND=auto` line
+  `.env.example` ships, so the accelerator flavours' `""|auto)` match never
+  fired and the Tier-0 detector stayed on the OpenCV path with the NPU
+  passed through and idle. The reader now strips unquoted inline comments
+  and surrounding whitespace, as compose does. Belt and braces: with
+  `DETECT_ONNX_BACKEND=auto`, requesting execution providers now resolves to
+  the `ort` backend by itself — an accelerator is only reachable through it.
 - **Cameras page: bulk actions, grid view, pause recording.** Tick
   cameras (or "Select all", then "Select all N cameras" across every page
   matching the filters) and use **Actions** to set or clear location, turn

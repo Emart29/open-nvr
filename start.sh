@@ -70,17 +70,23 @@ COMMAND="${1:-start}"
 
 # ── Helper: read a value from .env ────────────────────────
 get_env_var() {
+    # The value as compose reads it: an unquoted inline comment (" # …") and
+    # surrounding whitespace are not part of it. .env.example writes
+    # ``DETECT_ONNX_BACKEND=auto   # auto (cvdnn …)``, and the flavour logic
+    # below matches that value against ``auto``.
     local key="$1"
-    grep -E "^${key}=" .env 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'"
+    grep -E "^${key}=" .env 2>/dev/null | cut -d'=' -f2- | sed -E 's/[[:space:]]+#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//' | tr -d '"' | tr -d "'"
 }
 
 # ── OpenNVR Accelerate: hardware flavour ───────────────────
-# OPENNVR_ACCEL=auto|cpu|intel in .env (default auto). auto reads the host:
-#   intel  Linux with an Intel render node (/sys/class/drm/renderD*, 0x8086)
-#   cpu    everything else — the macOS/Windows Docker VMs expose no devices
-# A flavour is an overlay + the matching image tag suffix (-intel), see
-# docker-compose.accel-*.yml. The NPU overlay joins when /dev/accel/accel0 is
-# present. The flavour only fills DETECT_* values .env leaves at the CPU
+# OPENNVR_ACCEL=auto|cpu|intel|qualcomm in .env (default auto). auto reads the host:
+#   intel     Linux with an Intel render node (/sys/class/drm/renderD*, 0x8086)
+#   qualcomm  Linux arm64 with the Hexagon compute DSP (/dev/fastrpc-cdsp):
+#             Dragonwing / Snapdragon boards on Qualcomm's Ubuntu
+#   cpu       everything else — the macOS/Windows Docker VMs expose no devices
+# A flavour is an overlay + the matching image tag suffix (-intel, -qualcomm),
+# see docker-compose.accel-*.yml. The Intel NPU overlay joins when
+# /dev/accel/accel0 is present. The flavour only fills DETECT_* values .env leaves at the CPU
 # default; an explicit operator value (qsv, a provider list) always wins.
 # The flavour image must be pullable (or already local) before we commit to
 # it: flavour tags ride the release (0.2.0-intel), so a main checkout pinned
@@ -104,15 +110,17 @@ detect_accel() {
     local want accel=cpu
     want=$(get_env_var "OPENNVR_ACCEL" | tr '[:upper:]' '[:lower:]')
     case "$want" in
-        cpu|intel) accel="$want" ;;
+        cpu|intel|qualcomm) accel="$want" ;;
         ""|auto)
             if [[ "$OS" == Linux* ]]; then
                 local v
                 for v in /sys/class/drm/renderD*/device/vendor; do
                     [[ -r "$v" ]] && [[ "$(cat "$v" 2>/dev/null)" == "0x8086" ]] && { accel=intel; break; }
                 done
+                # The Hexagon NPU has no render node; its fastrpc device is the tell.
+                [[ "$accel" == cpu && "$(uname -m)" == aarch64 && -e /dev/fastrpc-cdsp ]] && accel=qualcomm
             fi ;;
-        *) echo "Unknown OPENNVR_ACCEL=$want (auto|cpu|intel); using cpu" >&2 ;;
+        *) echo "Unknown OPENNVR_ACCEL=$want (auto|cpu|intel|qualcomm); using cpu" >&2 ;;
     esac
     if [[ "$accel" != cpu ]]; then
         local img; img=$(accel_image "$accel")
@@ -131,6 +139,10 @@ accel_args() {
             [[ -f docker-compose.accel-intel.yml ]] || { echo "docker-compose.accel-intel.yml not found" >&2; return 1; }
             args="-f docker-compose.accel-intel.yml"
             [[ -e /dev/accel/accel0 ]] && args="$args -f docker-compose.accel-intel-npu.yml"
+            ;;
+        qualcomm)
+            [[ -f docker-compose.accel-qualcomm.yml ]] || { echo "docker-compose.accel-qualcomm.yml not found" >&2; return 1; }
+            args="-f docker-compose.accel-qualcomm.yml"
             ;;
     esac
     echo "$args"
@@ -163,6 +175,21 @@ apply_accel_env() {
                 [[ -e /dev/accel/accel0 ]] && export YOLO_POSE_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
             fi
             ;;
+        qualcomm)
+            # Decode stays in software (ffmpeg has no path to the Qualcomm
+            # video core); the detector goes to the Hexagon Tensor Processor.
+            case "$(get_env_var DETECT_ONNX_BACKEND)" in ""|auto) export DETECT_ONNX_BACKEND=ort ;; esac
+            [[ -n "$(get_env_var DETECT_ONNX_PROVIDERS)" ]] || export DETECT_ONNX_PROVIDERS="QNNExecutionProvider:htp"
+            # The DSP and DMA-heap nodes are group-owned; the overlay adds the
+            # groups to the container. Read them off the host unless .env pins them.
+            local gid
+            if [[ -z "$(get_env_var FASTRPC_GID)" ]]; then
+                gid=$(getent group fastrpc 2>/dev/null | cut -d: -f3); [[ -n "$gid" ]] && export FASTRPC_GID="$gid"
+            fi
+            if [[ -z "$(get_env_var DMAHEAP_GID)" ]]; then
+                gid=$(getent group dmaheap 2>/dev/null | cut -d: -f3); [[ -n "$gid" ]] && export DMAHEAP_GID="$gid"
+            fi
+            ;;
     esac
 }
 accel_summary() {
@@ -181,7 +208,10 @@ accel_summary() {
             fi
             echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, ${adapters} (${npu} present)"
             ;;
-        *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU)" ;;
+        qualcomm)
+            echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp), adapters on cpu"
+            ;;
+        *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU / a Qualcomm NPU)" ;;
     esac
 }
 

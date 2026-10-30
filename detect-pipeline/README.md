@@ -367,6 +367,7 @@ so the backend is interchangeable):
 | Hardware | Install | Select |
 |---|---|---|
 | Intel iGPU / NPU (N100, Core Ultra, Arc) | the **`-intel` image flavour** (`ACCEL=intel`: `onnxruntime-openvino` + Intel OpenCL/NPU runtime); bare: `pip install onnxruntime-openvino` | `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` (or `:GPU`, `:CPU`); avoid `AUTO:…`, which warms up on CPU and may stay there |
+| Qualcomm Hexagon NPU (Dragonwing IQ8 / QCS, Snapdragon) | the **`-qualcomm` image flavour** (`ACCEL=qualcomm`: `onnxruntime-qnn`, the QNN *plugin* provider, next to plain `onnxruntime`); bare: `pip install onnxruntime-qnn` | `DETECT_ONNX_PROVIDERS=QNNExecutionProvider:htp`; the service registers the plugin library itself. Needs `/dev/fastrpc-cdsp` and the host's `libcdsprpc.so.1` (see `docker-compose.accel-qualcomm.yml`) |
 | Nvidia / Jetson | `pip install onnxruntime-gpu` | `DETECT_ONNX_PROVIDERS=TensorrtExecutionProvider,CUDAExecutionProvider` |
 | Apple Silicon | `pip install onnxruntime` | `DETECT_ONNX_PROVIDERS=CoreMLExecutionProvider` |
 | Any CPU | already in the container image (`[service]` extra); bare pip installs: `pip install 'detect-pipeline[onnxruntime]'` | `DETECT_ONNX_BACKEND=ort` |
@@ -383,8 +384,17 @@ instead of failing — and because ORT does that *silently*, the service logs a
 warning when the first requested provider is not the one the session runs on,
 and exports `tier0_detector_backend{backend,requested,effective}` so a dashboard
 can see it. A `:device` after a provider name sets its device option
-(`device_type` for OpenVINO, `device_id` for CUDA/TensorRT); OpenVINO's
-multi-device forms keep their commas: `OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`.
+(`device_type` for OpenVINO, `device_id` for CUDA/TensorRT, `backend_type` for
+QNN); OpenVINO's multi-device forms keep their commas:
+`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`. Anything else a provider takes goes
+in `DETECT_ONNX_PROVIDER_OPTIONS=key=value,key=value` (QNN's HTP defaults:
+sustained clocks, fp16 for an fp32 model, the slowest/best graph finalisation).
+A plugin provider (QNN) is registered by the service and attached by device;
+its compiled graph is cached next to the model (`<model>.<Provider>.ctx.onnx`,
+or under the temp dir when the weights volume is read-only) so every session
+after the first loads in a fraction of the compile time, and the cache's
+existence is what `tier0_detector_backend{effective}` reports for it —
+`get_providers()` keeps naming a plugin whose device never came up.
 CLI equivalent: `--backend ort --providers OpenVINOExecutionProvider:NPU`.
 
 **Coral (EdgeTPU)** and **Hailo** are *also* backends on this same seam, but they

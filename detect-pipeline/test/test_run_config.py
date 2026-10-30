@@ -289,6 +289,11 @@ def test_resolve_onnx_backend_auto_and_explicit():
     from detect_pipeline.run import _resolve_onnx_backend
 
     assert _resolve_onnx_backend("auto", "cvdnn") == "cvdnn"
+    # auto + execution providers is ort: the accelerator flavours set the
+    # providers and leave DETECT_ONNX_BACKEND=auto in .env
+    assert _resolve_onnx_backend("auto", "cvdnn", ["QNNExecutionProvider:htp"]) == "ort"
+    assert _resolve_onnx_backend("", "cvdnn", ["OpenVINOExecutionProvider:NPU"]) == "ort"
+    assert _resolve_onnx_backend("cvdnn", "cvdnn", ["QNNExecutionProvider:htp"]) == "cvdnn"  # explicit wins
     assert _resolve_onnx_backend("", "ort") == "ort"
     assert _resolve_onnx_backend("cvdnn", "ort") == "cvdnn"   # explicit wins
     assert _resolve_onnx_backend("tensorflow", "cvdnn") == "cvdnn"

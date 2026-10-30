@@ -177,7 +177,7 @@ CORE_IMAGES = ("core", "detect-pipeline", "camera-agent")
 # selecting it and stays on cpu (with a message) when it is not. So it is
 # reported, never failed — and counted as "release" while the release that
 # publishes it is still pending.
-FLAVOUR_SUFFIXES = ("-intel", "-nvidia", "-rocm")
+FLAVOUR_SUFFIXES = ("-intel", "-qualcomm", "-nvidia", "-rocm")
 
 
 def release_tag_exists(version: str) -> bool:

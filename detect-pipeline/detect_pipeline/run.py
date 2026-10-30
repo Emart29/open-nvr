@@ -24,8 +24,11 @@ Env:
                             optional ":device" (OpenVINOExecutionProvider:NPU,
                             OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU,
                             CUDAExecutionProvider:1), e.g.
-                            "OpenVINOExecutionProvider" (Intel N100) or
+                            "OpenVINOExecutionProvider" (Intel N100),
+                            "QNNExecutionProvider:htp" (Qualcomm Hexagon) or
                             "TensorrtExecutionProvider,CUDAExecutionProvider"
+  DETECT_ONNX_PROVIDER_OPTIONS  extra provider options, key=value,key=value
+                            (QNN: htp_performance_mode, vtcm_mb, ...)
   DETECT_HWACCEL            cpu | vaapi | nvidia | qsv | rpi | rkmpp | jetson
   DETECT_NMS_CROSS_LABEL_IOU  IoU above which boxes of DIFFERENT labels are one
                             object (default 0.85; 0 or 1 = off). Off for
@@ -313,14 +316,17 @@ def _gate_factory(cfg: ServiceConfig):
     return lambda: Gate(gcfg)
 
 
-def _resolve_onnx_backend(configured: str, family_default: str) -> str:
+def _resolve_onnx_backend(configured: str, family_default: str, providers=None) -> str:
     """DETECT_ONNX_BACKEND: '' / 'auto' resolve per detector family — cvdnn
     for the YOLO head (runs everywhere, zero deps), ort for the DETR head
-    (transformer exports exceed cv2.dnn's operator coverage). An explicit
+    (transformer exports exceed cv2.dnn's operator coverage) — unless
+    execution providers were requested: an accelerator is only reachable
+    through ort, so ``auto`` + DETECT_ONNX_PROVIDERS is ort (the flavour
+    overlays set the providers and leave the backend alone). An explicit
     cvdnn/ort is honored; anything else warns and uses the family default."""
     value = (configured or "auto").strip().lower()
     if value in ("", "auto"):
-        return family_default
+        return "ort" if providers else family_default
     if value in ("cvdnn", "ort"):
         return value
     log.warning("unknown DETECT_ONNX_BACKEND=%r; using %s", configured, family_default)
@@ -358,7 +364,7 @@ def _detector_factory(cfg: ServiceConfig):
         from .onnx_detector import OnnxYoloDetector
 
         providers = [p.strip() for p in cfg.onnx_providers.split(",") if p.strip()] or None
-        backend = _resolve_onnx_backend(cfg.onnx_backend, "cvdnn")
+        backend = _resolve_onnx_backend(cfg.onnx_backend, "cvdnn", providers)
         if providers and backend != "ort":
             log.warning(
                 "DETECT_ONNX_PROVIDERS is set but backend=%s ignores it "
