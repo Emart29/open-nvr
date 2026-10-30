@@ -144,6 +144,7 @@ board, software decode, Tier-0 asking ~2 fps per camera, 60 s windows after a
 |---|---|---|---|---|---|---|
 | 4 | `cpu` | 2.0 fps each | none | 284 | 439 % | 21 % |
 | 10 | `cpu` | 0.9 fps each | **half** | 1047–1127 | 600–630 % | 4 % |
+| 8 | `qualcomm` | 2.0 fps each | none | 19–34 (two 1080p clips 110–130) | 214 % | 54 % |
 | 16 | `qualcomm` | 2.0 fps each | none | 25 (median per camera 25–28) | 281–300 % | 37–42 % |
 
 The CPU ceiling on this board is ~8.5 inferences/s: four cameras clean, ten

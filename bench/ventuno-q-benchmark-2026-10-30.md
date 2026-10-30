@@ -49,3 +49,6 @@ Host requirements found the hard way: /dev/fastrpc-cdsp AND /dev/dma_heap/{syste
 | 2 | 32.1 | 0 | 24.1 | 25 (28) | 301 % | 37 % |
 | 4 (auto) | 32.2 | 0 | 24.1 | 25 (25) | 281 % | 42 % |
 Caveats recorded: the first NPU "run" (12 ms, 239 % CPU at 10 cams) was the STUB detector after `SessionOptions.add_provider` by name was refused — discarded. vehicles/tamper folders are transcoded by the rig (a core each) and were parked for these windows.
+
+## In-stack on the NPU, 8 cameras (the ten minus the parked vehicles/tamper)
+16.0 frames/s, 0 dropped, 15.7 inferences/s, wall 19–34 ms per camera (anpr and demo1, 1080p sources: 110–130 ms — letterboxing a large frame on a busy core), detect-pipeline 214 %, host 54 % idle.
