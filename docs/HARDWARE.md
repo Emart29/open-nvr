@@ -183,21 +183,25 @@ What the numbers say:
   package power on top of CPU load; a desktop-class CPU in a closed cabinet
   needs real airflow. Watch `x86_pkg_temp` (`/sys/class/thermal`) during a
   benchmark; the Settings → AI → Hardware panel (Phase 3) will show it.
-- **One model can take a host down on the iGPU; the NPU is the pose
-  device.** The same box reset four times at 48 °C, idle, with the test
-  container capped at 8 cores — each time within 30 s of the pose adapter
-  starting on `GPU`: with the dynamic export, with the input pinned to
-  448, on the 6.8 GA kernel and on the 7.0 HWE kernel, never a line in the
-  journal. The fixed-size yolov8n and yolo26n compile and run fine on that
-  GPU (19–23 ms/frame), and the pinned pose model runs on the NPU at
-  19 ms/frame. So `OPENNVR_ACCEL=intel` puts the pose adapter on the NPU
-  when the host has one (`YOLO_POSE_ONNX_PROVIDERS` overrides; on a host
-  without an NPU it follows `ADAPTER_ONNX_PROVIDERS`, so set it to
-  `OpenVINOExecutionProvider:CPU` if that host resets). Open question for
-  the iGPU: the 7.0 kernel asks for GuC firmware 70.53 and Ubuntu's
-  `linux-firmware` ships 70.36. Move an Intel Core Ultra host to the HWE
-  kernel (`linux-generic-hwe-24.04`) regardless — it is the stack Intel
-  validates Arrow Lake graphics on — and keep the GA kernel as fallback.
+- **A platform can reset under accelerator load; the symptom is not a
+  software one.** The same box, idle at 48 °C with the test container
+  capped at 8 cores, reset within 30 s of the pose adapter starting on
+  `GPU` — four times: dynamic export, input pinned to 448, 6.8 GA and 7.0
+  HWE kernels — and once more running InsightFace's detector on the `NPU`.
+  Never a line in the journal, nothing in the EFI pstore (so no kernel
+  panic), no watchdog: the board reset itself. Meanwhile the fixed-size
+  yolov8n and yolo26n run fine on that GPU (19–23 ms/frame) and the pinned
+  pose model runs on the NPU at 19 ms/frame. Which model trips it is a
+  matter of which load pattern the power delivery or firmware cannot take,
+  not of shapes or drivers. On such a board: update the BIOS (this one was
+  a year old), check the PSU, lower the RAPL limits as a test, and keep the
+  accelerators to the models that are proven on it. `OPENNVR_ACCEL=intel`
+  puts the pose adapter on the NPU when the host has one
+  (`YOLO_POSE_ONNX_PROVIDERS` overrides; without an NPU it follows
+  `ADAPTER_ONNX_PROVIDERS`); any adapter can be pinned to
+  `OpenVINOExecutionProvider:CPU` the same way. Move an Intel Core Ultra
+  host to the HWE kernel (`linux-generic-hwe-24.04`) regardless — it is the
+  stack Intel validates Arrow Lake on — and keep the GA kernel as fallback.
 
 ## Roadmap
 
