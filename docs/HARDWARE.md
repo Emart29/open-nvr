@@ -16,7 +16,7 @@ app concern.
 | Any x86-64 or arm64 CPU | `cpu` (plain tag) | software | onnxruntime CPU | onnxruntime CPU | shipped |
 | Intel iGPU — N100, Core i, Core Ultra, Arc | `intel` (`-intel`) | VA-API on the iGPU | OpenVINO on the iGPU | OpenVINO on the iGPU (`-intel` adapter images) | this release |
 | Intel NPU — Core Ultra "AI Boost" | `intel` (`-intel`) | n/a (NPU does not decode) | OpenVINO on the NPU (default when present) | iGPU by default; `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` to move them | this release |
-| Qualcomm Hexagon NPU — Dragonwing IQ8 / QCS8275, Snapdragon | `qualcomm` (`-qualcomm`) | software (ffmpeg has no path to the Qualcomm video core) | ONNX Runtime QNN plugin on the HTP (default when `/dev/fastrpc-cdsp` is present) | QNN on the HTP (`-qualcomm` adapter images: YOLO, pose, InsightFace, package detection; plate OCR on CPU) | this release |
+| Qualcomm Hexagon NPU — Dragonwing IQ8 / QCS8275, Snapdragon | `qualcomm` (`-qualcomm`) | software (ffmpeg has no path to the Qualcomm video core) | ONNX Runtime QNN plugin on the HTP (default when `/dev/fastrpc-cdsp` is present) | QNN on the HTP (`-qualcomm` adapter images: YOLO, pose, InsightFace, package detection, plate OCR; Parakeet stays on CPU) | this release |
 | NVIDIA — desktop GPU, Jetson | `nvidia` (`-nvidia`) | NVDEC (`DETECT_HWACCEL=nvidia`) | CUDA / TensorRT | CUDA (`onnxruntime-gpu`) | decode shipped; images Phase 3 |
 | AMD — iGPU, Radeon | later (`-rocm`) | VA-API (shipped) | ROCm | ROCm | on demand |
 | Raspberry Pi, Rockchip | `cpu` | `rpi` / `rkmpp` decode | CPU | CPU | decode shipped |
@@ -169,6 +169,15 @@ default), which the plugin applies at graph finalisation; an INT8 export is the
 next step on this platform, not a requirement.
 
 ## Measured: Qualcomm Hexagon HTP (Arduino Ventuno Q, QCS8275, 2026-10-30)
+
+The board: Arduino Ventuno Q — Qualcomm Dragonwing IQ-8275 (QCS8275, on the
+QCS8300 "Monaco" platform per its device tree), 8× Kryo (Cortex-A78C +
+Cortex-A55), Adreno 623, a Hexagon NPU Arduino rates at up to 40 dense TOPS,
+16 GB LPDDR5, 64 GB eMMC; Ubuntu 24.04.4, kernel 6.8 (qcom). Runtime: ONNX
+Runtime 1.31.1 with onnxruntime-qnn 2.7.0 (QAIRT 2.51), HTP backend, fp32
+models run at fp16. The full log, including the CPU baseline and the
+re-measurement from the CI-published images, is
+[`bench/ventuno-q-benchmark-2026-10-30.md`](../bench/ventuno-q-benchmark-2026-10-30.md).
 
 The stack's own `yolo26n.onnx` (fp32, 640×640), run through the QNN plugin
 with the flavour's defaults (`htp_performance_mode=sustained_high_performance`,
