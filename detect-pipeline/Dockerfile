@@ -10,6 +10,8 @@
 #   cpu   (default)  plain onnxruntime; amd64 + arm64
 #   intel            onnxruntime-openvino + Intel OpenCL/NPU runtime
 #                    (scripts/install-intel-runtime.sh); amd64 only
+#   qualcomm         + onnxruntime-qnn, the Qualcomm AI Runtime plugin provider
+#                    (Hexagon NPU on Dragonwing / Snapdragon); arm64 only
 #   docker build --build-arg ACCEL=intel -t detect-pipeline:intel .
 ARG BASE=python:3.11-slim
 FROM ${BASE}
@@ -39,12 +41,20 @@ RUN pip install --no-cache-dir ".[service]"
 # Flavour step. The accelerator wheels CONFLICT with plain onnxruntime (same
 # import name), so swap rather than add. Pinned: the OpenVINO EP changes
 # device semantics between releases.
+# qualcomm is the exception: onnxruntime-qnn >= 2.0 is a PLUGIN provider
+# (a library the service registers at startup, see onnx_detector
+# .register_plugin_providers), so it sits NEXT TO plain onnxruntime rather
+# than replacing it. The wheel bundles the whole QAIRT user-space (libQnnHtp,
+# the HTP v68–v81 skels and stubs); the host only lends the fastrpc device
+# and its two libraries, see docker-compose.accel-qualcomm.yml. Pinned: the
+# plugin tracks a QAIRT release and ORT's plugin API is young.
 RUN case "${ACCEL}" in \
       cpu) ;; \
       intel) sh scripts/install-intel-runtime.sh \
              && pip uninstall -y onnxruntime \
              && pip install --no-cache-dir onnxruntime-openvino==1.24.1 ;; \
-      *) echo "unknown ACCEL=${ACCEL} (cpu|intel)" >&2; exit 1 ;; \
+      qualcomm) pip install --no-cache-dir "onnxruntime>=1.24.2,<2" onnxruntime-qnn==2.7.0 ;; \
+      *) echo "unknown ACCEL=${ACCEL} (cpu|intel|qualcomm)" >&2; exit 1 ;; \
     esac
 ENV OPENNVR_ACCEL_FLAVOUR=${ACCEL}
 
