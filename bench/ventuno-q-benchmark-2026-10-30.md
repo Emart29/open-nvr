@@ -69,3 +69,7 @@ First build trap: python:slim lacks libatomic1; the HTP backend dlopens it and t
 | fast-plate-ocr | CPU | 276 ms | 396 | 230 | 140 s (model download) |
 | fast-plate-ocr | QNN GPU (Adreno) | never became healthy in 240 s | | | |
 Dynamic-axes exports (pose, package) only reach the HTP once pinned: the SDK writes `<model>.QNNExecutionProvider.fixed.onnx` before compiling. Parakeet: the box's legacy Docker builder skipped the heredoc weights bake (CI's BuildKit runs it); baked by hand for the measurement.
+| fast-plate-ocr (model cache mounted) | HTP | 66–84 ms | 102–116 | 58 | 4 s cached graph |
+| fast-plate-ocr (model cache mounted) | CPU | 272 ms | 363 | 224 | 4 s |
+| parakeet (3 s 16 kHz clip) | HTP | loads; /infer 500: QNN partition fails at an Expand node (dynamic-length graphs) | | | 24 s |
+| parakeet | CPU | 581 ms | 945 | 495 | 12 s |

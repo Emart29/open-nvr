@@ -101,7 +101,7 @@ through QNN, a second target for dynamic-shape graphs.
 | InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | detector + recogniser, static shapes; measured below |
 | Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | proven: `/infer` 55 ms vs 103 ms on CPU; dynamic export pinned to 416 |
 | Plate OCR adapter | NPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | proven: 79 ms a plate vs 276 ms on CPU (single crop per call); the QNN GPU backend hung at load |
-| Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | dynamic-length audio; not yet measured on the HTP |
+| Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | measured: loads on the HTP, fails at inference (dynamic-length graphs, Expand node); CPU does 3 s of audio in 0.6 s |
 | Whisper, BLIP, CLIP, open-vocab, Ollama | CPU | — | ctranslate2 / torch / Ollama: no Hexagon backend in those engines |
 
 `start.sh` prints the decision on every start:
