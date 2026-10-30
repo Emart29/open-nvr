@@ -8,6 +8,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-device detector benchmark.** `python -m detect_pipeline.bench
+  --latency N` times the Tier-0 detector on whole frames and reports
+  ms/frame (median, p90, min) after untimed warm-up runs. `--providers`
+  takes the `DETECT_ONNX_PROVIDERS` syntax (`OpenVINOExecutionProvider:NPU`,
+  `:GPU`, `:CPU`), so one model on one clip gives a row per device. Each row
+  names the provider ONNX Runtime really ran on, and a run whose accelerator
+  fell back to CPU prints a warning and exits 2. Also `--backend`,
+  `--input`, `--threads` (ORT CPU pool for a baseline) and `--max-frames`
+  (bounds a live RTSP source). The gated run now builds the detector
+  outside its timer, so an NPU's graph compile no longer counts against
+  its fps. `docs/HARDWARE.md` has the command for an NPU host.
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where

@@ -138,6 +138,102 @@ def tracks_from_source(
         seq += 1
 
 
+def latency_stats(samples_ms: list[float]) -> dict:
+    """Median / p90 / min / mean of per-frame detector times, in ms.
+
+    Median, not mean, is the headline: one slow frame (a GC pause, the OS
+    scheduling something else) moves a 30-frame mean but not the median, and
+    accelerators have a long first-run tail even after warm-up.
+    """
+    if not samples_ms:
+        return {"n": 0, "median_ms": None, "p90_ms": None, "min_ms": None, "mean_ms": None}
+    import statistics
+
+    s = sorted(samples_ms)
+    p90 = s[min(len(s) - 1, round(0.9 * (len(s) - 1)))]
+    return {
+        "n": len(s),
+        "median_ms": round(statistics.median(s), 2),
+        "p90_ms": round(p90, 2),
+        "min_ms": round(s[0], 2),
+        "mean_ms": round(statistics.fmean(s), 2),
+    }
+
+
+def frame_to_bgr(frame):
+    """The pipeline's I420 ``Frame`` as the BGR image a detector takes."""
+    import cv2
+    import numpy as np
+
+    yuv = np.frombuffer(frame.data, dtype=np.uint8).reshape(frame.height * 3 // 2, frame.width)
+    return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
+
+
+def detector_latency(frames, detector, *, n: int = 30, warmup: int = 10,
+                     to_image=frame_to_bgr, clock=None) -> list[float]:
+    """Time ``detector.detect`` on whole frames: ``n`` samples after ``warmup``.
+
+    This is the single-stream number in docs/HARDWARE.md ("detector ms/frame"):
+    preprocessing, inference and box decoding for one frame, with no motion
+    gate, regions or tracker in front — so two devices running the same model
+    on the same frames compare directly. Warm-up runs are not timed: the first
+    inferences on an NPU or iGPU include graph compilation.
+
+    A source that ends early (a short clip) is cycled, so ``n`` is always met;
+    a live RTSP stream is read only as far as needed.
+    """
+    import time
+
+    clock = clock or time.perf_counter
+    total = max(0, warmup) + max(1, n)
+    seen: list = []
+    images = iter(frames)
+    samples: list[float] = []
+    for i in range(total):
+        frame = next(images, None)
+        if frame is None:
+            if not seen:
+                raise RuntimeError("the source produced no frames")
+            frame = seen[i % len(seen)]
+        elif len(seen) < total:
+            seen.append(frame)
+        img = to_image(frame)
+        t0 = clock()
+        detector.detect(img)
+        if i >= warmup:
+            samples.append((clock() - t0) * 1000.0)
+    return samples
+
+
+def detector_backend_info(detector, asked=None) -> dict:
+    """What the bench asked for and what ONNX Runtime really gave the detector.
+
+    ``fell_back`` is the line to read before trusting a number: an OpenVINO
+    NPU request that ORT could not start runs on CPU without failing, and the
+    ms/frame it produces is then a CPU number. It is judged against ``asked``
+    (the --providers value), not the backend's own ``requested``: a provider
+    the wheel does not carry is dropped before the session is built, and a
+    session that failed to build is rebuilt on CPU with ``requested`` reset
+    to CPU — both would otherwise look like a CPU run that went as planned.
+    """
+    from .onnx_detector import parse_provider_specs
+
+    backend = getattr(detector, "_backend", None)
+    effective = list(getattr(backend, "effective", None) or [])
+    specs = parse_provider_specs(asked)
+    wanted = specs[0][0] if specs else None
+    return {
+        "backend": getattr(detector, "backend_name", type(detector).__name__),
+        "requested": asked or None,
+        "effective": ", ".join(effective) or None,
+        "fell_back": bool(
+            wanted and wanted != "CPUExecutionProvider"
+            and (not effective or effective[0] != wanted)
+        ),
+        "fallback_error": getattr(backend, "fallback_error", None),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     import argparse
     import json
@@ -159,12 +255,44 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     p.add_argument("--repeat", type=int, default=1,
                    help="run N times and report fps mean±std — so a small speed delta "
                         "isn't just run-to-run noise")
+    p.add_argument("--max-frames", type=int, default=None,
+                   help="stop after N frames — required for a live RTSP source, which never ends")
+    acc = p.add_argument_group(
+        "accelerators (onnx detector)",
+        "Same syntax as the service: DETECT_ONNX_PROVIDERS for --providers, and "
+        "DETECT_ONNX_PROVIDER_OPTIONS (k=v,k=v) is read from the environment.",
+    )
+    acc.add_argument("--backend", choices=["auto", "cvdnn", "ort"], default="auto",
+                     help="auto: ort when --providers is set, else cvdnn (the service's default)")
+    acc.add_argument("--providers", default=None,
+                     help="ORT execution providers with an optional :device, e.g. "
+                          "OpenVINOExecutionProvider:NPU, OpenVINOExecutionProvider:GPU, "
+                          "OpenVINOExecutionProvider:CPU, CPUExecutionProvider")
+    acc.add_argument("--input", type=int, default=640, help="model input size (default 640)")
+    acc.add_argument("--threads", type=int, default=None,
+                     help="ORT CPU threads (DETECT_CV_THREADS; the service pins 2, 0 = all cores). "
+                          "Set it for a CPU baseline so the row says what it is")
+    acc.add_argument("--latency", type=int, default=0, metavar="N",
+                     help="detector-only mode: time N whole frames after --warmup and report "
+                          "ms/frame (median, p90) instead of the gated pipeline run")
+    acc.add_argument("--warmup", type=int, default=10,
+                     help="untimed inferences before --latency samples (NPU/iGPU compile here)")
     args = p.parse_args(argv)
+
+    if args.threads is not None:
+        import os
+        os.environ["DETECT_CV_THREADS"] = str(args.threads)
+    backend = args.backend
+    if backend == "auto":
+        backend = "ort" if args.providers else "cvdnn"
+    if args.providers and backend != "ort":
+        p.error("--providers needs --backend ort (cvdnn has no execution providers)")
 
     def _detector():
         if args.detector == "onnx":
             from .onnx_detector import OnnxYoloDetector
-            return OnnxYoloDetector(model_path=args.model)
+            return OnnxYoloDetector(model_path=args.model, input_size=args.input,
+                                    backend=backend, providers=args.providers)
         if args.detector == "blob":
             from .detectors_local import BrightBlobDetector
             return BrightBlobDetector()
@@ -173,13 +301,35 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     model_id = args.model_id or (
         args.model.rsplit("/", 1)[-1].rsplit(".", 1)[0] if args.model else args.detector
     )
+
+    if args.latency:
+        t0 = time.monotonic()
+        det = _detector()
+        load_s = time.monotonic() - t0
+        info = detector_backend_info(det, args.providers)
+        frames = VideoFileSource(args.source, max_frames=args.max_frames).stream()
+        samples = detector_latency(frames, det, n=args.latency, warmup=args.warmup)
+        out = {"model_id": model_id, **info, "input": args.input, "threads": args.threads,
+               "load_s": round(load_s, 2), "warmup": args.warmup, **latency_stats(samples)}
+        on = info["effective"] or info["backend"]
+        print(f"[{model_id}] {on}: median={out['median_ms']} ms p90={out['p90_ms']} ms "
+              f"min={out['min_ms']} ms over {out['n']} frames | session build {out['load_s']} s")
+        if info["fell_back"]:
+            print(f"WARNING: asked for {args.providers} but ran on {on} — "
+                  f"these are NOT accelerator numbers. {info['fallback_error'] or ''}".rstrip())
+        print(json.dumps(out, indent=2))
+        return 2 if info["fell_back"] else 0
+
     cfg = GateConfig(shadow=False, heartbeat_s=args.heartbeat, escalate_cooldown_s=args.cooldown)
 
     runs: list[BenchResult] = []
     for _ in range(max(1, args.repeat)):
-        frames = VideoFileSource(args.source).stream()   # fresh generator each run
+        frames = VideoFileSource(args.source, max_frames=args.max_frames).stream()
+        # Built outside the timer: an NPU/iGPU session compiles its graph here,
+        # which is start-up cost, not throughput.
+        det = _detector()
         t0 = time.monotonic()
-        res = run_benchmark(tracks_from_source(frames, detector=_detector(), fps=args.fps), cfg)
+        res = run_benchmark(tracks_from_source(frames, detector=det, fps=args.fps), cfg)
         res.wall_seconds = time.monotonic() - t0
         res.model_id = model_id
         runs.append(res)
@@ -187,6 +337,11 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
 
     last = runs[-1]
     out = last.as_dict()
+    if args.detector == "onnx":
+        out.update(detector_backend_info(det, args.providers))
+        if out["fell_back"]:
+            print(f"WARNING: asked for {args.providers} but ran on {out['effective']} — "
+                  "these are NOT accelerator numbers.")
     if len(runs) > 1:
         fps_vals = [r.fps for r in runs if r.fps is not None]
         if fps_vals:
