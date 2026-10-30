@@ -390,8 +390,9 @@ QNN); OpenVINO's multi-device forms keep their commas:
 in `DETECT_ONNX_PROVIDER_OPTIONS=key=value,key=value` (QNN's HTP defaults:
 sustained clocks, fp16 for an fp32 model, the slowest/best graph finalisation).
 A plugin provider (QNN) is registered by the service and attached by device;
-its compiled graph is cached next to the model (`<model>.<Provider>.ctx.onnx`,
-or under the temp dir when the weights volume is read-only) so every session
+its compiled graph is cached in `.opennvr-accel/` inside the model's directory
+(`<model>.<Provider>.ctx.onnx`; under the temp dir when the weights volume is
+read-only) so every session
 after the first loads in a fraction of the compile time, and the cache's
 existence is what `tier0_detector_backend{effective}` reports for it —
 `get_providers()` keeps naming a plugin whose device never came up.

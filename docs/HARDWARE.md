@@ -98,7 +98,7 @@ through QNN, a second target for dynamic-shape graphs.
 | Tier-0 detector (yolo26n) | NPU (`QNNExecutionProvider:htp`) | `DETECT_ONNX_PROVIDERS` | proven: 8.6 ms on the device, 16 cameras clean |
 | yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | proven: `/infer` 59–67 ms end-to-end vs 152 ms on CPU (1080p JPEG; the HTP share is ~9 ms) |
 | yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | proven: `/infer` 48–69 ms end-to-end vs 113 ms on CPU; the dynamic export is pinned to 448 for the HTP |
-| InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | detector + recogniser, static shapes; measured below |
+| InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | proven: `/infer` 60 ms vs ~460 ms on CPU (buffalo_l; the dynamic detector pinned to 640, the recogniser's batch to 1) |
 | Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | proven: `/infer` 55 ms vs 103 ms on CPU; dynamic export pinned to 416 |
 | Plate OCR adapter | NPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | proven: 79 ms a plate vs 276 ms on CPU (single crop per call); the QNN GPU backend hung at load |
 | Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | measured: loads on the HTP, fails at inference (dynamic-length graphs, Expand node); CPU does 3 s of audio in 0.6 s |
@@ -214,7 +214,7 @@ tells you when it did:
 | Is this camera decoding on the GPU? | `tier0_decode_config{camera,hwaccel="vaapi"}` — the **effective** backend; `cpu` next to a `vaapi` request means the render node was not reachable |
 | Did core promote cameras to the main stream for a GPU that is not there? | `tier0_mainstream_fallback{camera}` |
 | Is the detector on the NPU? | `tier0_detector_backend{requested,effective}` — `effective="CPUExecutionProvider"` beside an OpenVINO request means the device or its driver is missing; the log says the same once at startup |
-| Is the detector on the Hexagon NPU? | the same metric and log line. A *plugin* provider keeps listing itself after its device failed, so for QNN `effective` comes from whether the provider compiled the graph: the compiled-graph cache file (`yolo26n.onnx.QNNExecutionProvider.ctx.onnx` next to the model, or under the temp dir) exists after the first session. `detect-pipeline` logs `compiled the graph, cached at …` once, then `loaded the compiled graph …` for every later session — the compile is ~6 s on a Hexagon v73, the load well under a second |
+| Is the detector on the Hexagon NPU? | the same metric and log line. A *plugin* provider keeps listing itself after its device failed, so for QNN `effective` comes from whether the provider compiled the graph: the compiled-graph cache file (`.opennvr-accel/yolo26n.onnx.QNNExecutionProvider.ctx.onnx` inside the model's directory, or under the temp dir) exists after the first session. `detect-pipeline` logs `compiled the graph, cached at …` once, then `loaded the compiled graph …` for every later session — the compile is ~6 s on a Hexagon v73, the load well under a second |
 | Is an adapter on the iGPU? | its `GET /hardware/evaluation`: `requested_providers`, `effective_providers`, `accelerator_in_use`; the adapter logs one warning at load when they differ |
 | Is the iGPU busy at all? | `intel_gpu_top` on the host (`Video` engine = decode, `Render/3D` / `Compute` = inference) |
 
