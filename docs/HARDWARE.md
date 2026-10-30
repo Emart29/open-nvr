@@ -98,7 +98,7 @@ through QNN, a second target for dynamic-shape graphs.
 | Tier-0 detector (yolo26n) | NPU (`QNNExecutionProvider:htp`) | `DETECT_ONNX_PROVIDERS` | proven: 8.6 ms on the device, 16 cameras clean |
 | yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | proven: `/infer` 59–67 ms end-to-end vs 152 ms on CPU (1080p JPEG; the HTP share is ~9 ms) |
 | yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | proven: `/infer` 48–69 ms end-to-end vs 113 ms on CPU; the dynamic export is pinned to 448 for the HTP |
-| InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | proven: `/infer` 60 ms vs ~460 ms on CPU (buffalo_l; the dynamic detector pinned to 640, the recogniser's batch to 1) |
+| InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | proven: `/infer` 57–60 ms vs 436–485 ms on CPU (buffalo_l; the dynamic detector pinned to 640, the recogniser's batch to 1); 18 s first start, 8 s with cached graphs |
 | Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | proven: `/infer` 55 ms vs 103 ms on CPU; dynamic export pinned to 416 |
 | Plate OCR adapter | NPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | proven: 79 ms a plate vs 276 ms on CPU (single crop per call); the QNN GPU backend hung at load |
 | Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | measured: loads on the HTP, fails at inference (dynamic-length graphs, Expand node); CPU does 3 s of audio in 0.6 s |

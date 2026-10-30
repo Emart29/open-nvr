@@ -73,6 +73,6 @@ Dynamic-axes exports (pose, package) only reach the HTP once pinned: the SDK wri
 | fast-plate-ocr (model cache mounted) | CPU | 272 ms | 363 | 224 | 4 s |
 | parakeet (3 s 16 kHz clip) | HTP | loads; /infer 500: QNN partition fails at an Expand node (dynamic-length graphs) | | | 24 s |
 | parakeet | CPU | 581 ms | 945 | 495 | 12 s |
-| insightface (buffalo_l, 1080p frame) | HTP | 60 ms | 74 | 36 | 20 s (five graphs compiled) |
-| insightface | CPU | 451–485 ms | 613–724 | 405 | 6 s |
+| insightface (buffalo_l, 1080p frame) | HTP | 57–60 ms | 72–74 | 36 | 18–20 s (five graphs compiled), 8 s with cached graphs |
+| insightface | CPU | 436–485 ms | 613–724 | 405 | 6 s |
 Found on the way: derived files written beside the pack were globbed by InsightFace as models and broke the next start; the SDK now keeps them in `.opennvr-accel/` inside the model directory.
