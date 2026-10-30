@@ -293,17 +293,22 @@ def plugin_context_path(model_path: str, provider: str) -> str:
     QNN (and the other plugin providers) compile the graph for the device at
     session build — 6 s for yolo26n on a Hexagon v73 — and can dump that as an
     "EP context" model, which later sessions load in a fraction of the time.
-    Next to the model when its directory is writable (the weights volume),
-    else under the temp dir; the file name carries the provider so flavours
-    never share one.
+    In ``.opennvr-accel/`` inside the model's directory when that is writable
+    (the weights volume), else under the temp dir; the file name carries the
+    provider so flavours never share one.
     """
     import os as _os
     import tempfile
 
     base = f"{_os.path.basename(model_path)}.{provider}.ctx.onnx"
     d = _os.path.dirname(_os.path.abspath(model_path))
-    if not _os.access(d, _os.W_OK):
-        d = tempfile.gettempdir()
+    # A hidden directory INSIDE the model's, never beside the model: the
+    # weights volume is shared with the yolov8 adapter, and libraries that
+    # glob *.onnx load every file they find as a model (seen with
+    # InsightFace's pack in ai-adapter).
+    d = _os.path.join(d, ".opennvr-accel") if _os.access(d, _os.W_OK) \
+        else _os.path.join(tempfile.gettempdir(), "opennvr-accel")
+    _os.makedirs(d, exist_ok=True)
     return _os.path.join(d, base)
 
 

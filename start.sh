@@ -209,7 +209,7 @@ accel_summary() {
             echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, ${adapters} (${npu} present)"
             ;;
         qualcomm)
-            echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp), adapters on cpu"
+            echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp); adapters: yolov8, yolo-pose, insightface, package-detection, fast-plate-ocr on the NPU (override <NAME>_ONNX_PROVIDERS or ADAPTER_ONNX_PROVIDERS in .env)"
             ;;
         *) echo -e "${GRAY}Accelerate:${NC} cpu flavour (set OPENNVR_ACCEL in .env, or add an Intel iGPU / a Qualcomm NPU)" ;;
     esac
@@ -394,6 +394,114 @@ port_usable() {
 #      socket in a way forbidden by its access permissions."
 # with a message naming the port and telling the operator what to do.
 #
+# ── Docker Compose version ─────────────────────────────────
+# Compose 2.24.x — what Ubuntu 24.04's docker-compose-v2 package ships —
+# attaches a container's networks one `network connect` at a time after
+# creating it and randomly drops one of them (docker/compose#11533, fixed
+# in 2.26.1). opennvr-core then comes up on opennvr_apps only, cannot
+# resolve `db` or `nats`, and its health check still reports green: the
+# Ventuno Q benchmark board lost core and nats this way on a plain
+# `./start.sh up`. run_validate warns below this version and
+# ensure_compose_networks repairs the damage after every up regardless.
+COMPOSE_MIN_VERSION="2.26.1"
+
+# "2.24.6+ds1-0ubuntu2" → "2.24.6"; "v2.29.7" → "2.29.7"; "" when the
+# plugin is missing or prints something that is not a version.
+compose_version() {
+    docker compose version --short 2>/dev/null | sed -E 's/^v//; s/[^0-9.].*$//' | grep -E '^[0-9]+(\.[0-9]+)*$'
+}
+
+# version_ge A B — true when dotted version A is B or newer (numeric parts,
+# missing parts count as 0). bash 3.2 compatible.
+version_ge() {
+    local a b i x y
+    IFS=. read -r -a a <<<"$1"
+    IFS=. read -r -a b <<<"$2"
+    for i in 0 1 2 3; do
+        x=${a[$i]:-0}; y=${b[$i]:-0}
+        [ "$x" -gt "$y" ] 2>/dev/null && return 0
+        [ "$x" -lt "$y" ] 2>/dev/null && return 1
+    done
+    return 0
+}
+
+# ── Post-up: every container on every network it declares ──
+# Compares the resolved config with what Docker actually attached and
+# reconnects what is missing — a no-op on a healthy stack, the fix for
+# the Compose bug above on an old one. Prints each repair so the operator
+# knows why the version warning matters. Skipped (non-fatal) without a
+# JSON parser; a missing check must never block a working start.
+ensure_compose_networks() {
+    local args="$1"
+    local cfg ps plan name net fixed=0
+    python3_usable || return 0
+    cfg=$(docker compose $args config --format json 2>/dev/null) || return 0
+    ps=$(docker compose $args ps --format json 2>/dev/null) || return 0
+    [ -n "$cfg" ] && [ -n "$ps" ] || return 0
+
+    plan=$(printf '%s' "$cfg" | OPENNVR_PS_JSON="$ps" python3 -c '
+import json, os, subprocess, sys
+try:
+    cfg = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+raw = os.environ.get("OPENNVR_PS_JSON", "").strip()
+# Compose >= 2.21 prints one JSON object per line; older prints an array.
+try:
+    ps = json.loads(raw)
+    if isinstance(ps, dict):
+        ps = [ps]
+except Exception:
+    ps = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                ps.append(json.loads(line))
+            except Exception:
+                pass
+nets = cfg.get("networks") or {}
+def real(alias):
+    return (nets.get(alias) or {}).get("name") or alias
+services = cfg.get("services") or {}
+for c in ps:
+    svc, name = c.get("Service"), c.get("Name")
+    if not svc or not name or str(c.get("State") or "").lower() != "running":
+        continue
+    spec = services.get(svc)
+    if spec is None:
+        continue  # a profile or overlay this run was not told about
+    decl = spec.get("networks")
+    aliases = list(decl.keys()) if isinstance(decl, dict) else list(decl or [])
+    if len(aliases) < 2 or spec.get("network_mode"):
+        continue  # the bug only ever drops a SECONDARY network
+    want = {real(a) for a in aliases}
+    out = subprocess.run(
+        ["docker", "inspect", "-f", "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}", name],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        continue
+    have = set(out.stdout.split())
+    for net in sorted(want - have):
+        print(name, net)
+' 2>/dev/null) || return 0
+    [ -n "$plan" ] || return 0
+
+    while read -r name net; do
+        [ -n "$name" ] && [ -n "$net" ] || continue
+        if docker network connect "$net" "$name" >/dev/null 2>&1; then
+            echo -e "  ${YELLOW}⚠ Re-attached $name to $net${NC} — Compose left it off (see the Compose version warning)."
+            fixed=$((fixed + 1))
+        else
+            echo -e "  ${RED}✗ $name is not on $net and could not be attached.${NC}" >&2
+            echo -e "  ${GRAY}    docker network connect $net $name${NC}" >&2
+        fi
+    done <<<"$plan"
+    [ "$fixed" -gt 0 ] && echo -e "  ${GRAY}  Upgrade Docker Compose to $COMPOSE_MIN_VERSION or newer to stop this happening.${NC}"
+    return 0
+}
+
 # Reads the resolved config so overlays and profiles are included and this
 # stays correct as compose changes. Skipped (non-fatal) when no JSON parser
 # is available — a missing pre-flight must never block a working start.
@@ -531,6 +639,24 @@ run_validate() {
         errors=$((errors + 1))
     else
         echo -e "  ${GREEN}✓ Docker is running${NC}"
+        # 1b. Compose version — see COMPOSE_MIN_VERSION.
+        local compose_ver
+        compose_ver=$(compose_version)
+        if [ -z "$compose_ver" ]; then
+            echo -e "  ${YELLOW}⚠ Could not read the Docker Compose version${NC}"
+            echo "      → Docker Compose v2 (the plugin, 'docker compose') is required."
+            warnings=$((warnings + 1))
+        elif version_ge "$compose_ver" "$COMPOSE_MIN_VERSION"; then
+            echo -e "  ${GREEN}✓ Docker Compose $compose_ver${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ Docker Compose $compose_ver is older than $COMPOSE_MIN_VERSION${NC}"
+            echo "      → 2.24–2.25 randomly leave a new container off one of its networks"
+            echo "        (docker/compose#11533): core loses the database, health stays green."
+            echo "        start.sh re-attaches them after every up; upgrade to stop relying on that."
+            echo "        Ubuntu's docker-compose-v2 package is affected — Docker's own repository"
+            echo "        ships a current docker-compose-plugin: https://docs.docker.com/engine/install/"
+            warnings=$((warnings + 1))
+        fi
     fi
 
     # 2. Compose file
@@ -1550,6 +1676,7 @@ run_up() {
     [ "${KEEP_ORPHANS:-}" = 1 ] && up_flags=""
     [ "${UP_BUILD:-}" = 1 ] && up_flags="$up_flags --build"
     docker compose $ARGS up -d $up_flags
+    ensure_compose_networks "$ARGS"
     echo ""
     ADMIN_USER=$(get_env_var "DEFAULT_ADMIN_USERNAME")
     ADMIN_USER=${ADMIN_USER:-admin}
@@ -1575,6 +1702,7 @@ run_build() {
     echo -e "  ${GREEN}Building images and starting all services ...${NC}"
     docker compose $ARGS build
     docker compose $ARGS up -d --remove-orphans
+    ensure_compose_networks "$ARGS"
     echo ""
     ADMIN_USER=$(get_env_var "DEFAULT_ADMIN_USERNAME")
     ADMIN_USER=${ADMIN_USER:-admin}

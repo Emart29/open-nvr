@@ -35,8 +35,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.accel-qualcomm.yml up -d
 #
 # Decode stays in software: the Qualcomm video core is reachable only through
-# the vendor GStreamer stack, which ffmpeg does not use. The adapters stay on
-# their cpu images until ai-adapter ships -qualcomm flavours.
+# the vendor GStreamer stack, which ffmpeg does not use.
 services:
   detect-pipeline:
     image: ${DETECT_PIPELINE_IMAGE:-ghcr.io/open-nvr/detect-pipeline:${CORE_TAG:-latest}-qualcomm}
@@ -58,3 +57,92 @@ services:
       # DETECT_ONNX_PROVIDER_OPTIONS=key=value,key=value.
       - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-QNNExecutionProvider:htp}
       - DETECT_ONNX_PROVIDER_OPTIONS=${DETECT_ONNX_PROVIDER_OPTIONS:-}
+  # ── ONNX adapters (ai-adapter -qualcomm flavours): QNN on the Hexagon NPU ──
+  # Each adapter follows <NAME>_ONNX_PROVIDERS, then the shared
+  # ADAPTER_ONNX_PROVIDERS, then a default that is the NPU only where the
+  # model is measured on it (docs/HARDWARE.md, 'what runs where'). The
+  # HTP is one device shared by everything on it;
+  # the Tier-0 detector has first claim. Each keeps the profiles of the
+  # service it overrides, so this overlay never activates an adapter the
+  # operator did not enable. Same host bits as detect-pipeline above.
+  yolov8-adapter:
+    image: ghcr.io/open-nvr/yolov8-adapter:${ADAPTER_TAG:-latest}-qualcomm
+    devices:
+      - /dev/fastrpc-cdsp:/dev/fastrpc-cdsp
+      - /dev/dma_heap/system:/dev/dma_heap/system
+      - /dev/dma_heap/qcom,system:/dev/dma_heap/qcom,system
+    group_add:
+      - "${FASTRPC_GID:-125}"
+      - "${DMAHEAP_GID:-989}"
+    volumes:
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${YOLOV8_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
+      - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}
+  yolo-pose-adapter:
+    profiles: [apps, guard-scan-compliance]
+    image: ghcr.io/open-nvr/yolo-pose-adapter:${YOLO_POSE_ADAPTER_TAG:-latest}-qualcomm
+    devices:
+      - /dev/fastrpc-cdsp:/dev/fastrpc-cdsp
+      - /dev/dma_heap/system:/dev/dma_heap/system
+      - /dev/dma_heap/qcom,system:/dev/dma_heap/qcom,system
+    group_add:
+      - "${FASTRPC_GID:-125}"
+      - "${DMAHEAP_GID:-989}"
+    volumes:
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${YOLO_POSE_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
+      - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}
+  insightface-adapter:
+    profiles: [apps, smart-doorbell]
+    image: ghcr.io/open-nvr/insightface-adapter:${ADAPTER_TAG:-latest}-qualcomm
+    devices:
+      - /dev/fastrpc-cdsp:/dev/fastrpc-cdsp
+      - /dev/dma_heap/system:/dev/dma_heap/system
+      - /dev/dma_heap/qcom,system:/dev/dma_heap/qcom,system
+    group_add:
+      - "${FASTRPC_GID:-125}"
+      - "${DMAHEAP_GID:-989}"
+    volumes:
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${INSIGHTFACE_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
+      - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}
+  package-detection-adapter:
+    profiles: [apps, package-delivery]
+    image: ghcr.io/open-nvr/package-detection-adapter:${ADAPTER_TAG:-latest}-qualcomm
+    devices:
+      - /dev/fastrpc-cdsp:/dev/fastrpc-cdsp
+      - /dev/dma_heap/system:/dev/dma_heap/system
+      - /dev/dma_heap/qcom,system:/dev/dma_heap/qcom,system
+    group_add:
+      - "${FASTRPC_GID:-125}"
+      - "${DMAHEAP_GID:-989}"
+    volumes:
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
+    environment:
+      - ADAPTER_ONNX_PROVIDERS=${PACKAGE_DETECTION_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
+      - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}
+  fast-plate-ocr-adapter:
+    profiles: [apps, license-plate-recognition]
+    image: ghcr.io/open-nvr/fast-plate-ocr-adapter:${ADAPTER_TAG:-latest}-qualcomm
+    devices:
+      - /dev/fastrpc-cdsp:/dev/fastrpc-cdsp
+      - /dev/dma_heap/system:/dev/dma_heap/system
+      - /dev/dma_heap/qcom,system:/dev/dma_heap/qcom,system
+    group_add:
+      - "${FASTRPC_GID:-125}"
+      - "${DMAHEAP_GID:-989}"
+    volumes:
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libcdsprpc.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcdsprpc.so:ro
+      - ${QCOM_LIB_DIR:-/usr/lib/aarch64-linux-gnu}/libdmabufheap.so.0:/usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:ro
+    environment:
+      # Measured on the HTP: 79 ms a plate end-to-end vs 276 ms on CPU
+      # (single crop per call). The QNN GPU backend hung at load.
+      - ADAPTER_ONNX_PROVIDERS=${FAST_PLATE_OCR_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-QNNExecutionProvider:htp}}
+      - ADAPTER_ONNX_PROVIDER_OPTIONS=${ADAPTER_ONNX_PROVIDER_OPTIONS:-}
