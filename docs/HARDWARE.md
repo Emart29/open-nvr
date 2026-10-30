@@ -42,9 +42,8 @@ macOS and Windows Docker VMs expose no devices. The intel choice:
   compose refuses to start when a listed device is absent, and N100-class
   boxes have the iGPU but no NPU),
 - swaps the ONNX adapters (YOLO, pose, InsightFace, plate OCR, package
-  detection) for their `-intel` images with `/dev/dri` passed through and
-  `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:GPU` — the iGPU takes
-  dynamic shapes and leaves the NPU to the always-on Tier-0 detector,
+  detection) for their `-intel` images with `/dev/dri` passed through, each
+  on the device it is proven on (see "What runs where" below),
 - fills the defaults an `.env` leaves at the CPU value: `DETECT_HWACCEL=vaapi`,
   `DETECT_ONNX_BACKEND=ort`,
   `DETECT_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` when `/dev/accel/accel0`
@@ -54,8 +53,30 @@ macOS and Windows Docker VMs expose no devices. The intel choice:
 `start.sh` prints the decision on every start:
 
 ```
-Accelerate: intel flavour — iGPU decode (vaapi), detector on OpenVINOExecutionProvider:NPU (NPU present)
+Accelerate: intel flavour — iGPU decode (vaapi), detector on OpenVINOExecutionProvider:NPU, yolov8 on OpenVINOExecutionProvider:GPU, pose on OpenVINOExecutionProvider:NPU, other adapters on CPU unless set (NPU present)
 ```
+
+### What runs where (intel defaults)
+
+The default is an accelerator only where that model has been proven on
+Intel hardware; everything else stays on CPU until it is. Each line is one
+`.env` variable; `ADAPTER_ONNX_PROVIDERS` moves all five adapters at once.
+
+| Service | Default on `intel` | Override | Status |
+|---|---|---|---|
+| Video decode | iGPU (`DETECT_HWACCEL=vaapi`) | `DETECT_HWACCEL` | proven, long runs |
+| Tier-0 detector (yolo26n) | NPU, or iGPU without one | `DETECT_ONNX_PROVIDERS` | proven, long runs, 7–8 ms/frame |
+| yolov8 adapter | iGPU | `YOLOV8_ONNX_PROVIDERS` | proven, 19–23 ms/frame |
+| yolo_pose adapter | NPU; CPU without one | `YOLO_POSE_ONNX_PROVIDERS` | proven on the NPU, 19 ms/frame; resets a host on the iGPU |
+| InsightFace adapter | CPU | `INSIGHTFACE_ONNX_PROVIDERS` | not yet proven on iGPU/NPU |
+| Plate OCR adapter | CPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | not yet proven |
+| Package detection adapter | CPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | not yet proven |
+
+A wrong value never crashes a service: if the requested device cannot be
+opened (not passed through, driver missing, plugin failure) the detector
+and every adapter build their session again on CPU, log an error, and
+report `accelerator_fallback_error` (adapters) or `requested != effective`
+(the `tier0_detector_backend` metric) — see the next section.
 
 Running compose by hand instead of `start.sh`: add the overlay(s) with `-f`
 and export the three `DETECT_*` values, or set them in `.env`.

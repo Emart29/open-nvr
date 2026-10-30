@@ -303,6 +303,9 @@ class OrtBackend:
     """
 
     name = "ort"
+    #: Set when the accelerated session could not be built and the backend
+    #: fell back to CPU (the error text); None otherwise.
+    fallback_error: str | None = None
 
     def __init__(
         self,
@@ -320,9 +323,29 @@ class OrtBackend:
 
             provs = resolve_providers(providers, ort.get_available_providers())
             log.info("ONNX Runtime backend requesting providers: %s", describe_providers(provs))
-            self._sess = ort.InferenceSession(
-                model_path, sess_options=_ort_session_options(ort), providers=provs
-            )
+            try:
+                self._sess = ort.InferenceSession(
+                    model_path, sess_options=_ort_session_options(ort), providers=provs
+                )
+            except Exception as exc:  # noqa: BLE001 — any failure of the accelerated path
+                if not provs or provider_name(provs[0]) == _CPU_EP:
+                    raise
+                # An accelerator that cannot even start (device not passed
+                # through, driver missing, plugin failure) must not take
+                # Tier-0 down with it: run on CPU, say so loudly, and let
+                # the tier0_detector_backend metric show requested != effective.
+                self.fallback_error = f"{type(exc).__name__}: {exc}"[:400]
+                log.error(
+                    "ONNX Runtime could not start on %s — %s. Falling back to CPU; "
+                    "detection works but is not accelerated. Check the device is "
+                    "passed through to the container and the image flavour matches "
+                    "the host.",
+                    describe_providers(provs[:1]), self.fallback_error,
+                )
+                provs = [_CPU_EP]
+                self._sess = ort.InferenceSession(
+                    model_path, sess_options=_ort_session_options(ort), providers=provs
+                )
             self.requested = provs
         self._input = self._sess.get_inputs()[0].name
         self.effective = self._effective_providers()
