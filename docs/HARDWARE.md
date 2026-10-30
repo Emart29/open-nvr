@@ -16,6 +16,7 @@ app concern.
 | Any x86-64 or arm64 CPU | `cpu` (plain tag) | software | onnxruntime CPU | onnxruntime CPU | shipped |
 | Intel iGPU — N100, Core i, Core Ultra, Arc | `intel` (`-intel`) | VA-API on the iGPU | OpenVINO on the iGPU | OpenVINO on the iGPU (`-intel` adapter images) | this release |
 | Intel NPU — Core Ultra "AI Boost" | `intel` (`-intel`) | n/a (NPU does not decode) | OpenVINO on the NPU (default when present) | iGPU by default; `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` to move them | this release |
+| Qualcomm Hexagon NPU — Dragonwing IQ8 / QCS8275, Snapdragon | `qualcomm` (`-qualcomm`) | software (ffmpeg has no path to the Qualcomm video core) | ONNX Runtime QNN plugin on the HTP (default when `/dev/fastrpc-cdsp` is present) | cpu images until ai-adapter ships `-qualcomm` | this release |
 | NVIDIA — desktop GPU, Jetson | `nvidia` (`-nvidia`) | NVDEC (`DETECT_HWACCEL=nvidia`) | CUDA / TensorRT | CUDA (`onnxruntime-gpu`) | decode shipped; images Phase 3 |
 | AMD — iGPU, Radeon | later (`-rocm`) | VA-API (shipped) | ROCm | ROCm | on demand |
 | Raspberry Pi, Rockchip | `cpu` | `rpi` / `rkmpp` decode | CPU | CPU | decode shipped |
@@ -28,12 +29,13 @@ release" is the current main branch.
 
 ```dotenv
 # .env
-OPENNVR_ACCEL=auto      # auto (default) | cpu | intel
+OPENNVR_ACCEL=auto      # auto (default) | cpu | intel | qualcomm
 ```
 
 On `auto`, `start.sh` picks `intel` on a Linux host with an Intel render node
-(`/sys/class/drm/renderD*`, vendor `0x8086`) and `cpu` everywhere else — the
-macOS and Windows Docker VMs expose no devices. The intel choice:
+(`/sys/class/drm/renderD*`, vendor `0x8086`), `qualcomm` on a Linux arm64 host
+with the Hexagon compute DSP (`/dev/fastrpc-cdsp`), and `cpu` everywhere else —
+the macOS and Windows Docker VMs expose no devices. The intel choice:
 
 - swaps detect-pipeline for the `-intel` image via `docker-compose.accel-intel.yml`
   (`${CORE_TAG}-intel`; override with `DETECT_PIPELINE_IMAGE`),
@@ -100,11 +102,59 @@ under the benchmark findings — that one is driver-level.)
 | Flavour | Base | Inference wheel | Vendor user-space | Arch |
 |---|---|---|---|---|
 | `cpu` | `python:3.11-slim` | `onnxruntime` | Intel VA-API driver (iHD) for decode | amd64, arm64 |
+| `qualcomm` | same | plain `onnxruntime` **plus** `onnxruntime-qnn` 2.x — a *plugin* execution provider (bundles the Qualcomm AI Runtime: `libQnnHtp`, the HTP v68–v81 skels) that the service registers at startup | none in the image; the host lends `/dev/fastrpc-cdsp`, the two `/dev/dma_heap` nodes, `libcdsprpc.so` and `libdmabufheap.so.0` through `docker-compose.accel-qualcomm.yml` | arm64 |
 | `intel` | same | `onnxruntime-openvino` (bundles OpenVINO) | + Intel OpenCL compute runtime and graphics compiler, Level Zero loader, NPU driver and compiler — pinned in `detect-pipeline/scripts/install-intel-runtime.sh` (the same script builds the adapter flavours in ai-adapter) | amd64 |
 
 The NPU **firmware** is the host's job (`linux-firmware`, loaded by the `ivpu`
 kernel driver — kernel 6.8 or newer); the container only needs the user-space
 half. Check the host with `ls /dev/accel/accel0` and `journalctl -k | grep intel_vpu`.
+
+On Qualcomm the split is the same: the Hexagon firmware and the fastrpc daemon
+(`cdsprpcd`) are the host's — Qualcomm's Ubuntu ships them — and the container
+carries the user-space in the wheel. Check the host with `ls -l /dev/fastrpc-cdsp`
+(group `fastrpc`; set `FASTRPC_GID` in `.env` if yours is not 125) and
+`systemctl is-active cdsprpcd`; the DMA-BUF heaps (`/dev/dma_heap/system`,
+`qcom,system`, group `dmaheap`) go through too — without them the runtime
+refuses to create the device (`QNN_DEVICE_ERROR_INVALID_CONFIG`). The HTP runs fp16 and int8 only: the stack's
+fp32 `yolo26n.onnx` is run with `enable_htp_fp16_precision=1` (the flavour's
+default), which the plugin applies at graph finalisation; an INT8 export is the
+next step on this platform, not a requirement.
+
+## Measured: Qualcomm Hexagon HTP (Arduino Ventuno Q, QCS8275, 2026-10-30)
+
+The stack's own `yolo26n.onnx` (fp32, 640×640), run through the QNN plugin
+with the flavour's defaults (`htp_performance_mode=sustained_high_performance`,
+`enable_htp_fp16_precision=1`, graph finalisation mode 3):
+
+| | per inference | notes |
+|---|---|---|
+| CPU, the shipped `cvdnn` path, 1 camera | 164 ms | 8 ARM cores, ORT threads uncapped |
+| CPU, ONNX Runtime CPU provider, 8 threads | 609 ms median | plain `onnxruntime` 1.31 on this SoC |
+| **Hexagon HTP, fp16** | **8.6 ms median** (7.2 min, 11.8 p90) | session build 6.3 s, once per session |
+
+Output agreement on a real frame: the same detections, scores within 0.01,
+boxes within half a pixel. The whole graph runs on the HTP; nothing is
+partitioned back to CPU.
+
+In the stack (looping test clips through the fake-camera rig on the same
+board, software decode, Tier-0 asking ~2 fps per camera, 60 s windows after a
+100 s settle):
+
+| cameras | flavour | frames detected on | dropped | wall ms / inference | detect-pipeline CPU | host idle |
+|---|---|---|---|---|---|---|
+| 4 | `cpu` | 2.0 fps each | none | 284 | 439 % | 21 % |
+| 10 | `cpu` | 0.9 fps each | **half** | 1047–1127 | 600–630 % | 4 % |
+| 8 | `qualcomm` | 2.0 fps each | none | 19–34 (two 1080p clips 110–130) | 214 % | 54 % |
+| 16 | `qualcomm` | 2.0 fps each | none | 25 (median per camera 25–28) | 281–300 % | 37–42 % |
+
+The CPU ceiling on this board is ~8.5 inferences/s: four cameras clean, ten
+over capacity. On the HTP sixteen cameras run clean at ~24 inferences/s with
+the detector pool at 1, 2 or 4 sessions alike (the HTP is one device; the
+pool size changes nothing) and the board 40 % idle — decode and
+preprocessing on the ARM cores are now the limit, not inference. The ~25 ms
+wall figure includes letterboxing and decode on a busy CPU; the HTP itself
+takes ~9 ms. Benchmark overhead to subtract: the fake-camera rig (~0.6
+cores) and mediamtx (~0.5 cores) ran on the same board.
 
 ## Is it really accelerated? (no silent fallbacks)
 
@@ -116,6 +166,7 @@ tells you when it did:
 | Is this camera decoding on the GPU? | `tier0_decode_config{camera,hwaccel="vaapi"}` — the **effective** backend; `cpu` next to a `vaapi` request means the render node was not reachable |
 | Did core promote cameras to the main stream for a GPU that is not there? | `tier0_mainstream_fallback{camera}` |
 | Is the detector on the NPU? | `tier0_detector_backend{requested,effective}` — `effective="CPUExecutionProvider"` beside an OpenVINO request means the device or its driver is missing; the log says the same once at startup |
+| Is the detector on the Hexagon NPU? | the same metric and log line. A *plugin* provider keeps listing itself after its device failed, so for QNN `effective` comes from whether the provider compiled the graph: the compiled-graph cache file (`yolo26n.onnx.QNNExecutionProvider.ctx.onnx` next to the model, or under the temp dir) exists after the first session. `detect-pipeline` logs `compiled the graph, cached at …` once, then `loaded the compiled graph …` for every later session — the compile is ~6 s on a Hexagon v73, the load well under a second |
 | Is an adapter on the iGPU? | its `GET /hardware/evaluation`: `requested_providers`, `effective_providers`, `accelerator_in_use`; the adapter logs one warning at load when they differ |
 | Is the iGPU busy at all? | `intel_gpu_top` on the host (`Video` engine = decode, `Render/3D` / `Compute` = inference) |
 

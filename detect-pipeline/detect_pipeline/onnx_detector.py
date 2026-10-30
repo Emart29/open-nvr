@@ -169,7 +169,142 @@ _DEVICE_OPTION = {
     "TensorrtExecutionProvider": "device_id",
     "ROCMExecutionProvider": "device_id",
     "MIGraphXExecutionProvider": "device_id",
+    # Qualcomm AI Runtime: ``QNNExecutionProvider:htp`` is the Hexagon NPU
+    # (``cpu``/``gpu`` are the other QNN backends; the shorthand is the
+    # backend, there is one HTP per SoC).
+    "QNNExecutionProvider": "backend_type",
 }
+
+# Plugin execution providers (ONNX Runtime >= 1.23): a separately installed
+# wheel that must be REGISTERED with the runtime before a session can use it,
+# and that ``get_available_providers()`` never lists — so the usual
+# "requested ∩ available" filter would silently drop it. Provider name -> the
+# package that ships the library (``get_library_path()``). Registration is
+# process-wide and idempotent; see ``register_plugin_providers``.
+_PLUGIN_EPS = {
+    "QNNExecutionProvider": "onnxruntime_qnn",   # the -qualcomm flavour
+}
+_registered_plugin_eps: set[str] = set()
+
+# Options a plugin provider gets on top of the ``:device`` shorthand. QNN's
+# HTP defaults are tuned for an always-on detector: sustained clocks rather
+# than burst (burst throttles after a few seconds of steady load), fp16 for
+# an fp32 model (the HTP has no fp32 path; without this every node falls
+# back to CPU), and the slowest graph finalisation (done once per session,
+# buys the fastest graph). An operator overrides any of them with
+# DETECT_ONNX_PROVIDER_OPTIONS="key=value,key=value".
+_PROVIDER_DEFAULTS = {
+    "QNNExecutionProvider": {
+        "backend_type": "htp",
+        "htp_performance_mode": "sustained_high_performance",
+        "enable_htp_fp16_precision": "1",
+        "htp_graph_finalization_optimization_mode": "3",
+    },
+}
+
+
+def register_plugin_providers(ort, requested) -> set[str]:
+    """Register the plugin EP libraries named in ``requested`` and return the
+    provider names that are now usable (the already-registered ones included).
+
+    A plugin whose package is not installed is reported once and skipped, so
+    the request degrades to the next provider (CPU in the end) exactly like a
+    built-in provider the wheel does not carry. ``requested`` takes whatever
+    :func:`parse_provider_specs` takes.
+    """
+    usable: set[str] = set()
+    for name, _device in parse_provider_specs(requested):
+        if name not in _PLUGIN_EPS:
+            continue
+        if name in _registered_plugin_eps:
+            usable.add(name)
+            continue
+        pkg = _PLUGIN_EPS[name]
+        try:
+            import importlib
+
+            mod = importlib.import_module(pkg)
+            ort.register_execution_provider_library(name, mod.get_library_path())
+        except ImportError:
+            log.warning(
+                "ORT provider %s needs the %s package (the matching image flavour); "
+                "not installed — skipping", name, pkg,
+            )
+            continue
+        except Exception as exc:  # the runtime refused the library
+            log.warning("ORT could not register plugin provider %s: %s", name, exc)
+            continue
+        _registered_plugin_eps.add(name)
+        usable.add(name)
+        log.info("ORT plugin provider %s registered from %s", name, pkg)
+    return usable
+
+
+def available_providers(ort, requested) -> list[str]:
+    """``ort.get_available_providers()`` plus the plugin providers ``requested``
+    names, registered on the way — what :func:`resolve_providers` filters by."""
+    avail = list(ort.get_available_providers())
+    for name in register_plugin_providers(ort, requested):
+        if name not in avail:
+            avail.append(name)
+    return avail
+
+
+def provider_options(entry, env=None) -> dict[str, str]:
+    """The options dict a provider entry carries, with the provider's defaults
+    underneath and DETECT_ONNX_PROVIDER_OPTIONS (``k=v,k=v``) on top."""
+    import os as _os
+
+    name = provider_name(entry)
+    opts = dict(_PROVIDER_DEFAULTS.get(name, {}))
+    if isinstance(entry, tuple) and isinstance(entry[1], dict):
+        opts.update({k: str(v) for k, v in entry[1].items()})
+    raw = (env if env is not None else _os.environ).get("DETECT_ONNX_PROVIDER_OPTIONS", "")
+    for item in raw.split(","):
+        k, sep, v = item.strip().partition("=")
+        if sep and k:
+            opts[k] = v
+    if name == "QNNExecutionProvider" and "backend_path" not in opts:
+        # ``backend_type`` is the documented knob, but on the plugin it
+        # failed device creation (QNN_DEVICE_ERROR_INVALID_CONFIG) where the
+        # library path worked — measured on a QCS8275. The package knows
+        # where its backends are; the shorthand names one of them.
+        path = _qnn_backend_path(opts.get("backend_type", "htp"))
+        if path:
+            opts["backend_path"] = path
+            opts.pop("backend_type", None)
+    return opts
+
+
+def _qnn_backend_path(backend: str) -> str | None:
+    """The onnxruntime_qnn library for a backend name (``htp``/``cpu``/``gpu``),
+    or None when the package (or that backend) is not there."""
+    try:
+        import onnxruntime_qnn as q
+    except ImportError:
+        return None
+    getter = getattr(q, f"get_qnn_{backend.strip().lower()}_path", None)
+    return getter() if getter else None
+
+
+def plugin_context_path(model_path: str, provider: str) -> str:
+    """Where a plugin provider's compiled graph for ``model_path`` is cached.
+
+    QNN (and the other plugin providers) compile the graph for the device at
+    session build — 6 s for yolo26n on a Hexagon v73 — and can dump that as an
+    "EP context" model, which later sessions load in a fraction of the time.
+    Next to the model when its directory is writable (the weights volume),
+    else under the temp dir; the file name carries the provider so flavours
+    never share one.
+    """
+    import os as _os
+    import tempfile
+
+    base = f"{_os.path.basename(model_path)}.{provider}.ctx.onnx"
+    d = _os.path.dirname(_os.path.abspath(model_path))
+    if not _os.access(d, _os.W_OK):
+        d = tempfile.gettempdir()
+    return _os.path.join(d, base)
 
 
 def parse_provider_specs(requested) -> list[tuple[str, str | None]]:
@@ -293,6 +428,49 @@ def _ort_session_options(ort):
     return opts
 
 
+def _build_plugin_session(ort, opts, model_path: str, provider: str):
+    """Build a session whose graph a plugin provider compiles, through the
+    provider's compiled-graph cache. Returns ``(session, compiled)``.
+
+    First build: ask the runtime to dump the EP-context model next to the
+    model (``ep.context_enable``); the dump existing afterwards is the only
+    reliable sign the provider took the graph (see ``_effective_providers``).
+    Later builds load that file as the model — seconds instead of the full
+    compile, for every session in the detector pool. A context file the
+    runtime rejects (another QNN version, another SoC) is deleted and the
+    model is compiled again. Concurrent first builds (the pool fills in
+    parallel) each dump to their own temp name and the last one wins.
+    """
+    import os as _os
+    import threading
+
+    ctx = plugin_context_path(model_path, provider)
+    if _os.path.exists(ctx):
+        try:
+            sess = ort.InferenceSession(ctx, sess_options=opts)
+            log.info("%s: loaded the compiled graph %s", provider, ctx)
+            return sess, True
+        except Exception as exc:
+            log.warning("%s: compiled graph %s rejected (%s); rebuilding from the model", provider, ctx, exc)
+            try:
+                _os.remove(ctx)
+            except OSError:
+                pass
+    tmp = f"{ctx}.{_os.getpid()}.{threading.get_ident()}.tmp"
+    opts.add_session_config_entry("ep.context_enable", "1")
+    opts.add_session_config_entry("ep.context_file_path", tmp)
+    opts.add_session_config_entry("ep.context_embed_mode", "1")
+    sess = ort.InferenceSession(model_path, sess_options=opts)
+    if _os.path.exists(tmp):
+        try:
+            _os.replace(tmp, ctx)
+            log.info("%s: compiled the graph, cached at %s", provider, ctx)
+        except OSError as exc:
+            log.warning("%s: could not keep the compiled graph at %s: %s", provider, ctx, exc)
+        return sess, True
+    return sess, False
+
+
 class OrtBackend:
     """Run the ONNX model through ONNX Runtime with selectable execution providers.
 
@@ -318,24 +496,63 @@ class OrtBackend:
                 raise ValueError("OrtBackend needs a model_path or an injected session")
             import onnxruntime as ort  # lazy: optional dependency
 
-            provs = resolve_providers(providers, ort.get_available_providers())
+            provs = resolve_providers(providers, available_providers(ort, providers))
             log.info("ONNX Runtime backend requesting providers: %s", describe_providers(provs))
-            self._sess = ort.InferenceSession(
-                model_path, sess_options=_ort_session_options(ort), providers=provs
-            )
+            opts = _ort_session_options(ort)
+            plugins = [p for p in provs if provider_name(p) in _registered_plugin_eps]
+            attached = 0
+            for p in plugins:
+                # A plugin provider is attached through the session options
+                # by DEVICE (ORT's V2 provider API: the devices the registered
+                # library reported, filtered by provider name). It cannot be
+                # named in ``providers=`` and ``SessionOptions.add_provider``
+                # by name refuses it ("Provider configuration is not
+                # supported") — that one is for the built-in providers.
+                name = provider_name(p)
+                devices = [d for d in ort.get_ep_devices() if d.ep_name == name]
+                if not devices:
+                    log.warning("ORT plugin provider %s reports no device on this host; skipping", name)
+                    continue
+                opts.add_provider_for_devices(devices, provider_options(p))
+                attached += 1
+            if attached:
+                # CPU stays the implicit fallback for whatever the plugin
+                # declines, so the list is not passed at all — passing it
+                # alongside the session-level providers is refused.
+                self._sess, self._plugin_compiled = _build_plugin_session(
+                    ort, opts, model_path, provider_name(plugins[0])
+                )
+            else:
+                # The classic list: a plugin name in it would be refused by
+                # ORT, so a plugin that could not attach is left out here and
+                # the fallback is reported through ``requested`` vs effective.
+                classic = [p for p in provs if provider_name(p) not in _PLUGIN_EPS]
+                self._sess = ort.InferenceSession(
+                    model_path, sess_options=opts, providers=classic
+                )
             self.requested = provs
         self._input = self._sess.get_inputs()[0].name
         self.effective = self._effective_providers()
+
+    _plugin_compiled: bool | None = None   # None: no plugin in this session
 
     def _effective_providers(self) -> list[str]:
         """What the session actually runs on. ORT drops a provider it cannot
         initialise (no OpenVINO device, no CUDA libs) and carries on with the
         next one *silently* — the "declared an accelerator, running on CPU"
-        failure. Surface it: log once, and expose it for metrics and the UI."""
+        failure. Surface it: log once, and expose it for metrics and the UI.
+
+        A plugin provider is worse: ``get_providers()`` keeps listing it after
+        its device failed (measured: QNN device creation refused, every node
+        on CPU, the session still says QNN). So for a plugin session the
+        answer comes from whether it compiled anything — the EP-context file
+        it was asked to write, see :func:`_build_plugin_session`."""
         try:
             effective = list(self._sess.get_providers())
         except Exception:
             return []
+        if self._plugin_compiled is False:
+            effective = [p for p in effective if p not in _PLUGIN_EPS]
         requested = getattr(self, "requested", None)
         if requested:
             wanted = provider_name(requested[0])
