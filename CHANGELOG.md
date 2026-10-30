@@ -17,7 +17,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a camera. A full page offers to put the camera on a new page, removing a page
   with cameras asks first, and the preview is drawn as the screen it stands for.
   From 1280 px wide the editor fits the window and its lists scroll inside
-  themselves.
+  themselves. A running wall has one **Edit this page** button in place of
+  **Arrange** and **Edit this tour**: it opens that page in the same editor,
+  with **Edit whole tour** for the rest, and comes back to the wall on that page.
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where

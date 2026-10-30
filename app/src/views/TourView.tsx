@@ -18,30 +18,23 @@
  * * edits to the tour reach a running wall within five minutes, and a failed
  *   fetch keeps showing the tour it has while it retries.
  *
- * Inside the app (never on the display route), someone who may edit the tour
- * can Arrange the page on screen: the wall holds, shows stills, and takes
- * removals, swaps and replacements until Save (components/live/TourArrange).
+ * Someone who may edit the tour can open the page on screen in the tour editor
+ * (views/TourEditor.tsx); the wall then carries on from that page.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BellRing, CameraOff, ChevronLeft, ChevronRight, ExternalLink, LayoutGrid, Maximize, Minimize, Pause, Pencil, Play, PauseCircle, Route, X } from 'lucide-react'
+import { AlertTriangle, BellRing, CameraOff, ChevronLeft, ChevronRight, ExternalLink, Maximize, Minimize, Pause, Pencil, Play, PauseCircle, Route, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useDateFormat, useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
 import { rebaseToCurrentOrigin } from '../lib/streamUrl'
 import { useCameras, type CameraItem } from '../lib/queries'
 import { resolveLayout, type LayoutDefinition, type WindowLayoutSettings } from '../lib/liveLayouts'
-import { autoGrid, buildPages, camerasOf, formatDuration, wrapIndex, type Slot, type TourPage } from '../lib/tourPlan'
-import { moveTo, placeAt, removeAt } from '../lib/tourArrange'
+import { autoGrid, buildPages, camerasOf, formatDuration, wrapIndex, type TourPage } from '../lib/tourPlan'
 import type { ActiveAlert } from '../lib/tourAlerts'
 import { DEFAULT_TOUR_SETTINGS, type Tour } from '../services/tourService'
-import { useConfirm } from '../components/ui/ConfirmDialog'
-import { useSnackbar } from '../components/Snackbar'
-import { Button } from '../components/ui'
-import { ArrangeBoard } from '../components/live/TourArrange'
-import { IconAction } from '../components/live/IconAction'
 import { useCameraStatus } from '../hooks/useCameraStatus'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { usePageVisible } from '../hooks/usePageVisible'
@@ -144,21 +137,10 @@ export function TourView({ display = false }: { display?: boolean }) {
   const cams = useCameras({ active_only: false })
   const camById = useMemo(() => new Map((cams.data?.cameras ?? []).map((c) => [c.id, c])), [cams.data])
 
-  // Arrange mode: each page's camera list as being edited, null otherwise.
-  // The wall then plays nothing and lays out this draft instead of the tour.
-  const [draft, setDraft] = useState<Slot[][] | null>(null)
-  const arranging = draft != null
-  const specs = useMemo(
-    () => (tour.data ? tour.data.pages.map((s, i) => (draft?.[i] ? { ...s, camera_ids: draft[i] } : s)) : []),
-    [tour.data, draft],
-  )
-
   const layoutsReady = !windowSettings.isPending
   const pages = useMemo(
-    // While arranging, a page whose cameras were all taken out stays, so the
-    // board does not jump away from it; the running wall skips such a page.
-    () => (tour.data && layoutsReady ? buildPages(specs, (lid) => resolveLayout(lid, windowSettings.data), { keepEmptyPages: arranging }) : []),
-    [tour.data, specs, layoutsReady, windowSettings.data, arranging],
+    () => (tour.data && layoutsReady ? buildPages(tour.data.pages, (lid) => resolveLayout(lid, windowSettings.data)) : []),
+    [tour.data, layoutsReady, windowSettings.data],
   )
 
   const settings = tour.data?.settings ?? DEFAULT_TOUR_SETTINGS
@@ -167,8 +149,7 @@ export function TourView({ display = false }: { display?: boolean }) {
   const tourCameras = useMemo(() => new Set((tour.data?.pages ?? []).flatMap((s) => camerasOf(s.camera_ids))), [tour.data])
   // Alarm takeover: an alert on a camera brings it to the front; the tour
   // waits underneath and carries on where it was (lib/tourAlerts.ts).
-  // Not while arranging: an alarm would swap the page being edited for another.
-  const { active: alerts, dismiss } = useTourAlerts(tour.data?.enabled && !arranging ? settings.alerts : undefined, tourCameras)
+  const { active: alerts, dismiss } = useTourAlerts(tour.data?.enabled ? settings.alerts : undefined, tourCameras)
   const alerting = alerts.length > 0
 
   const [index, setIndex] = useState(0)
@@ -176,26 +157,24 @@ export function TourView({ display = false }: { display?: boolean }) {
   const [spot, setSpot] = useState<number | null>(null)
   // The page started early, hidden under the one showing (its page key).
   const [preloadKey, setPreloadKey] = useState<string | null>(null)
-  // While arranging, the wall stays on the page being arranged (its index
-  // in the tour) however the edits change it, even taking every camera off.
-  const [anchor, setAnchor] = useState<number | null>(null)
-  const anchored = useMemo(
-    () => (arranging && anchor != null ? pages.findIndex((p) => p.index === anchor) : -1),
-    [arranging, anchor, pages],
-  )
-  const current = anchored >= 0 ? anchored : pages.length ? Math.min(index, pages.length - 1) : 0
+  const current = pages.length ? Math.min(index, pages.length - 1) : 0
   const page: TourPage | undefined = pages[current]
   const pageKey = page?.key
 
   const go = useCallback((delta: number) => {
     setSpot(null)
-    if (arranging) {
-      const to = pages[wrapIndex(current, delta, pages.length)]
-      if (to) setAnchor(to.index)
-      return
-    }
     setIndex((i) => wrapIndex(Math.min(i, Math.max(0, pages.length - 1)), delta, pages.length))
-  }, [pages, current, arranging])
+  }, [pages])
+
+  // Back from editing a page (?page=, its place in the tour): carry on from it.
+  const [params, setParams] = useSearchParams()
+  const startAt = params.get('page')
+  useEffect(() => {
+    if (startAt == null || !pages.length) return
+    const at = pages.findIndex((p) => p.index === Number(startAt))
+    if (at >= 0) setIndex(at)
+    setParams({}, { replace: true })
+  }, [startAt, pages, setParams])
 
   // A spotlit camera that is no longer on the page (the tour was edited) is let go.
   useEffect(() => {
@@ -206,7 +185,7 @@ export function TourView({ display = false }: { display?: boolean }) {
   // tab and a refetch of the unchanged tour; only a new page starts from zero.
   const elapsed = useRef(0)
   useEffect(() => { elapsed.current = 0 }, [pageKey])
-  const running = !!page && pages.length > 1 && !paused && visible && spot == null && !alerting && !arranging
+  const running = !!page && pages.length > 1 && !paused && visible && spot == null && !alerting
   // When the page turns, for the countdown chip: a deadline while running,
   // the time left while held.
   const [deadline, setDeadline] = useState<number | null>(null)
@@ -244,7 +223,7 @@ export function TourView({ display = false }: { display?: boolean }) {
   const [leaving, setLeaving] = useState<TourPage | null>(null)
   if (page?.key !== shownPage?.key) {
     setShownPage(page)
-    setLeaving(fade && shownPage && !arranging && !alerting && spot == null ? shownPage : null)
+    setLeaving(fade && shownPage && !alerting && spot == null ? shownPage : null)
   }
   useEffect(() => {
     if (!leaving) return
@@ -271,86 +250,6 @@ export function TourView({ display = false }: { display?: boolean }) {
   }, [poke])
   const barVisible = barShown || paused || spot != null
 
-  // ── Arrange mode ────────────────────────────────────────────────────
-  const confirm = useConfirm()
-  const { showSuccess } = useSnackbar()
-  const [target, setTarget] = useState<number | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [arrangeError, setArrangeError] = useState<{ text: string; conflict?: boolean } | null>(null)
-  const dirty = !!draft && !!tour.data && draft.some((ids, i) => ids.join(',') !== (tour.data!.pages[i]?.camera_ids ?? []).join(','))
-
-  const startArrange = useCallback(() => {
-    if (!tour.data || !page) return
-    setSpot(null)
-    setTarget(null)
-    setArrangeError(null)
-    setAnchor(page.index)
-    setDraft(tour.data.pages.map((s) => [...s.camera_ids]))
-  }, [tour.data, page])
-  const endArrange = useCallback(() => {
-    // The tour carries on from the page that was being arranged.
-    setIndex(current)
-    setDraft(null)
-    setAnchor(null)
-    setTarget(null)
-    setArrangeError(null)
-  }, [current])
-  const cancelArrange = useCallback(async () => {
-    if (dirty && !(await confirm({ title: t('tours.discardTitle'), message: t('tours.discardMessage'), confirmLabel: t('tours.discard'), danger: true }))) return
-    endArrange()
-  }, [dirty, confirm, t, endArrange])
-  const editPage = useCallback((edit: (ids: Slot[]) => Slot[]) => {
-    if (!page) return
-    setDraft((d) => d && d.map((ids, i) => (i === page.index ? edit(ids) : ids)))
-  }, [page])
-  const saveArrange = useCallback(async () => {
-    if (!tour.data || !draft) return
-    const tourNow = tour.data
-    setSaving(true)
-    setArrangeError(null)
-    try {
-      // Only the camera lists change; settings are left out, so the server keeps them.
-      const { data } = await apiService.updateTour(tourNow.id, {
-        name: tourNow.name,
-        description: tourNow.description ?? null,
-        enabled: tourNow.enabled,
-        pages: tourNow.pages.map((s, i) => ({ label: s.label, layout_id: s.layout_id, duration_s: s.duration_s, camera_ids: draft[i] ?? s.camera_ids })),
-        expected_revision: tourNow.revision,
-      })
-      qc.setQueryData(['tour', id], data as Tour)
-      qc.invalidateQueries({ queryKey: ['tours'] })
-      showSuccess(t('tours.saved', { name: tourNow.name }))
-      endArrange()
-    } catch (e: any) {
-      const detail = e?.data?.detail
-      if (e?.status === 409) setArrangeError({ text: t('tours.arrangeConflict'), conflict: true })
-      else if (e?.status === 422 && Array.isArray(detail?.camera_ids)) {
-        setArrangeError({ text: t('tours.badCameras', { names: detail.camera_ids.map((cid: number) => camById.get(cid)?.name ?? `#${cid}`).join(', ') }) })
-      } else setArrangeError({ text: typeof detail === 'string' ? detail : e?.message || t('tours.saveFailed') })
-    } finally {
-      setSaving(false)
-    }
-  }, [tour.data, draft, qc, id, showSuccess, t, endArrange, camById])
-  const reloadArrange = useCallback(async () => {
-    const fresh = await tour.refetch()
-    if (fresh.data) setDraft(fresh.data.pages.map((s) => [...s.camera_ids]))
-    setArrangeError(null)
-  }, [tour])
-
-  // Leaving with an unsaved arrangement asks first: in-app links, and the tab.
-  const blocker = useBlocker(dirty && !saving)
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    confirm({ title: t('tours.discardTitle'), message: t('tours.discardMessage'), confirmLabel: t('tours.discard'), danger: true })
-      .then((ok) => (ok ? blocker.proceed() : blocker.reset()))
-  }, [blocker, confirm, t])
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault() }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
-
   const exitTour = useCallback(() => navigate('/live'), [navigate])
   // A one-page tour has nothing to pause: no Pause button, no pill, and a
   // pause would only leave the bar stuck on screen.
@@ -365,14 +264,6 @@ export function TourView({ display = false }: { display?: boolean }) {
       const el = e.target as HTMLElement | null
       if (typing(el)) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      // Arranging: the arrows still move between pages, Escape cancels, and
-      // Space is left to the focused tile or button.
-      if (arranging) {
-        if (e.key === 'ArrowRight') go(1)
-        else if (e.key === 'ArrowLeft') go(-1)
-        else if (e.key === 'Escape') { if (target != null) setTarget(null); else void cancelArrange() }
-        return
-      }
       // Space always means pause, even with a bar or tile button focused
       // after a click; the button's own Space activation is cancelled on
       // keyup below, or one press would act twice.
@@ -390,7 +281,7 @@ export function TourView({ display = false }: { display?: boolean }) {
       poke()
     }
     const onKeyUp = (e: KeyboardEvent) => {
-      if (!arranging && e.key === ' ' && (e.target as HTMLElement | null)?.tagName === 'BUTTON') e.preventDefault()
+      if (e.key === ' ' && (e.target as HTMLElement | null)?.tagName === 'BUTTON') e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKeyUp)
@@ -398,13 +289,17 @@ export function TourView({ display = false }: { display?: boolean }) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [go, togglePause, toggleFs, exitTour, poke, spot, isFullscreen, alerting, dismiss, arranging, target, cancelArrange])
+  }, [go, togglePause, toggleFs, exitTour, poke, spot, isFullscreen, alerting, dismiss])
 
-  // Edit from the wall: the full-page editor, which comes back here on save.
+  // Edit from the wall: the page on screen in the editor, which comes back here,
+  // to that page.
   const location = useLocation()
   const { hasPermission } = usePermissions()
   const canEdit = !!tour.data?.editable && hasPermission('cameras.manage')
-  const editTour = () => navigate(`/tours/${id}/edit?return=${encodeURIComponent(location.pathname)}`)
+  const editPage = () => {
+    if (!page) { navigate(`/tours/${id}/edit?return=${encodeURIComponent(location.pathname)}`); return }
+    navigate(`/tours/${id}/edit?page=${page.index}&return=${encodeURIComponent(`${location.pathname}?page=${page.index}`)}`)
+  }
   const openDisplay = () => window.open(`/display/tour/${id}`, '_blank', 'noopener')
   const cover = settings.fit === 'fill'
 
@@ -431,23 +326,6 @@ export function TourView({ display = false }: { display?: boolean }) {
     body = <WallMessage icon={<PauseCircle size={22} />} title={t('tours.turnedOff')} detail={t('tours.turnedOffHint')} />
   } else if (!page && !alerting) {
     body = <WallMessage icon={<CameraOff size={22} />} title={t('tours.nothingToShow')} detail={t('tours.nothingToShowHint')} />
-  } else if (arranging && page) {
-    const tiles = page.layout.tiles.length
-    body = (
-      <ArrangeBoard
-        layout={page.layout}
-        pageIds={page.cameraIds}
-        cameras={cams.data?.cameras ?? []}
-        camById={camById}
-        cover={cover}
-        labelClass={labelSize(page.layout.gridRows, false)}
-        target={target}
-        onTarget={setTarget}
-        onRemove={(at) => editPage((ids) => removeAt(ids, at))}
-        onMove={(from, to) => editPage((ids) => moveTo(ids, from, to, tiles))}
-        onPlace={(cam, at) => editPage((ids) => placeAt(ids, cam, at, tiles))}
-      />
-    )
   } else {
     // What the wall shows, most urgent first: the alarming cameras, a
     // spotlit tile, or the tour's page.
@@ -536,45 +414,16 @@ export function TourView({ display = false }: { display?: boolean }) {
       // On the display route the tour is the whole page, nothing around it.
       display ? 'h-screen w-full' : 'h-[calc(100vh-5rem)] border border-[var(--border)]',
     )}>
-      {arranging && page && (
-        <div className="shrink-0 border-b border-[var(--border)] bg-[var(--panel-2)] text-[var(--text)]" data-testid="tour-arrange-bar">
-          <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-            <LayoutGrid size={15} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
-            <span className="text-sm font-semibold">{t('tours.arranging')}</span>
-            <span className="min-w-0 truncate text-sm">{tour.data?.name} · {pageLabel}</span>
-            {pages.length > 1 && (
-              <span className="flex items-center gap-1">
-                <IconAction label={t('tours.previous')} onClick={() => go(-1)}><ChevronLeft size={15} /></IconAction>
-                <span className="text-xs font-mono tabular-nums text-[var(--text-dim)] whitespace-nowrap">{pageOrdinal}</span>
-                <IconAction label={t('tours.next')} onClick={() => go(1)}><ChevronRight size={15} /></IconAction>
-              </span>
-            )}
-            <span className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => void cancelArrange()} disabled={saving}>{t('tours.cancel')}</Button>
-              <Button variant="primary" size="sm" onClick={saveArrange} disabled={!dirty || saving}>{saving ? t('tours.saving') : t('tours.save')}</Button>
-            </span>
-          </div>
-          <p className="px-3 pb-2 -mt-1 text-xs text-[var(--text-dim)]">
-            {t('tours.arrangeScope')}
-          </p>
-          {arrangeError && (
-            <div role="alert" className="flex items-center gap-3 mx-3 mb-2 p-2 text-sm text-[var(--danger)] bg-[color-mix(in_oklab,var(--danger)_14%,transparent)] border border-[color-mix(in_oklab,var(--danger)_45%,var(--border))]">
-              <span className="flex-1">{arrangeError.text}</span>
-              {arrangeError.conflict && <Button size="sm" variant="outline" onClick={() => void reloadArrange()}>{t('tours.reload')}</Button>}
-            </div>
-          )}
-        </div>
-      )}
       <div
         ref={wallRef}
         data-testid="tour-wall"
-        className={clsx('relative flex-1 min-h-0 bg-black', !barVisible && !arranging && 'cursor-none')}
+        className={clsx('relative flex-1 min-h-0 bg-black', !barVisible && 'cursor-none')}
         onMouseMove={poke}
       >
         {body}
 
         {/* Progress hairline: always there, so a guard can see the wall is turning. */}
-        {page && pages.length > 1 && !arranging && (
+        {page && pages.length > 1 && (
           <div className="pointer-events-none absolute top-0 inset-x-0 h-[2px] z-30 bg-white/5">
             <div
               key={pageKey}
@@ -589,7 +438,6 @@ export function TourView({ display = false }: { display?: boolean }) {
           className={clsx(
             'absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-2 pb-6 text-white bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300',
             barVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
-            arranging && 'hidden',
           )}
           ref={barRef}
           onFocus={() => poke()}
@@ -626,11 +474,8 @@ export function TourView({ display = false }: { display?: boolean }) {
                 <span className="w-px h-4 bg-white/20 mx-1" aria-hidden="true" />
               </>
             )}
-            {canEdit && !display && page && !alerting && (
-              <BarButton label={t('tours.arrangeHere')} onClick={startArrange}><LayoutGrid size={13} /></BarButton>
-            )}
             {canEdit && (
-              <BarButton label={t('tours.editHere')} onClick={editTour}><Pencil size={13} /></BarButton>
+              <BarButton label={t('tours.editPage')} onClick={editPage}><Pencil size={13} /></BarButton>
             )}
             {!display && (
               <BarButton label={t('tours.openAsDisplay')} onClick={openDisplay}><ExternalLink size={13} /></BarButton>
@@ -660,7 +505,7 @@ export function TourView({ display = false }: { display?: boolean }) {
 
         {/* What comes next, always on screen: a guard should not need the
             mouse to know the wall is turning, or when. */}
-        {page && pages.length > 1 && !alerting && !barVisible && !arranging && (
+        {page && pages.length > 1 && !alerting && !barVisible && (
           <NextChip
             deadline={deadline}
             heldLeftMs={heldLeftMs}
@@ -676,7 +521,7 @@ export function TourView({ display = false }: { display?: boolean }) {
           />
         )}
 
-        {paused && page && pages.length > 1 && !arranging && (
+        {paused && page && pages.length > 1 && (
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-4 z-20 px-3 py-1 text-[11px] font-bold tracking-[0.2em] uppercase text-black bg-[var(--on-video-warn)]" role="status">
             {t('tours.pausedPill')}
           </div>

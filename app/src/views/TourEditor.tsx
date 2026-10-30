@@ -26,7 +26,7 @@ import {
   SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, BellRing, ChevronDown, ChevronRight, CircleDashed, CopyPlus, GripVertical, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Rows3, Search, SlidersHorizontal, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeft, BellRing, ChevronDown, ChevronLeft, ChevronRight, CircleDashed, CopyPlus, GripVertical, PanelLeftClose, PanelLeftOpen, Play, Plus, Route, Rows3, Search, SlidersHorizontal, Trash2, TriangleAlert, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from '../i18n'
 import { apiService } from '../lib/apiService'
@@ -125,6 +125,7 @@ export function TourEditor() {
       key={`${sourceId ?? 'new'}:${source.data?.revision ?? 0}`}
       initial={initial}
       readOnly={!!source.data && editingId != null && !source.data.editable}
+      startPage={editingId != null && params.get('page') != null ? Number(params.get('page')) : null}
       cameras={cams.data?.cameras ?? []}
       windowSettings={windowSettings.data}
       back={back}
@@ -150,9 +151,11 @@ function usePref(key: string, initial: boolean): [boolean, (v: boolean) => void]
   return [value, set]
 }
 
-function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload }: {
+function EditorBody({ initial, readOnly, startPage, cameras, windowSettings, back, onReload }: {
   initial: Draft
   readOnly: boolean
+  /** Opened from a wall: just this page (its place in the tour), until asked for the rest. */
+  startPage: number | null
   cameras: CameraItem[]
   windowSettings: WindowLayoutSettings | undefined
   back: string
@@ -164,7 +167,8 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   const confirm = useConfirm()
   const { showSuccess } = useSnackbar()
   const [draft, setDraft] = useState<Draft>(initial)
-  const [selected, setSelected] = useState(initial.pages[0]?.uid)
+  const [selected, setSelected] = useState((startPage != null ? initial.pages[startPage] : undefined)?.uid ?? initial.pages[0]?.uid)
+  const [pageOnly, setPageOnly] = useState(startPage != null && !!initial.pages[startPage])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<{ text: string; conflict?: boolean } | null>(null)
@@ -216,6 +220,12 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
   const setAlerts = (patch: Partial<TourSettings['alerts']>) =>
     setDraft((d) => ({ ...d, settings: { ...d.settings, alerts: { ...d.settings.alerts, ...patch } } }))
 
+  // Opened on one page: the arrows move to the page before or after it.
+  const step = (delta: number) => {
+    const at = draft.pages.findIndex((s) => s.uid === page?.uid)
+    const to = draft.pages[(at + delta + draft.pages.length) % draft.pages.length]
+    if (to) setSelected(to.uid)
+  }
   const addPage = () => {
     const s = newPage(draft.pages[draft.pages.length - 1]?.layout_id)
     setDraft((d) => ({ ...d, pages: [...d.pages, s] }))
@@ -328,46 +338,64 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 p-2 border border-[var(--border)] bg-[var(--panel-2)]" data-testid="tour-toolbar">
         <IconAction label={t('tours.backToList')} onClick={() => navigate(back)}><ArrowLeft size={16} /></IconAction>
         <Route size={16} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
-        <div className="min-w-[12rem] flex-1">
-          <Input id="tour-name" value={draft.name} maxLength={100} autoFocus={draft.id == null}
-            placeholder={t('tours.namePlaceholder')} aria-label={t('tours.name')} title={t('tours.name')}
-            aria-invalid={nameError || undefined}
-            className={clsx('font-semibold', nameError && '!border-[var(--danger)]')}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} onBlur={() => setTouched(true)} />
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <Switch checked={draft.enabled} onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))} label={t('tours.enabled')} />
-          {t('tours.enabled')}
-        </label>
-        <div className="flex items-center gap-1.5 border-l border-[var(--border)] px-3 text-xs leading-4 whitespace-nowrap tabular-nums text-[var(--text-dim)]" data-testid="tour-summary">
-          {cameras.length > 0 && (
-            <span className={clsx('inline-flex items-center gap-1', notOnTour.length > 0 && 'font-semibold text-[color-mix(in_oklab,var(--warn)_70%,var(--text))]')}
-              title={notOnTour.length > 0 ? notOnTourText : undefined} data-testid="tour-cameras-assigned">
-              {notOnTour.length > 0 && <TriangleAlert size={12} aria-hidden="true" />}
-              {t('tours.camerasAssigned', { count: cameras.length - notOnTour.length, total: cameras.length })}
-            </span>
-          )}
-          <span className="hidden xl:inline" aria-hidden="true">·</span>
-          <span className="hidden xl:inline" data-testid="tour-cycle">
-            {t('tours.cycleSummary', { pages: draft.pages.length, cycle: formatDuration(cycleSeconds(shown)) })}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          aria-haspopup="dialog"
-          data-testid="tour-settings-toggle"
-          className="h-[34px] px-2.5 inline-flex items-center gap-1.5 text-sm border border-[var(--border)] text-[var(--text)] hover:bg-[var(--panel)]"
-        >
-          <SlidersHorizontal size={14} aria-hidden="true" />
-          {t('tours.settings')}
-          {draft.settings.alerts.enabled && (
-            <span className="inline-flex items-center gap-1 border-l border-[var(--border)] pl-1.5 ml-0.5 text-xs text-[var(--text-dim)]" data-testid="tour-alarms-on">
-              <BellRing size={12} className="text-[var(--danger)]" aria-hidden="true" />
-              {t('tours.alarmsOn')}
-            </span>
-          )}
-        </button>
+        {pageOnly && page ? (
+          <>
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm" data-testid="tour-page-only">
+              <span className="truncate font-semibold">{draft.name}</span>
+              <span className="shrink-0 flex items-center gap-1 text-xs tabular-nums text-[var(--text-dim)]">
+                <IconAction label={t('tours.previous')} onClick={() => step(-1)} disabled={draft.pages.length < 2}><ChevronLeft size={15} /></IconAction>
+                {t('tours.pageOf', { n: draft.pages.indexOf(page) + 1, total: draft.pages.length })}
+                <IconAction label={t('tours.next')} onClick={() => step(1)} disabled={draft.pages.length < 2}><ChevronRight size={15} /></IconAction>
+              </span>
+            </div>
+            <Button variant="outline" onClick={() => setPageOnly(false)} data-testid="tour-edit-whole">
+              <SlidersHorizontal size={14} aria-hidden="true" /> {t('tours.editWhole')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="min-w-[12rem] flex-1">
+              <Input id="tour-name" value={draft.name} maxLength={100} autoFocus={draft.id == null}
+                placeholder={t('tours.namePlaceholder')} aria-label={t('tours.name')} title={t('tours.name')}
+                aria-invalid={nameError || undefined}
+                className={clsx('font-semibold', nameError && '!border-[var(--danger)]')}
+                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} onBlur={() => setTouched(true)} />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Switch checked={draft.enabled} onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))} label={t('tours.enabled')} />
+              {t('tours.enabled')}
+            </label>
+            <div className="flex items-center gap-1.5 border-l border-[var(--border)] px-3 text-xs leading-4 whitespace-nowrap tabular-nums text-[var(--text-dim)]" data-testid="tour-summary">
+              {cameras.length > 0 && (
+                <span className={clsx('inline-flex items-center gap-1', notOnTour.length > 0 && 'font-semibold text-[color-mix(in_oklab,var(--warn)_70%,var(--text))]')}
+                  title={notOnTour.length > 0 ? notOnTourText : undefined} data-testid="tour-cameras-assigned">
+                  {notOnTour.length > 0 && <TriangleAlert size={12} aria-hidden="true" />}
+                  {t('tours.camerasAssigned', { count: cameras.length - notOnTour.length, total: cameras.length })}
+                </span>
+              )}
+              <span className="hidden xl:inline" aria-hidden="true">·</span>
+              <span className="hidden xl:inline" data-testid="tour-cycle">
+                {t('tours.cycleSummary', { pages: draft.pages.length, cycle: formatDuration(cycleSeconds(shown)) })}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-haspopup="dialog"
+              data-testid="tour-settings-toggle"
+              className="h-[34px] px-2.5 inline-flex items-center gap-1.5 text-sm border border-[var(--border)] text-[var(--text)] hover:bg-[var(--panel)]"
+            >
+              <SlidersHorizontal size={14} aria-hidden="true" />
+              {t('tours.settings')}
+              {draft.settings.alerts.enabled && (
+                <span className="inline-flex items-center gap-1 border-l border-[var(--border)] pl-1.5 ml-0.5 text-xs text-[var(--text-dim)]" data-testid="tour-alarms-on">
+                  <BellRing size={12} className="text-[var(--danger)]" aria-hidden="true" />
+                  {t('tours.alarmsOn')}
+                </span>
+              )}
+            </button>
+          </>
+        )}
         <Button variant="ghost" onClick={() => navigate(back)}>{t('tours.cancel')}</Button>
         <Button variant="primary" onClick={save} disabled={saving || readOnly || (touched && !canSave)}>
           {saving ? t('tours.saving') : t('tours.save')}
@@ -391,8 +419,8 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
           fold to a rail of page numbers. From xl it all fits the window: each
           list scrolls inside itself and the page never does. */}
       <div className={clsx('grid gap-4 items-start xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(0,1fr)]',
-        rail ? 'xl:grid-cols-[3rem_minmax(0,1fr)]' : 'xl:grid-cols-[20rem_minmax(0,1fr)]')}>
-        {rail && (
+        pageOnly ? 'xl:grid-cols-1' : rail ? 'xl:grid-cols-[3rem_minmax(0,1fr)]' : 'xl:grid-cols-[20rem_minmax(0,1fr)]')}>
+        {rail && !pageOnly && (
           <nav className="hidden xl:flex xl:max-h-full xl:overflow-y-auto xl:col-start-1 xl:row-start-1 flex-col items-center gap-1 py-2 border border-[var(--border)] bg-[var(--panel-2)]" aria-label={t('tours.pages')} data-testid="tour-pages-rail">
             <IconAction label={t('tours.showPanel')} onClick={() => setRail(false)}><PanelLeftOpen size={15} /></IconAction>
             <span className="w-6 h-px bg-[var(--border)] my-1" aria-hidden="true" />
@@ -422,7 +450,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
           </nav>
         )}
 
-        <section className={clsx('flex min-h-0 flex-col border border-[var(--border)] bg-[var(--panel-2)] xl:max-h-full xl:col-start-1 xl:row-start-1', rail && 'xl:hidden')} data-testid="tour-pages">
+        <section className={clsx('flex min-h-0 flex-col border border-[var(--border)] bg-[var(--panel-2)] xl:max-h-full xl:col-start-1 xl:row-start-1', pageOnly && 'hidden', rail && 'xl:hidden')} data-testid="tour-pages">
           <header className="flex min-h-[47px] shrink-0 items-center gap-2 px-1 py-1 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-2)_55%,var(--panel-2))] text-sm font-medium" data-testid="tour-pages-header">
             {/* From xl the rail button folds this panel, so the title is just a
                 title. Below that the list sits above the editor, with no rail,
@@ -472,7 +500,7 @@ function EditorBody({ initial, readOnly, cameras, windowSettings, back, onReload
 
         {/* The selected page */}
         {page && (
-          <div className="min-w-0 xl:h-full xl:col-start-2 xl:row-start-1">
+          <div className={clsx('min-w-0 xl:h-full xl:row-start-1', pageOnly ? 'xl:col-start-1' : 'xl:col-start-2')}>
             <PageDetail
               key={page.uid}
               page={page}
@@ -867,7 +895,7 @@ function PageDetail({ page, index, pageCount, windowSettings, cameras, pagesOf, 
             the preview itself (drag tiles to reorder, x to remove). They stack
             when the panel is too narrow for both. */}
         <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onDragStart} onDragEnd={onCameraDrag} onDragCancel={() => setDragging(null)}>
-        <div className="grid gap-3 items-start @min-[40rem]:grid-cols-[minmax(15rem,5fr)_minmax(0,7fr)] xl:h-full xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
+        <div className="grid gap-3 items-start @min-[40rem]:grid-cols-[minmax(15rem,1fr)_min(58%,max(20rem,calc((100vh-23rem)*16/9)))] xl:h-full xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
           <CameraPicker
             cameras={cameras}
             pagesOf={pagesOf}
@@ -882,7 +910,9 @@ function PageDetail({ page, index, pageCount, windowSettings, cameras, pagesOf, 
           />
 
           <div className="min-w-0 space-y-2 xl:overflow-y-auto" data-testid="tour-page-preview-pane">
-            {/* Three rows level with the picker's: the page's controls with the
+            {/* This column is as wide as the screen can be at this window height,
+                and the list takes the rest, so nothing is left beside the screen.
+                Three rows level with the picker's: the page's controls with the
                 search, the preview's title and what acts on its tiles with the
                 location filter, the screen with the top of the list. */}
             <div className="mt-[9px] flex min-h-[34px] flex-wrap items-center gap-2 text-sm" data-testid="tour-page-controls">
@@ -1006,7 +1036,7 @@ function PagePreview({ layout, cameraIds, camById, cover, bad, target, onSelect,
   return (
     // Drawn as a display on its stand: this is the screen the wall will show.
     // Dark in both themes, like the hardware it stands for.
-    <div className="w-full max-w-[calc((100vh-23rem)*16/9)]" data-testid="tour-page-screen">
+    <div className="w-full" data-testid="tour-page-screen">
       <div className="rounded border border-[#2c3646] bg-[#05070b] p-1.5 shadow-md">
         <div
           className="aspect-video bg-black p-px"

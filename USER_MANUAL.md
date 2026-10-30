@@ -182,15 +182,12 @@ what comes next ("North → South in 18 s"). **Space** pauses and resumes (a
 paused wall says so until it is resumed — moving the mouse never pauses
 it), **← / →** step, **F** toggles fullscreen, and clicking a tile shows
 that camera on its own until it is clicked again. Someone who may edit the
-tour can open the editor from the wall's bar (**Edit this tour**); saving
-brings them back to the running wall. For a quick fix on the page on
-screen, **Arrange** (in the app, not on the display link) holds the tour and
-shows that page from stills next to a camera search: ✕ removes a camera, a
-tile dragged onto another swaps the two, and a camera dragged onto a tile —
-or a tile clicked, then a camera — takes its place (a camera already in the step moves, and Arrange says
-where from). **Save** stores it in the
-tour, so every screen running it changes too. Removing a camera leaves its
-tile empty (dark on the wall): no other camera moves. Edits to a tour reach running walls within five
+tour can open the page on screen from the wall's bar (**Edit this page**). It
+opens in the same page editor the tour uses, with ‹ › to move between pages and
+**Edit whole tour** for everything else; saving or cancelling brings them back
+to the wall, on that page. Saving changes the tour, so every screen running it
+changes too. Removing a camera leaves its tile empty (dark on the wall): no
+other camera moves. Edits to a tour reach running walls within five
 minutes; a turned-off tour shows a notice and starts again by itself when
 it is turned back on. A running board keeps itself signed in; one left
 switched off for more than 30 days has to sign in again.
