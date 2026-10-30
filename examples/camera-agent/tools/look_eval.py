@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import io
 import json
 import math
 import pathlib
@@ -227,7 +228,9 @@ def format_report(s: dict[str, Any], meta: dict[str, Any]) -> str:
                 f"p95 {_fmt(t['seconds_p95'])}  {'QUALIFIES' if t['qualifies'] else 'no'}")
 
     lines = [(f"Look eval: {meta['model']} on {meta['hardware'].upper()} "
-              f"({s['seconds_limit']:.0f} s a step), {meta['repeat']} repeat(s)"), "",
+              f"({s['seconds_limit']:.0f} s a step), {meta['repeat']} repeat(s)"
+              + (f", pictures at most {meta['max_side']} px" if meta.get("max_side") else "")),
+             "",
              line("all", s)]
     for name, t in s["templates"].items():
         lines.append(line(name, t))
@@ -247,9 +250,26 @@ def _fmt(v: float | None) -> str:
 # ── running it ─────────────────────────────────────────────────────────
 
 
+def shrink(image: bytes, max_side: int | None) -> bytes:
+    """The picture with its long side at most ``max_side`` pixels, as JPEG.
+    A vision model encodes every pixel it is sent: on CPU a 1080p snapshot
+    alone can use most of a step's seconds (MODELS_AND_LATENCY.md)."""
+    if not max_side:
+        return image
+    from PIL import Image
+    im = Image.open(io.BytesIO(image))
+    if max(im.size) <= max_side:
+        return image
+    im = im.convert("RGB")
+    im.thumbnail((max_side, max_side))
+    out = io.BytesIO()
+    im.save(out, format="JPEG", quality=90)
+    return out.getvalue()
+
+
 async def run_case(llm: LLMClient, step: AIStep, case: dict[str, Any], *, hardware: str,
-                   model_name: str) -> dict[str, Any]:
-    image = pathlib.Path(case["image"]).read_bytes()
+                   model_name: str, max_side: int | None = None) -> dict[str, Any]:
+    image = shrink(pathlib.Path(case["image"]).read_bytes(), max_side)
     t0 = time.monotonic()
     try:
         r = await run_ai_step(step, llm, inputs=case["inputs"], images=[image],
@@ -269,6 +289,7 @@ async def run_case(llm: LLMClient, step: AIStep, case: dict[str, Any], *, hardwa
 
 async def run(llm: LLMClient, templates: dict[str, AIStep], cases: list[dict[str, Any]], *,
               repeat: int, hardware: str, model_name: str = "llm",
+              max_side: int | None = None,
               progress: Callable[[str], None] = lambda _: None) -> list[dict[str, Any]]:
     # Load the model before the clock starts: a cold load counts against
     # nothing in a workflow, which runs with the model resident.
@@ -277,7 +298,7 @@ async def run(llm: LLMClient, templates: dict[str, AIStep], cases: list[dict[str
     for case in cases:
         for i in range(repeat):
             got = await run_case(llm, templates[case["template"]], case, hardware=hardware,
-                                 model_name=model_name)
+                                 model_name=model_name, max_side=max_side)
             row = {**score(case, got), "repeat": i}
             runs.append(row)
             progress(f"{case['id']} #{i + 1}: {row['decision']} "
@@ -311,6 +332,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--api-key")
     ap.add_argument("--hardware", choices=["cpu", "gpu"], default="cpu")
     ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--max-side", type=int, metavar="PX",
+                    help="shrink each picture so its long side is at most PX before the model "
+                         "sees it (as an engine would); off by default")
     ap.add_argument("--think", choices=["on", "off", "default"], default="off")
     ap.add_argument("--num-thread", type=int)
     ap.add_argument("--gate", type=float, default=0.8)
@@ -352,12 +376,13 @@ def main(argv: list[str] | None = None) -> int:
     async def go() -> list[dict[str, Any]]:
         async with llm:
             return await run(llm, templates, cases, repeat=a.repeat, hardware=a.hardware,
-                             model_name=a.model,
+                             model_name=a.model, max_side=a.max_side,
                              progress=lambda m: print(m, file=sys.stderr, flush=True))
 
     runs = asyncio.run(go())
     summary = summarise(runs, hardware=a.hardware, gate=a.gate)
     meta = {"model": a.model, "hardware": a.hardware, "repeat": a.repeat, "think": a.think,
+            "max_side": a.max_side,
             "engine": "opennvr_app_sdk.workflows.run_ai_step", "cases": a.cases,
             "templates": a.templates, "templates_sha256": _sha256(a.templates)}
     print(format_report(summary, meta))
