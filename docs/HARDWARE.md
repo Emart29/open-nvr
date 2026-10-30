@@ -96,7 +96,7 @@ through QNN, a second target for dynamic-shape graphs.
 |---|---|---|---|
 | Video decode | software | — | no ffmpeg path to the Qualcomm video core |
 | Tier-0 detector (yolo26n) | NPU (`QNNExecutionProvider:htp`) | `DETECT_ONNX_PROVIDERS` | proven: 8.6 ms on the device, 16 cameras clean |
-| yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | same model and runtime as Tier-0; measured below |
+| yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | proven: `/infer` 59–67 ms end-to-end vs 152 ms on CPU (1080p JPEG; the HTP share is ~9 ms) |
 | yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | static 640 export; measured below |
 | InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | detector + recogniser, static shapes; measured below |
 | Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | static export; measured below |
