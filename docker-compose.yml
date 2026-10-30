@@ -404,6 +404,7 @@ services:
       # onnxruntime wheel in a derived image) — see detect-pipeline/README.md.
       - DETECT_ONNX_BACKEND=${DETECT_ONNX_BACKEND:-auto}
       - DETECT_ONNX_PROVIDERS=${DETECT_ONNX_PROVIDERS:-}
+      - DETECT_ONNX_PROVIDER_OPTIONS=${DETECT_ONNX_PROVIDER_OPTIONS:-}
       - DETECT_HWACCEL=${DETECT_HWACCEL:-cpu}
       # Decode-side frame skip (-skip_frame): nonref (default — provably
       # lossless, drops only frames nothing references) | bidir | nokey
