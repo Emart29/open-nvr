@@ -16,7 +16,7 @@ app concern.
 | Any x86-64 or arm64 CPU | `cpu` (plain tag) | software | onnxruntime CPU | onnxruntime CPU | shipped |
 | Intel iGPU — N100, Core i, Core Ultra, Arc | `intel` (`-intel`) | VA-API on the iGPU | OpenVINO on the iGPU | OpenVINO on the iGPU (`-intel` adapter images) | this release |
 | Intel NPU — Core Ultra "AI Boost" | `intel` (`-intel`) | n/a (NPU does not decode) | OpenVINO on the NPU (default when present) | iGPU by default; `ADAPTER_ONNX_PROVIDERS=OpenVINOExecutionProvider:NPU` to move them | this release |
-| Qualcomm Hexagon NPU — Dragonwing IQ8 / QCS8275, Snapdragon | `qualcomm` (`-qualcomm`) | software (ffmpeg has no path to the Qualcomm video core) | ONNX Runtime QNN plugin on the HTP (default when `/dev/fastrpc-cdsp` is present) | cpu images until ai-adapter ships `-qualcomm` | this release |
+| Qualcomm Hexagon NPU — Dragonwing IQ8 / QCS8275, Snapdragon | `qualcomm` (`-qualcomm`) | software (ffmpeg has no path to the Qualcomm video core) | ONNX Runtime QNN plugin on the HTP (default when `/dev/fastrpc-cdsp` is present) | QNN on the HTP (`-qualcomm` adapter images: YOLO, pose, InsightFace, package detection; plate OCR on CPU) | this release |
 | NVIDIA — desktop GPU, Jetson | `nvidia` (`-nvidia`) | NVDEC (`DETECT_HWACCEL=nvidia`) | CUDA / TensorRT | CUDA (`onnxruntime-gpu`) | decode shipped; images Phase 3 |
 | AMD — iGPU, Radeon | later (`-rocm`) | VA-API (shipped) | ROCm | ROCm | on demand |
 | Raspberry Pi, Rockchip | `cpu` | `rpi` / `rkmpp` decode | CPU | CPU | decode shipped |
@@ -83,6 +83,33 @@ report `accelerator_fallback_error` (adapters) or `requested != effective`
 Running compose by hand instead of `start.sh`: add the overlay(s) with `-f`
 and export the three `DETECT_*` values, or set them in `.env`.
 
+### What runs where (qualcomm defaults)
+
+Same rule: the NPU only where the model is proven on it; the rest on CPU
+until measured. One device (the HTP) is shared by everything on it and the
+Tier-0 detector has first claim, so a busy site may prefer to keep one of
+the adapters on CPU. Each line is one `.env` variable; `ADAPTER_ONNX_PROVIDERS`
+moves all five adapters at once. `QNNExecutionProvider:gpu` is the Adreno GPU
+through QNN, a second target for dynamic-shape graphs.
+
+| Service | Default on `qualcomm` | Override | Status |
+|---|---|---|---|
+| Video decode | software | — | no ffmpeg path to the Qualcomm video core |
+| Tier-0 detector (yolo26n) | NPU (`QNNExecutionProvider:htp`) | `DETECT_ONNX_PROVIDERS` | proven: 8.6 ms on the device, 16 cameras clean |
+| yolov8 adapter | NPU | `YOLOV8_ONNX_PROVIDERS` | same model and runtime as Tier-0; measured below |
+| yolo_pose adapter | NPU | `YOLO_POSE_ONNX_PROVIDERS` | static 640 export; measured below |
+| InsightFace adapter | NPU | `INSIGHTFACE_ONNX_PROVIDERS` | detector + recogniser, static shapes; measured below |
+| Package detection adapter | NPU | `PACKAGE_DETECTION_ONNX_PROVIDERS` | static export; measured below |
+| Plate OCR adapter | CPU | `FAST_PLATE_OCR_ONNX_PROVIDERS` | plate crops batch by count: dynamic shape, recompiled per shape on the HTP |
+| Parakeet (speech) | CPU | `ADAPTER_ONNX_PROVIDERS` | dynamic-length audio; not yet measured on the HTP |
+| Whisper, BLIP, CLIP, open-vocab, Ollama | CPU | — | ctranslate2 / torch / Ollama: no Hexagon backend in those engines |
+
+`start.sh` prints the decision on every start:
+
+```
+Accelerate: qualcomm flavour — software decode, detector on QNNExecutionProvider:htp (Hexagon NPU via /dev/fastrpc-cdsp); adapters: yolov8, yolo-pose, insightface, package-detection on the NPU, fast-plate-ocr on cpu (override <NAME>_ONNX_PROVIDERS or ADAPTER_ONNX_PROVIDERS in .env)
+```
+
 ### Device shorthand
 
 `DETECT_ONNX_PROVIDERS` is a comma-separated provider list; each provider takes
@@ -123,7 +150,7 @@ under the benchmark findings — that one is driver-level.)
 | Flavour | Base | Inference wheel | Vendor user-space | Arch |
 |---|---|---|---|---|
 | `cpu` | `python:3.11-slim` | `onnxruntime` | Intel VA-API driver (iHD) for decode | amd64, arm64 |
-| `qualcomm` | same | plain `onnxruntime` **plus** `onnxruntime-qnn` 2.x — a *plugin* execution provider (bundles the Qualcomm AI Runtime: `libQnnHtp`, the HTP v68–v81 skels) that the service registers at startup | none in the image; the host lends `/dev/fastrpc-cdsp`, the two `/dev/dma_heap` nodes, `libcdsprpc.so` and `libdmabufheap.so.0` through `docker-compose.accel-qualcomm.yml` | arm64 |
+| `qualcomm` | same | plain `onnxruntime` **plus** `onnxruntime-qnn` 2.x — a *plugin* execution provider (bundles the Qualcomm AI Runtime: `libQnnHtp`, the HTP v68–v81 skels) that the service and the adapter SDK register at startup (the same wheel builds the `-qualcomm` adapter flavours in ai-adapter) | none in the image; the host lends `/dev/fastrpc-cdsp`, the two `/dev/dma_heap` nodes, `libcdsprpc.so` and `libdmabufheap.so.0` through `docker-compose.accel-qualcomm.yml` | arm64 |
 | `intel` | same | `onnxruntime-openvino` (bundles OpenVINO) | + Intel OpenCL compute runtime and graphics compiler, Level Zero loader, NPU driver and compiler — pinned in `detect-pipeline/scripts/install-intel-runtime.sh` (the same script builds the adapter flavours in ai-adapter) | amd64 |
 
 The NPU **firmware** is the host's job (`linux-firmware`, loaded by the `ivpu`
