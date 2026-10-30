@@ -8,6 +8,16 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Accelerate: safe defaults and no crash on a missing accelerator.** On the
+  `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
+  `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where
+  the model is proven: yolov8 on the iGPU, the pose adapter on the NPU,
+  InsightFace / plate OCR / package detection on CPU. The Tier-0 detector
+  falls back to CPU, with an error and `requested != effective` in
+  `tier0_detector_backend`, when ONNX Runtime cannot start on the requested
+  device instead of leaving detect-pipeline in a restart loop
+  (the adapters do the same, ai-adapter #74). `docs/HARDWARE.md` gains a
+  "What runs where" table.
 - **OpenNVR Accelerate: Qualcomm Hexagon NPU (`-qualcomm` flavour).** A
   third hardware flavour of the detect-pipeline image: `ACCEL=qualcomm`
   adds `onnxruntime-qnn`, the Qualcomm AI Runtime *plugin* execution
@@ -40,7 +50,6 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and surrounding whitespace, as compose does. Belt and braces: with
   `DETECT_ONNX_BACKEND=auto`, requesting execution providers now resolves to
   the `ort` backend by itself — an accelerator is only reachable through it.
-
 - **Cameras page: bulk actions, grid view, pause recording.** Tick
   cameras (or "Select all", then "Select all N cameras" across every page
   matching the filters) and use **Actions** to set or clear location, turn

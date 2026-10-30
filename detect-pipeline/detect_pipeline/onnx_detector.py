@@ -481,6 +481,9 @@ class OrtBackend:
     """
 
     name = "ort"
+    #: Set when the accelerated session could not be built and the backend
+    #: fell back to CPU (the error text); None otherwise.
+    fallback_error: str | None = None
 
     def __init__(
         self,
@@ -498,37 +501,58 @@ class OrtBackend:
 
             provs = resolve_providers(providers, available_providers(ort, providers))
             log.info("ONNX Runtime backend requesting providers: %s", describe_providers(provs))
-            opts = _ort_session_options(ort)
-            plugins = [p for p in provs if provider_name(p) in _registered_plugin_eps]
-            attached = 0
-            for p in plugins:
-                # A plugin provider is attached through the session options
-                # by DEVICE (ORT's V2 provider API: the devices the registered
-                # library reported, filtered by provider name). It cannot be
-                # named in ``providers=`` and ``SessionOptions.add_provider``
-                # by name refuses it ("Provider configuration is not
-                # supported") — that one is for the built-in providers.
-                name = provider_name(p)
-                devices = [d for d in ort.get_ep_devices() if d.ep_name == name]
-                if not devices:
-                    log.warning("ORT plugin provider %s reports no device on this host; skipping", name)
-                    continue
-                opts.add_provider_for_devices(devices, provider_options(p))
-                attached += 1
-            if attached:
-                # CPU stays the implicit fallback for whatever the plugin
-                # declines, so the list is not passed at all — passing it
-                # alongside the session-level providers is refused.
-                self._sess, self._plugin_compiled = _build_plugin_session(
-                    ort, opts, model_path, provider_name(plugins[0])
+            try:
+                opts = _ort_session_options(ort)
+                plugins = [p for p in provs if provider_name(p) in _registered_plugin_eps]
+                attached = 0
+                for p in plugins:
+                    # A plugin provider is attached through the session options
+                    # by DEVICE (ORT's V2 provider API: the devices the registered
+                    # library reported, filtered by provider name). It cannot be
+                    # named in ``providers=`` and ``SessionOptions.add_provider``
+                    # by name refuses it ("Provider configuration is not
+                    # supported") — that one is for the built-in providers.
+                    name = provider_name(p)
+                    devices = [d for d in ort.get_ep_devices() if d.ep_name == name]
+                    if not devices:
+                        log.warning("ORT plugin provider %s reports no device on this host; skipping", name)
+                        continue
+                    opts.add_provider_for_devices(devices, provider_options(p))
+                    attached += 1
+                if attached:
+                    # CPU stays the implicit fallback for whatever the plugin
+                    # declines, so the list is not passed at all — passing it
+                    # alongside the session-level providers is refused.
+                    self._sess, self._plugin_compiled = _build_plugin_session(
+                        ort, opts, model_path, provider_name(plugins[0])
+                    )
+                else:
+                    # The classic list: a plugin name in it would be refused by
+                    # ORT, so a plugin that could not attach is left out here and
+                    # the fallback is reported through ``requested`` vs effective.
+                    classic = [p for p in provs if provider_name(p) not in _PLUGIN_EPS]
+                    self._sess = ort.InferenceSession(
+                        model_path, sess_options=opts, providers=classic
+                    )
+            except Exception as exc:  # noqa: BLE001 — any failure of the accelerated path
+                if not provs or provider_name(provs[0]) == _CPU_EP:
+                    raise
+                # An accelerator that cannot even start (device not passed
+                # through, driver missing, plugin failure) must not take
+                # Tier-0 down with it: run on CPU, say so loudly, and let
+                # the tier0_detector_backend metric show requested != effective.
+                self.fallback_error = f"{type(exc).__name__}: {exc}"[:400]
+                log.error(
+                    "ONNX Runtime could not start on %s — %s. Falling back to CPU; "
+                    "detection works but is not accelerated. Check the device is "
+                    "passed through to the container and the image flavour matches "
+                    "the host.",
+                    describe_providers(provs[:1]), self.fallback_error,
                 )
-            else:
-                # The classic list: a plugin name in it would be refused by
-                # ORT, so a plugin that could not attach is left out here and
-                # the fallback is reported through ``requested`` vs effective.
-                classic = [p for p in provs if provider_name(p) not in _PLUGIN_EPS]
+                provs = [_CPU_EP]
+                self._plugin_compiled = None
                 self._sess = ort.InferenceSession(
-                    model_path, sess_options=opts, providers=classic
+                    model_path, sess_options=_ort_session_options(ort), providers=provs
                 )
             self.requested = provs
         self._input = self._sess.get_inputs()[0].name

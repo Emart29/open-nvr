@@ -164,15 +164,15 @@ apply_accel_env() {
                 if [[ -e /dev/accel/accel0 ]]; then export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
                 else export DETECT_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"; fi
             fi
-            # The ONNX adapters (-intel flavours) run on the iGPU and leave
-            # the NPU to the Tier-0 detector — except the pose adapter, whose
-            # model reset an Arrow Lake host every time it was compiled for
-            # the iGPU and runs cleanly on the NPU (docs/HARDWARE.md). Both
-            # are plain env overrides in .env.
-            [[ -n "$(get_env_var ADAPTER_ONNX_PROVIDERS)" ]] || export ADAPTER_ONNX_PROVIDERS="OpenVINOExecutionProvider:GPU"
-            if [[ -z "$(get_env_var YOLO_POSE_ONNX_PROVIDERS)" ]]; then
-                if [[ -e /dev/accel/accel0 ]]; then export YOLO_POSE_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
-                else export YOLO_POSE_ONNX_PROVIDERS="$ADAPTER_ONNX_PROVIDERS"; fi
+            # The ONNX adapters: each follows <NAME>_ONNX_PROVIDERS, then the
+            # shared ADAPTER_ONNX_PROVIDERS, then the overlay's default — an
+            # accelerator only where that model is proven on Intel: yolov8 on
+            # the iGPU, the pose adapter on the NPU (its model reset an Arrow
+            # Lake host when compiled for the iGPU); InsightFace, plate OCR
+            # and package detection stay on CPU until proven. Everything is
+            # a plain env override in .env; see docs/HARDWARE.md.
+            if [[ -z "$(get_env_var YOLO_POSE_ONNX_PROVIDERS)" && -z "$(get_env_var ADAPTER_ONNX_PROVIDERS)" ]]; then
+                [[ -e /dev/accel/accel0 ]] && export YOLO_POSE_ONNX_PROVIDERS="OpenVINOExecutionProvider:NPU"
             fi
             ;;
         qualcomm)
@@ -197,7 +197,16 @@ accel_summary() {
     case "$accel" in
         intel)
             local npu="no NPU"; [[ -e /dev/accel/accel0 ]] && npu="NPU"
-            echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, adapters on ${ADAPTER_ONNX_PROVIDERS:-$(get_env_var ADAPTER_ONNX_PROVIDERS)} (${npu} present)"
+            local shared; shared=${ADAPTER_ONNX_PROVIDERS:-$(get_env_var ADAPTER_ONNX_PROVIDERS)}
+            local adapters
+            if [[ -n "$shared" ]]; then adapters="adapters on ${shared}"
+            else
+                local y8 pose
+                y8=${YOLOV8_ONNX_PROVIDERS:-$(get_env_var YOLOV8_ONNX_PROVIDERS)}
+                pose=${YOLO_POSE_ONNX_PROVIDERS:-$(get_env_var YOLO_POSE_ONNX_PROVIDERS)}
+                adapters="yolov8 on ${y8:-OpenVINOExecutionProvider:GPU}, pose on ${pose:-CPUExecutionProvider}, other adapters on CPU unless set"
+            fi
+            echo -e "${CYAN}Accelerate:${NC} intel flavour — iGPU decode (${DETECT_HWACCEL:-$(get_env_var DETECT_HWACCEL)}), detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)}, ${adapters} (${npu} present)"
             ;;
         qualcomm)
             echo -e "${CYAN}Accelerate:${NC} qualcomm flavour — software decode, detector on ${DETECT_ONNX_PROVIDERS:-$(get_env_var DETECT_ONNX_PROVIDERS)} (Hexagon NPU via /dev/fastrpc-cdsp), adapters on cpu"

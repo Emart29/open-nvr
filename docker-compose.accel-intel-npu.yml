@@ -18,4 +18,4 @@ services:
     devices:
       - /dev/accel:/dev/accel
     environment:
-      - ADAPTER_ONNX_PROVIDERS=${YOLO_POSE_ONNX_PROVIDERS:-OpenVINOExecutionProvider:NPU}
+      - ADAPTER_ONNX_PROVIDERS=${YOLO_POSE_ONNX_PROVIDERS:-${ADAPTER_ONNX_PROVIDERS:-OpenVINOExecutionProvider:NPU}}

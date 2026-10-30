@@ -326,6 +326,52 @@ def test_ort_backend_exposes_effective_providers_and_warns_on_fallback(caplog):
     assert "could not use OpenVINOExecutionProvider(NPU)" in caplog.text
 
 
+def test_ort_backend_falls_back_to_cpu_when_the_accelerator_cannot_start(monkeypatch, caplog, tmp_path):
+    """OpenVINO raising at session creation (device not passed through,
+    driver missing) must leave Tier-0 running on CPU with the reason kept,
+    not dead in a restart loop."""
+    import logging
+    import sys
+    import types
+
+    seen = []
+
+    class _Sess(_FakeSession):
+        def __init__(self, path, sess_options=None, providers=None):
+            seen.append(list(providers))
+            if providers and providers[0] != "CPUExecutionProvider":
+                raise RuntimeError("clGetPlatformIDs failed")
+            super().__init__(_output([]))
+
+        def get_providers(self):
+            return ["CPUExecutionProvider"]
+
+    fake = types.ModuleType("onnxruntime")
+    fake.InferenceSession = _Sess
+    fake.SessionOptions = _FakeSessionOptions
+    fake.get_available_providers = lambda: ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake)
+    model = tmp_path / "m.onnx"
+    model.write_bytes(b"x")
+
+    with caplog.at_level(logging.ERROR):
+        b = OrtBackend(str(model), providers="OpenVINOExecutionProvider:GPU")
+    assert b.requested == ["CPUExecutionProvider"]
+    assert b.effective == ["CPUExecutionProvider"]
+    assert b.fallback_error.startswith("RuntimeError: clGetPlatformIDs")
+    assert "could not start on OpenVINOExecutionProvider(GPU)" in caplog.text
+    assert seen[0][0][0] == "OpenVINOExecutionProvider" and seen[1] == ["CPUExecutionProvider"]
+
+    # no accelerator requested: a failure is a real error
+    class _Broken(_FakeSession):
+        def __init__(self, *a, **k):
+            raise ValueError("bad model")
+
+    fake.InferenceSession = _Broken
+    with pytest.raises(ValueError):
+        OrtBackend(str(model), providers="CPUExecutionProvider")
+
+
 # ── plugin execution providers (QNN, the -qualcomm flavour) ──────────────
 
 class _PluginOrt:
