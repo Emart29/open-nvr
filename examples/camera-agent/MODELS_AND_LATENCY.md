@@ -742,6 +742,45 @@ step:
   is a fix for the SDK (a tighter reason, or more tokens for Look),
   measured on the site cases before and after.
 
+### The public night-yard cases (30 October 2026)
+
+`tools/look_cases_public.csv`: 58 `yard_threat` cases from openly
+licensed datasets, fetched by `tools/fetch_look_public.py` (no picture is
+in the repo): 20 night infrared animals (ENA24 via LILA BC,
+CDLA-Permissive), 18 people and 20 empty scenes from MEVA's CCTV
+(Kitware / IARPA, CC BY 4.0). The people are daytime actors, the empty
+scenes thermal or midnight frames; no public set has a guard on patrol.
+A first number for the step, **not a site's gate**: the cameras are not
+the site's, and public pictures may be in a model's training data.
+
+`qwen3-vl:2b-instruct`, CPU limits (120 s), 4 threads, one repeat. Raw
+runs: [`benchmarks/look-public-yard-2026-10.json`](benchmarks/look-public-yard-2026-10.json).
+
+| Pictures as sent | Pass | 95% interval | p50 / p95 per step | Animals | Strangers | Nobody | Ran out of time | Output cut off |
+|---|---|---|---|---|---|---|---|---|
+| Full size (MEVA 1920×1072, ENA24 1920×1080) | 26/58 (45%) | 0.33-0.58 | 92 s / 120 s | 1/20 | 10/18 | 15/20 | 18 | 6 |
+| `--max-side 768` | **35/58 (60%)** | 0.47-0.72 | **40 s / 52 s** | **17/20** | 6/18 | 12/20 | 0 | 8 |
+
+What it says:
+
+- **Picture size is the CPU cost.** A vision model encodes every pixel it
+  is sent; a 1080p snapshot alone took most of a step's 120 s, and 18 of
+  the 20 animals ran out of time. At 768 px on the long side, p95 fell to
+  52 s and 17 of the 20 were right. **A Look step on CPU should shrink
+  the picture before the model sees it**; the engine is the place (the
+  SDK has no image library), `--max-side` measures it here.
+- **Strangers become guards.** At 768 px, 6 of the 18 daytime people
+  came back `who: guard`, so the rules said `ignore`: the failure that
+  matters most on this step. Whether a site's night cameras do better
+  needs the site's pictures and a real guard, which no public set has.
+- **Empty thermal scenes become strangers** (5 of 20 at 768 px).
+- **Reasons that run on**: 6 and 8 runs in 58 wrote a reason long enough
+  to run out of tokens before the JSON closed (`invalid_output`), the
+  failure the coco128 check showed. An SDK fix, measured on these cases
+  before and after.
+- Strangers and empty scenes did a little worse at 768 px than at full
+  size; with one repeat that is within noise, and three repeats will say.
+
 ## Measured: the vision models on coco128 (16 October 2026)
 
 `tools/vqa_eval.py` asks each model the agent's questions on coco128's

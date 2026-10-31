@@ -129,17 +129,22 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   does, from still pictures: the layout you chose, every tile in its place,
   and tiles without a camera left empty (numbered here, dark on the wall).
   Drag a tile onto another to swap the two, ✕ to remove one (its tile is
-  left empty and no other camera moves; **Close gaps** packs them up again),
-  or sort A to Z or by location. A camera ticked in the list fills the first
+  left empty and no other camera moves; **Close gaps** packs them up again).
+  A camera ticked in the list fills the first
   empty tile. To
   put a camera on a particular tile, drag it from the list onto the tile, or
   click the tile, then the camera. A camera already in the step moves there
   instead of showing twice, and the editor says so. Pictures are stills; **▶** on any camera opens it live, only
   when asked. Filling in each camera's Location (North, South, Branch 12…)
   is what makes this quick.
+- **Checks while you edit.** The top bar always counts how many of your
+  cameras are on the tour, and the camera list marks each one that is **Not on
+  tour**. **Save tour** warns you if any are left out, but you can still save.
+  Each page shows how many of its tiles have cameras; empty tiles stay dark on
+  the wall.
 - **Fit or Fill.** Per tour: Fit shows each camera's whole picture; Fill
   crops it to fill its tile, which suits portrait and fisheye cameras.
-- **Page changes.** **Start the next page early** (on by default) plays the
+- **Page changes.** **Load the next page in advance** (on by default) plays the
   next page's cameras, hidden, for the last 5 seconds of a page, so they are
   already playing when it shows; the display PC plays two pages for those
   seconds. **When the page changes** is a short **Crossfade** (default) or a
@@ -149,16 +154,15 @@ Build tours under **Settings → More Settings → Camera Tours** (needs the
   to see; the bar says how many were left out. Changing or deleting a tour
   needs the right to manage every camera in it; anyone else can run it.
 
-**Alarms on the wall.** Turn on **Bring alarms to the front** in a tour's
+**Alarms on the wall.** Turn on **Interrupt the tour when an alarm happens** in a tour's
 settings and an alert on one of its cameras takes over the wall: the
 camera fills the screen with a red frame and a banner saying what happened
 and when, and up to four alarming cameras share the wall. After **Show
-for** (30 s by default) the tour carries on exactly where it was; **Back to
+each alarm for** (30 s by default) the tour carries on exactly where it was; **Back to
 tour** or **Esc** returns at once. Choose what counts — alerts from apps and
 camera analytics (with a lowest severity), the camera's own alarms
 (motion, tamper, line crossing), or both — and whether only the tour's
-cameras or any camera the screen can see may take over. **Cool-down per
-camera** stops one busy camera from holding the wall.
+cameras or any camera the screen can see may take over. **Same camera can interrupt again after** stops one busy camera from holding the wall.
 
 Running a tour on a display board:
 
@@ -178,15 +182,12 @@ what comes next ("North → South in 18 s"). **Space** pauses and resumes (a
 paused wall says so until it is resumed — moving the mouse never pauses
 it), **← / →** step, **F** toggles fullscreen, and clicking a tile shows
 that camera on its own until it is clicked again. Someone who may edit the
-tour can open the editor from the wall's bar (**Edit this tour**); saving
-brings them back to the running wall. For a quick fix on the page on
-screen, **Arrange** (in the app, not on the display link) holds the tour and
-shows that page from stills next to a camera search: ✕ removes a camera, a
-tile dragged onto another swaps the two, and a camera dragged onto a tile —
-or a tile clicked, then a camera — takes its place (a camera already in the step moves, and Arrange says
-where from). **Save** stores it in the
-tour, so every screen running it changes too. Removing a camera leaves its
-tile empty (dark on the wall): no other camera moves. Edits to a tour reach running walls within five
+tour can open the page on screen from the wall's bar (**Edit this page**). It
+opens in the same page editor the tour uses, with ‹ › to move between pages and
+**Edit whole tour** for everything else; saving or cancelling brings them back
+to the wall, on that page. Saving changes the tour, so every screen running it
+changes too. Removing a camera leaves its tile empty (dark on the wall): no
+other camera moves. Edits to a tour reach running walls within five
 minutes; a turned-off tour shows a notice and starts again by itself when
 it is turned back on. A running board keeps itself signed in; one left
 switched off for more than 30 days has to sign in again.

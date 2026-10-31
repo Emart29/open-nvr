@@ -19,6 +19,26 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (bounds a live RTSP source). The gated run now builds the detector
   outside its timer, so an NPU's graph compile no longer counts against
   its fps. `docs/HARDWARE.md` has the command for an NPU host.
+- **Public night-yard Look cases.** 58 `yard_threat` cases from openly
+  licensed datasets (ENA24 animals, MEVA CCTV people and empty scenes),
+  listed in `examples/camera-agent/tools/look_cases_public.csv` and
+  fetched by `tools/fetch_look_public.py`; no picture is in the repo.
+  `look_eval.py --max-side` shrinks pictures before the model sees them.
+  First run, `qwen3-vl:2b-instruct` on CPU: 26/58 at full size (18 steps
+  out of time), 35/58 at 768 px with p95 52 s; strangers taken for guards
+  is the failure to fix (MODELS_AND_LATENCY.md).
+- **Tour editor redesign.** The tour's name, on/off and summary sit on one
+  row, and its settings open in a dialog. Each page shows how many of its tiles
+  have cameras, the top bar counts how many of your cameras are on the tour, and
+  **Save tour** warns when some are left out. The camera list says where each
+  camera is used, marks those **Not on tour**, and highlights the camera on a
+  clicked tile. **Add remaining** replaces **Add all**, so adding never repeats
+  a camera. A full page offers to put the camera on a new page, removing a page
+  with cameras asks first, and the preview is drawn as the screen it stands for.
+  From 1280 px wide the editor fits the window and its lists scroll inside
+  themselves. A running wall has one **Edit this page** button in place of
+  **Arrange** and **Edit this tour**: it opens that page in the same editor,
+  with **Edit whole tour** for the rest, and comes back to the wall on that page.
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where
@@ -59,6 +79,9 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the two cases the metric exists for it read `requested=CPU, effective=CPU`
   and the documented `requested != effective` check never fired. The original
   request is kept; the startup log warns once in both cases.
+- **Dropdown arrows sat flush against the right edge** on every page. One
+  global rule now draws them, in place of the per-page workarounds.
+
 - **`start.sh` checks the Compose version and puts every container back on
   every network it declares.** Compose 2.24.x — what Ubuntu 24.04's
   `docker-compose-v2` package ships — attaches a container's networks one at

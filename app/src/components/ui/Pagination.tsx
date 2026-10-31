@@ -108,7 +108,7 @@ export function Pagination({
       <label className="flex items-center text-[var(--text-dim)]">
         <span className="sr-only">{t('shared.rowsPerPage')}</span>
         <select
-          className="cursor-pointer rounded border-0 bg-transparent py-0.5 pl-1 pr-0 text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
+          className="cursor-pointer rounded border-0 bg-transparent py-0.5 pl-1 text-xs text-[var(--text-dim)] hover:text-[var(--text)]"
           value={pageSize}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
         >

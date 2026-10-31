@@ -220,3 +220,24 @@ def test_check_and_bad_cases_need_no_model(tmp_path, capsys):
     p.write_text("file,template,expect\na.png,gate_who,parcel\n")
     assert le.main(["--cases", str(p), "--check"]) == 2
     assert "parcel" in capsys.readouterr().err
+
+
+def test_max_side_shrinks_what_the_model_sees_and_leaves_small_pictures(tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+    buf = BytesIO()
+    Image.new("RGB", (1920, 1080), "grey").save(buf, format="JPEG")
+    big = buf.getvalue()
+    small = le.shrink(big, 768)
+    assert Image.open(BytesIO(small)).size == (768, 432)
+    assert le.shrink(PNG, 768) == PNG and le.shrink(big, None) == big
+    (tmp_path / "big.jpg").write_bytes(big)
+    p = tmp_path / "cases.csv"
+    p.write_text("file,template,expect\nbig.jpg,gate_who,cab\n")
+    llm = Script(gate("cab"))
+    asyncio.run(le.run(llm, TEMPLATES, le.load_cases(p, TEMPLATES), repeat=1, hardware="cpu",
+                       max_side=768))
+    import base64
+    sent = base64.b64decode(llm.calls[1]["messages"][1]["images"][0])
+    assert Image.open(BytesIO(sent)).size == (768, 432)
