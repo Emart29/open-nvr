@@ -10,6 +10,17 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-device detector benchmark.** `python -m detect_pipeline.bench
+  --latency N` times the Tier-0 detector on whole frames and reports
+  ms/frame (median, p90, min) after untimed warm-up runs. `--providers`
+  takes the `DETECT_ONNX_PROVIDERS` syntax (`OpenVINOExecutionProvider:NPU`,
+  `:GPU`, `:CPU`), so one model on one clip gives a row per device. Each row
+  names the provider ONNX Runtime really ran on, and a run whose accelerator
+  fell back to CPU prints a warning and exits 2. Also `--backend`,
+  `--input`, `--threads` (ORT CPU pool for a baseline) and `--max-frames`
+  (bounds a live RTSP source). The gated run now builds the detector
+  outside its timer, so an NPU's graph compile no longer counts against
+  its fps. `docs/HARDWARE.md` has the command for an NPU host.
 - **Public night-yard Look cases.** 58 `yard_threat` cases from openly
   licensed datasets (ENA24 animals, MEVA CCTV people and empty scenes),
   listed in `examples/camera-agent/tools/look_cases_public.csv` and
@@ -269,6 +280,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`tier0_detector_backend` now shows an accelerator fallback.** `requested`
+  was taken after ONNX Runtime had dropped a provider the wheel lacks, or
+  after a session that failed to build had been rebuilt on CPU, so in exactly
+  the two cases the metric exists for it read `requested=CPU, effective=CPU`
+  and the documented `requested != effective` check never fired. The original
+  request is kept; the startup log warns once in both cases.
 - **Dropdown arrows sat flush against the right edge** on every page. One
   global rule now draws them, in place of the per-page workarounds.
 

@@ -504,6 +504,13 @@ class OrtBackend:
                 raise ValueError("OrtBackend needs a model_path or an injected session")
             import onnxruntime as ort  # lazy: optional dependency
 
+            # What was ASKED for, kept before anything is dropped or reset: a
+            # provider the wheel does not carry leaves ``resolve_providers``
+            # already, and a session that fails to build is rebuilt on CPU
+            # below. ``requested`` must survive both, or the metric that
+            # exists to show the fallback (requested != effective) shows CPU
+            # on both sides.
+            asked = [provider_entry(n, d) for n, d in parse_provider_specs(providers)]
             provs = resolve_providers(providers, available_providers(ort, providers))
             log.info("ONNX Runtime backend requesting providers: %s", describe_providers(provs))
             try:
@@ -559,7 +566,7 @@ class OrtBackend:
                 self._sess = ort.InferenceSession(
                     model_path, sess_options=_ort_session_options(ort), providers=provs
                 )
-            self.requested = provs
+            self.requested = asked or provs
         self._input = self._sess.get_inputs()[0].name
         self.effective = self._effective_providers()
 
@@ -583,7 +590,7 @@ class OrtBackend:
         if self._plugin_compiled is False:
             effective = [p for p in effective if p not in _PLUGIN_EPS]
         requested = getattr(self, "requested", None)
-        if requested:
+        if requested and not self.fallback_error:   # the fallback path logged already
             wanted = provider_name(requested[0])
             if wanted != _CPU_EP and (not effective or effective[0] != wanted):
                 log.warning(

@@ -470,7 +470,32 @@ python -m detect_pipeline.bench --source people.mp4 --detector blob --model-id y
 ```
 
 `--model-id` tags the row (A/B two builds of the same family); `--repeat N` reports
-the Tier-0 throughput (fps) as mean ± std across runs.
+the Tier-0 throughput (fps) as mean ± std across runs. `--max-frames N` bounds the
+run, which a live `rtsp://` source needs.
+
+**Per-device detector latency** (`--latency N`) times `detect()` on N whole frames
+after `--warmup` untimed ones (an NPU or iGPU compiles its graph there) and reports
+ms/frame as median / p90 / min, which is the single-stream table in
+[`docs/HARDWARE.md`](../docs/HARDWARE.md#benchmark-protocol). `--providers` takes the
+`DETECT_ONNX_PROVIDERS` syntax, so one model on one clip gives a row per device:
+
+```bash
+for dev in CPU GPU NPU; do
+  python -m detect_pipeline.bench --source clip.mp4 --detector onnx \
+    --model /app/model_weights/yolo26n.onnx \
+    --providers OpenVINOExecutionProvider:$dev --latency 30
+done
+python -m detect_pipeline.bench ... --providers CPUExecutionProvider --threads 0 --latency 30
+# [yolo26n] OpenVINOExecutionProvider, CPUExecutionProvider: median=… ms p90=… ms min=… ms over 30 frames | session build … s
+```
+
+Each row prints the provider ONNX Runtime **actually** ran on, the input size the
+model accepted (a fixed-shape export overrides `--input`) and the CPU thread count
+that ran (`--threads`; unset is ORT's service default of 2, `0` = all cores, so set
+it for a CPU baseline). If the requested accelerator could not start (wheel without
+it, device not passed through, driver missing), either mode prints
+`WARNING: … NOT accelerator numbers` and exits 2, so a CPU fallback can't pass for
+an NPU result.
 
 Run it on your real clip set / hardware — **do not publish invented numbers**.
 

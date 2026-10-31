@@ -243,9 +243,31 @@ The same recipe on every hardware class, so rows compare:
 4. Report: cameras per box, host cores used, detector ms/frame, iGPU Video
    engine and NPU utilisation.
 
+Detector ms/frame per device comes from `bench.py --latency`, run inside the
+`-intel` image on the box itself, against a clip or one camera's substream. The
+three compose files are what start.sh adds on an NPU host; without the last one
+the container has no `/dev/accel` and every row is a CPU fallback. It prints the
+provider that really ran and exits 2 on a fallback:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.accel-intel.yml \
+  -f docker-compose.accel-intel-npu.yml run --rm --no-deps detect-pipeline \
+  python -m detect_pipeline.bench \
+  --source "rtsp://…/substream" --max-frames 200 --detector onnx \
+  --model /app/model_weights/yolo26n.onnx \
+  --providers OpenVINOExecutionProvider:NPU --latency 30
+```
+
+Repeat with `:GPU`, `:CPU` and `--providers CPUExecutionProvider --threads 0`
+for the other rows. Over a remote link, run it on the remote box so that video
+stays on its LAN; a run on your laptop measures your laptop.
+
 ### First results — Intel Core Ultra 9 285K (Arrow Lake, 24 cores, iGPU + NPU)
 
-Single-stream detector latency, yolo26n @ 640, 30-frame average, idle box:
+Single-stream detector latency, yolo26n @ 640, 30-frame **mean** from a hand-run
+probe, idle box. (`bench.py --latency`, added later, reports the **median**; a
+re-run with it will differ by the statistic, not the hardware — re-measure the
+whole table rather than mixing rows.)
 
 | Device | ms/frame |
 |---|---|
