@@ -8,6 +8,14 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Public night-yard Look cases.** 58 `yard_threat` cases from openly
+  licensed datasets (ENA24 animals, MEVA CCTV people and empty scenes),
+  listed in `examples/camera-agent/tools/look_cases_public.csv` and
+  fetched by `tools/fetch_look_public.py`; no picture is in the repo.
+  `look_eval.py --max-side` shrinks pictures before the model sees them.
+  First run, `qwen3-vl:2b-instruct` on CPU: 26/58 at full size (18 steps
+  out of time), 35/58 at 768 px with p95 52 s; strangers taken for guards
+  is the failure to fix (MODELS_AND_LATENCY.md).
 - **Tour editor redesign.** The tour's name, on/off and summary sit on one
   row, and its settings open in a dialog. Each page shows how many of its tiles
   have cameras, the top bar counts how many of your cameras are on the tour, and
