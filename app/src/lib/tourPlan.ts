@@ -64,7 +64,7 @@ export function autoGrid(n: number): LayoutDefinition {
 /**
  * The pages of the tour in play order. `resolve` maps a layout id to its
  * definition, or null when Live View no longer offers that layout. A page
- * of empty tiles only is left out of a running tour; Arrange keeps it
+ * of empty tiles only is left out of a running tour; the editor keeps it
  * (`keepEmptyPages`) so the wall does not jump away from the page being
  * arranged and cameras can still be put on it.
  */

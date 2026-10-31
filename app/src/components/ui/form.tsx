@@ -52,7 +52,7 @@ export function Input({ className, ...rest }: InputProps) {
 export type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }
 export function Select({ className, children, ...rest }: SelectProps) {
   return (
-    <select className={clsx(CONTROL, 'pr-7', className)} {...rest}>
+    <select className={clsx(CONTROL, className)} {...rest}>
       {children}
     </select>
   )
