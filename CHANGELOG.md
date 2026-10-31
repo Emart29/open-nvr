@@ -230,6 +230,12 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Tool` (#670, #674, by @Emart29), which `main` carried since 0.9.0
   without a PyPI release. Additive; nothing in 0.9.0 changes.
 
+- **App SDK 0.11.0.** Publishes what `main` carried since 0.10.0 without a
+  PyPI release: rule tables (`DecisionSpec(rules=...)`, `Decision.rule`
+  says which rule decided), the workflow file's `ai:` step checked and run,
+  and a failing first NATS connect logged as one warning instead of a
+  traceback per attempt. Additive; nothing in 0.10.0 changes.
+
 - **The SDK runs an Investigate step.** `run_investigate()` calls the
   step's tools, then decides in a separate call (RFC #620). Every call goes
   through one gate: tools off the step's list or `unavailable` are refused,
