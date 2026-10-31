@@ -6,6 +6,8 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-10-31
+
 ### Added
 
 - **Public night-yard Look cases.** 58 `yard_threat` cases from openly
@@ -16,6 +18,7 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   First run, `qwen3-vl:2b-instruct` on CPU: 26/58 at full size (18 steps
   out of time), 35/58 at 768 px with p95 52 s; strangers taken for guards
   is the failure to fix (MODELS_AND_LATENCY.md).
+
 - **Tour editor redesign.** The tour's name, on/off and summary sit on one
   row, and its settings open in a dialog. Each page shows how many of its tiles
   have cameras, the top bar counts how many of your cameras are on the tour, and
@@ -28,6 +31,7 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   themselves. A running wall has one **Edit this page** button in place of
   **Arrange** and **Edit this tour**: it opens that page in the same editor,
   with **Edit whole tour** for the rest, and comes back to the wall on that page.
+
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where
@@ -38,6 +42,7 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   device instead of leaving detect-pipeline in a restart loop
   (the adapters do the same, ai-adapter #74). `docs/HARDWARE.md` gains a
   "What runs where" table.
+
 - **OpenNVR Accelerate: Qualcomm Hexagon NPU (`-qualcomm` flavour).** A
   third hardware flavour of the detect-pipeline image: `ACCEL=qualcomm`
   adds `onnxruntime-qnn`, the Qualcomm AI Runtime *plugin* execution
@@ -59,6 +64,202 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through. Decode stays in
   software; adapters stay on their cpu images. Measured on an Arduino
   Ventuno Q (QCS8275): see `docs/HARDWARE.md`.
+
+- **Cameras page: bulk actions, grid view, pause recording.** Tick
+  cameras (or "Select all", then "Select all N cameras" across every page
+  matching the filters) and use **Actions** to set or clear location, turn
+  detection on/off, activate/deactivate, pause or resume recording, assign
+  permissions or delete. An **All / Active / Inactive** switch with counts
+  replaces "Active only" (`GET /cameras/` takes `status=` and returns
+  `counts`; `active_only` still works), and the table has a Status column.
+  A **Grid** view shows each camera's still with its stream and recording
+  state, in S/M/L tiles; clicking a card selects it, and **Live** opens the
+  camera in a dialog over the page. Recording can now be paused from the
+  page (per camera or in bulk, for 15 min to 24 h or until resumed) where
+  Settings → Recording allows pausing; the list shows who paused it and
+  until when (`recording_pause` on each camera). Live View's Tours menu
+  gains **New tour**.
+
+- **OpenNVR Accelerate: hardware flavours.** The detect-pipeline image now
+  builds in flavours from one Dockerfile (`ACCEL=cpu|intel`); the `-intel`
+  tags carry `onnxruntime-openvino` plus Intel's VA-API, OpenCL and NPU
+  user-space, so an Intel iGPU decodes the cameras and the Tier-0 detector
+  runs on the NPU or iGPU through OpenVINO. One setting selects it:
+  `OPENNVR_ACCEL=auto|cpu|intel` in `.env` (auto finds an Intel render
+  node), which makes `start.sh` add `docker-compose.accel-intel.yml` (and
+  the NPU device overlay when `/dev/accel/accel0` exists) and fill the
+  decode/detector defaults (the NPU when the host has one, else the iGPU —
+  pinned, not AUTO, which warms up on CPU). `DETECT_ONNX_PROVIDERS` takes a `:device` per
+  provider (`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`, `:NPU`, `:GPU`,
+  `CUDAExecutionProvider:1`). ORT's silent fallback to CPU is now logged
+  and exported as `tier0_detector_backend{backend,requested,effective}`.
+  Support matrix and benchmark protocol: `docs/HARDWARE.md`.
+
+- **OpenNVR updates itself, if you let it.** Each release now ships a
+  signed manifest (`release-manifest.json`, Ed25519, keys in
+  `server/updater/keys.json`) naming its commit, image digests, pins and
+  database revisions. `./start.sh update` (`.\start.ps1 update`) checks
+  it, downloads everything first, backs up the database, keys and `.env`
+  under `backups/`, switches, checks the new version is healthy and rolls
+  back (database included) if not; `update --restore <backup>` is the
+  escape hatch. Settings → OpenNVR Updates shows what was found, the
+  release notes, history and progress, has **Update now**
+  (`system.update`, admins only, new) and the policy: off (default),
+  notify, manual, or automatic in a maintenance window, patch releases
+  only unless widened, after a per-site delay that urgent releases skip.
+  `start.sh auto-update enable` installs the host runner (systemd,
+  launchd or a Scheduled Task) that does the work; the app only leaves it
+  a request in `data/update-requests/`. Air-gapped sites: offline
+  bundles (`scripts/make-offline-bundle.py`, also as deltas against a
+  base version) applied with `update --bundle`, or one internal mirror
+  for many NVRs via `UPDATE_SOURCE_URL`. A withdrawn release is never
+  offered (signed `release/revocations.json`). Results and new versions
+  arrive as alerts. An `edge` channel follows `main` for test sites.
+  Home Assistant's update entity can install, with a token that has the
+  new `system.update` scope (contract 1.2.0, feature `update_install`).
+
+- **Camera tours are pages.** A tour is now a list of pages, each one
+  screenful: a layout, the camera on each tile, and how long it shows.
+  What the editor shows as a page is exactly what the wall shows, and the
+  wall reads "Page 2/5". Steps that paged through more cameras than their
+  layout held are gone: adding more cameras than fit (e.g. **Add all 20
+  from North** on a 9-tile page) fills the page and puts the rest on new
+  pages right after it, and choosing a smaller layout moves the cameras
+  that no longer fit the same way; the editor says how many went where.
+  The API takes and returns `pages` (`steps` is still accepted, and still
+  returned alongside for one release, for walls running the older app); a
+  page with more cameras than its layout has tiles, including every tour
+  saved as steps, is split into consecutive pages with the same label,
+  layout and time on save and on read, exactly as the wall showed it. No
+  schema change: the `camera_tours.steps` column now holds pages.
+
+- **Camera tours: empty tiles, placing on a tile, a tours table.** Taking a
+  camera out of a tour page (in the editor, in Arrange, or by binning it)
+  now leaves its tile empty instead of moving every later camera up, so a
+  wall keeps its arrangement; **Close gaps** packs the cameras again. A
+  page's `camera_ids` may hold `null` for an empty tile (trailing ones are
+  trimmed; a duplicate's second tile is left empty). The editor's preview
+  places cameras like Arrange: click a tile then a camera, or drag a camera
+  onto a tile; both say when the camera was already on the page and moved.
+  The tours settings page has a cards/table switch and a search, with only
+  the list scrolling, and Live View's Tours menu scrolls and searches.
+
+- **Camera tours for display boards.** A tour cycles a screen through
+  sets of cameras: 20 North cameras for a minute, then 20 South, and
+  round again. Build them under Settings → More Settings → Camera Tours
+  (`cameras.manage`); run one from Live View's **Tours** button or open
+  its display link (`/display/tour/<id>`, the wall with no app shell) on
+  the board. A page can use any Live View layout or a plain grid up to
+  8×8, and a whole camera Location can be added at once. An alert on a tour camera can take over
+  the wall for a set time and then hand back to the tour (per tour: which
+  alerts, which cameras, how long, a cool-down); a chip always shows what
+  comes next and when. The editor is a page of its own with camera
+  pictures, drag-to-reorder and a page preview, and opens from a running
+  wall; **Arrange** on a running wall (in the app) removes, swaps and
+  replaces cameras on the page on screen. The next page starts early,
+  hidden, so it is playing when it shows, with a crossfade or a cut (per
+  tour), and a tile waiting for its video shows the camera's last frame.
+  Every viewer sees only their own cameras. Tiles play the
+  substream and fall back to the main stream per camera. New table
+  `camera_tours` and its `settings` column (two additive Alembic
+  revisions); `GET /tours/thumbnails/{id}` serves small cached stills for
+  the editor without holding a stream open; `GET /streams/{id}/info`
+  takes an opt-in `include_sub=true` and is unchanged without it. Live
+  View's own grid and the dashboard wall are untouched.
+
+- **Camera import and export.** Cameras → Import takes a CSV or Excel
+  file: one row per camera, or one row per NVR/DVR with `channels` and a
+  `vendor` (Hikvision, Uniview, Dahua, CP Plus, or an RTSP URL with `{ch}`)
+  that becomes a camera per channel. A preview shows what every row would
+  do (new, update, unchanged, duplicate, error and why) before anything is
+  saved; the import then runs in the background through the same create
+  and update code as the Cameras page, a few cameras at a time, and is
+  audited. Re-importing a file changes nothing and nothing is ever deleted.
+  Cameras → Export writes the cameras the operator manages, filtered as
+  the list is, in the same columns; passwords and RTSP logins only with
+  the operator's MFA code. Template in both formats. New endpoints under
+  `/cameras/export` and `/cameras/import`; `openpyxl` added to the server.
+
+- **The Look eval.** `examples/camera-agent/tools/look_eval.py` runs a
+  site's labelled pictures through the workflow's Look step (the SDK's
+  `run_ai_step`, two templates in `tools/look_templates.yml`: who is at
+  the gate, and what is in the yard at night) and gates each template on
+  the Wilson lower bound of its pass rate and its p95 seconds. The labels
+  are a CSV kept in a spreadsheet, checked before any model runs. No
+  accuracy until the site pictures arrive; a 4-frame plumbing check on
+  CPU put a vision Look step at 13-53 s (MODELS_AND_LATENCY.md).
+
+- **Workflow runs are recorded.** Three tables, one Alembic revision:
+  `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
+  #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:
+  the step's row and inputs are written before the model is called, then
+  its outcome, the rule that decided and every model and tool call. A step
+  waiting on an `ask` tool keeps its state on the row and resumes from it
+  after a restart. Steps that set no limits get the box's hardware class
+  (GPU when `DETECT_HWACCEL` is an accelerator, else CPU).
+
+- **The workflow file's `ai:` step, checked and run.**
+  `opennvr_app_sdk.workflows`: `check_ai_step()` lists everything wrong
+  with a step (an actuator or unknown skill as a tool, a rule naming an
+  unknown field or outcome, an outcome with no path, a placeholder in the
+  instructions, YAML's unquoted yes/no), and `run_ai_step()` runs a Look or
+  Investigate step to its outcome, its path, the `workflow_run_steps` row
+  and the trace rows; an `ask` tool suspends into the row and
+  `resume_ai_step()` carries on. Defaults for #620's open questions: rules
+  required in Investigate, optional in Look; the hardware class comes from
+  the engine (CPU when unset); the severity cap is the `alert` action's.
+  `Decision.rule` now says which rule fired.
+
+- **Rule tables in AI steps.** `DecisionSpec(rules=...)`: the model reports
+  typed facts, a reason and a confidence, and the first matching `Rule`
+  decides; no match is `unsure` (`no_rule`). The Investigate eval gains
+  `--rules`, a rule table frozen before 20 new held-out cases were written,
+  and the raw runs. On the held-out cases the rules did not raise the pass
+  rate (granite4:micro 29 → 30/60), and the original cases overstate the
+  models (45/60 there); see MODELS_AND_LATENCY.md.
+
+- **App SDK 0.9.0.** Publishes the Look step of an AI workflow —
+  `opennvr_app_sdk.agent.run_look()` with `DecisionSpec`, `Decision`,
+  `Limits` and the trace rows (#651, by @Emart29) — and the registry's
+  `open_vocab_detection` task in the validator's known set, both of which
+  0.1.8 shipped on `main` without a PyPI release. Additive; nothing in
+  0.8.0 changes.
+
+- **App SDK 0.10.0.** Publishes the Investigate step:
+  `opennvr_app_sdk.agent.run_investigate()`, `resume()`, `Suspended` and
+  `Tool` (#670, #674, by @Emart29), which `main` carried since 0.9.0
+  without a PyPI release. Additive; nothing in 0.9.0 changes.
+
+- **The SDK runs an Investigate step.** `run_investigate()` calls the
+  step's tools, then decides in a separate call (RFC #620). Every call goes
+  through one gate: tools off the step's list or `unavailable` are refused,
+  bad arguments go back to the model, and a tool that moves things cannot be
+  built at all. A tool in `ask` mode suspends the step with its state as
+  plain JSON; `resume()` carries on, after a restart if need be, and the
+  time spent waiting for a person is not counted.
+
+### Changed
+
+- **`:latest` is the last release.** The core, detect-pipeline and
+  camera-agent images now move `:latest` only on a `v*` release tag; it
+  used to follow every merge to `main` as well, so an install with no
+  `CORE_TAG` pin could pick up untested builds on its next pull. Use
+  `:main` for the bleeding edge. Catalog app images keep their old policy,
+  because the app catalog advertises `:latest`.
+
+- **The Investigate cases answer like the real tools.** A failure analysis
+  of granite4:micro's failing runs found fixtures that answered made-up event
+  ids and a search default that hid visits; both now behave as the tools do,
+  with a test. granite4:micro stays at 45/60; qwen3:1.7b goes from 21 to 16,
+  having been rewarded for inventing ids. The remaining failures are the
+  model deciding against its own evidence (MODELS_AND_LATENCY.md).
+
+- **The Investigate eval runs the SDK's `run_investigate()`.** The harness
+  kept its own copy of the step loop, and the two drifted: a rewording in
+  the library cost granite4:micro 7 runs in 60 before the copy could show
+  it (#674). Now the gate measures the code that ships; the harness keeps
+  only the fixture tools and the scoring. `--combined` is gone (its finding,
+  that the decision needs its own call, is in MODELS_AND_LATENCY.md).
 
 ### Fixed
 
@@ -101,189 +302,6 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and surrounding whitespace, as compose does. Belt and braces: with
   `DETECT_ONNX_BACKEND=auto`, requesting execution providers now resolves to
   the `ort` backend by itself — an accelerator is only reachable through it.
-- **Cameras page: bulk actions, grid view, pause recording.** Tick
-  cameras (or "Select all", then "Select all N cameras" across every page
-  matching the filters) and use **Actions** to set or clear location, turn
-  detection on/off, activate/deactivate, pause or resume recording, assign
-  permissions or delete. An **All / Active / Inactive** switch with counts
-  replaces "Active only" (`GET /cameras/` takes `status=` and returns
-  `counts`; `active_only` still works), and the table has a Status column.
-  A **Grid** view shows each camera's still with its stream and recording
-  state, in S/M/L tiles; clicking a card selects it, and **Live** opens the
-  camera in a dialog over the page. Recording can now be paused from the
-  page (per camera or in bulk, for 15 min to 24 h or until resumed) where
-  Settings → Recording allows pausing; the list shows who paused it and
-  until when (`recording_pause` on each camera). Live View's Tours menu
-  gains **New tour**.
-- **OpenNVR Accelerate: hardware flavours.** The detect-pipeline image now
-  builds in flavours from one Dockerfile (`ACCEL=cpu|intel`); the `-intel`
-  tags carry `onnxruntime-openvino` plus Intel's VA-API, OpenCL and NPU
-  user-space, so an Intel iGPU decodes the cameras and the Tier-0 detector
-  runs on the NPU or iGPU through OpenVINO. One setting selects it:
-  `OPENNVR_ACCEL=auto|cpu|intel` in `.env` (auto finds an Intel render
-  node), which makes `start.sh` add `docker-compose.accel-intel.yml` (and
-  the NPU device overlay when `/dev/accel/accel0` exists) and fill the
-  decode/detector defaults (the NPU when the host has one, else the iGPU —
-  pinned, not AUTO, which warms up on CPU). `DETECT_ONNX_PROVIDERS` takes a `:device` per
-  provider (`OpenVINOExecutionProvider:AUTO:NPU,GPU,CPU`, `:NPU`, `:GPU`,
-  `CUDAExecutionProvider:1`). ORT's silent fallback to CPU is now logged
-  and exported as `tier0_detector_backend{backend,requested,effective}`.
-  Support matrix and benchmark protocol: `docs/HARDWARE.md`.
-- **OpenNVR updates itself, if you let it.** Each release now ships a
-  signed manifest (`release-manifest.json`, Ed25519, keys in
-  `server/updater/keys.json`) naming its commit, image digests, pins and
-  database revisions. `./start.sh update` (`.\start.ps1 update`) checks
-  it, downloads everything first, backs up the database, keys and `.env`
-  under `backups/`, switches, checks the new version is healthy and rolls
-  back (database included) if not; `update --restore <backup>` is the
-  escape hatch. Settings → OpenNVR Updates shows what was found, the
-  release notes, history and progress, has **Update now**
-  (`system.update`, admins only, new) and the policy: off (default),
-  notify, manual, or automatic in a maintenance window, patch releases
-  only unless widened, after a per-site delay that urgent releases skip.
-  `start.sh auto-update enable` installs the host runner (systemd,
-  launchd or a Scheduled Task) that does the work; the app only leaves it
-  a request in `data/update-requests/`. Air-gapped sites: offline
-  bundles (`scripts/make-offline-bundle.py`, also as deltas against a
-  base version) applied with `update --bundle`, or one internal mirror
-  for many NVRs via `UPDATE_SOURCE_URL`. A withdrawn release is never
-  offered (signed `release/revocations.json`). Results and new versions
-  arrive as alerts. An `edge` channel follows `main` for test sites.
-  Home Assistant's update entity can install, with a token that has the
-  new `system.update` scope (contract 1.2.0, feature `update_install`).
-- **Camera tours are pages.** A tour is now a list of pages, each one
-  screenful: a layout, the camera on each tile, and how long it shows.
-  What the editor shows as a page is exactly what the wall shows, and the
-  wall reads "Page 2/5". Steps that paged through more cameras than their
-  layout held are gone: adding more cameras than fit (e.g. **Add all 20
-  from North** on a 9-tile page) fills the page and puts the rest on new
-  pages right after it, and choosing a smaller layout moves the cameras
-  that no longer fit the same way; the editor says how many went where.
-  The API takes and returns `pages` (`steps` is still accepted, and still
-  returned alongside for one release, for walls running the older app); a
-  page with more cameras than its layout has tiles, including every tour
-  saved as steps, is split into consecutive pages with the same label,
-  layout and time on save and on read, exactly as the wall showed it. No
-  schema change: the `camera_tours.steps` column now holds pages.
-- **Camera tours: empty tiles, placing on a tile, a tours table.** Taking a
-  camera out of a tour page (in the editor, in Arrange, or by binning it)
-  now leaves its tile empty instead of moving every later camera up, so a
-  wall keeps its arrangement; **Close gaps** packs the cameras again. A
-  page's `camera_ids` may hold `null` for an empty tile (trailing ones are
-  trimmed; a duplicate's second tile is left empty). The editor's preview
-  places cameras like Arrange: click a tile then a camera, or drag a camera
-  onto a tile; both say when the camera was already on the page and moved.
-  The tours settings page has a cards/table switch and a search, with only
-  the list scrolling, and Live View's Tours menu scrolls and searches.
-- **Camera tours for display boards.** A tour cycles a screen through
-  sets of cameras: 20 North cameras for a minute, then 20 South, and
-  round again. Build them under Settings → More Settings → Camera Tours
-  (`cameras.manage`); run one from Live View's **Tours** button or open
-  its display link (`/display/tour/<id>`, the wall with no app shell) on
-  the board. A page can use any Live View layout or a plain grid up to
-  8×8, and a whole camera Location can be added at once. An alert on a tour camera can take over
-  the wall for a set time and then hand back to the tour (per tour: which
-  alerts, which cameras, how long, a cool-down); a chip always shows what
-  comes next and when. The editor is a page of its own with camera
-  pictures, drag-to-reorder and a page preview, and opens from a running
-  wall; **Arrange** on a running wall (in the app) removes, swaps and
-  replaces cameras on the page on screen. The next page starts early,
-  hidden, so it is playing when it shows, with a crossfade or a cut (per
-  tour), and a tile waiting for its video shows the camera's last frame.
-  Every viewer sees only their own cameras. Tiles play the
-  substream and fall back to the main stream per camera. New table
-  `camera_tours` and its `settings` column (two additive Alembic
-  revisions); `GET /tours/thumbnails/{id}` serves small cached stills for
-  the editor without holding a stream open; `GET /streams/{id}/info`
-  takes an opt-in `include_sub=true` and is unchanged without it. Live
-  View's own grid and the dashboard wall are untouched.
-- **Camera import and export.** Cameras → Import takes a CSV or Excel
-  file: one row per camera, or one row per NVR/DVR with `channels` and a
-  `vendor` (Hikvision, Uniview, Dahua, CP Plus, or an RTSP URL with `{ch}`)
-  that becomes a camera per channel. A preview shows what every row would
-  do (new, update, unchanged, duplicate, error and why) before anything is
-  saved; the import then runs in the background through the same create
-  and update code as the Cameras page, a few cameras at a time, and is
-  audited. Re-importing a file changes nothing and nothing is ever deleted.
-  Cameras → Export writes the cameras the operator manages, filtered as
-  the list is, in the same columns; passwords and RTSP logins only with
-  the operator's MFA code. Template in both formats. New endpoints under
-  `/cameras/export` and `/cameras/import`; `openpyxl` added to the server.
-
-- **The Look eval.** `examples/camera-agent/tools/look_eval.py` runs a
-  site's labelled pictures through the workflow's Look step (the SDK's
-  `run_ai_step`, two templates in `tools/look_templates.yml`: who is at
-  the gate, and what is in the yard at night) and gates each template on
-  the Wilson lower bound of its pass rate and its p95 seconds. The labels
-  are a CSV kept in a spreadsheet, checked before any model runs. No
-  accuracy until the site pictures arrive; a 4-frame plumbing check on
-  CPU put a vision Look step at 13-53 s (MODELS_AND_LATENCY.md).
-- **Workflow runs are recorded.** Three tables, one Alembic revision:
-  `workflow_runs`, `workflow_run_steps` and `workflow_tool_calls` (RFC
-  #620, §8). `server/workflows/ai_steps.py` runs an AI step inside a run:
-  the step's row and inputs are written before the model is called, then
-  its outcome, the rule that decided and every model and tool call. A step
-  waiting on an `ask` tool keeps its state on the row and resumes from it
-  after a restart. Steps that set no limits get the box's hardware class
-  (GPU when `DETECT_HWACCEL` is an accelerator, else CPU).
-- **The workflow file's `ai:` step, checked and run.**
-  `opennvr_app_sdk.workflows`: `check_ai_step()` lists everything wrong
-  with a step (an actuator or unknown skill as a tool, a rule naming an
-  unknown field or outcome, an outcome with no path, a placeholder in the
-  instructions, YAML's unquoted yes/no), and `run_ai_step()` runs a Look or
-  Investigate step to its outcome, its path, the `workflow_run_steps` row
-  and the trace rows; an `ask` tool suspends into the row and
-  `resume_ai_step()` carries on. Defaults for #620's open questions: rules
-  required in Investigate, optional in Look; the hardware class comes from
-  the engine (CPU when unset); the severity cap is the `alert` action's.
-  `Decision.rule` now says which rule fired.
-- **Rule tables in AI steps.** `DecisionSpec(rules=...)`: the model reports
-  typed facts, a reason and a confidence, and the first matching `Rule`
-  decides; no match is `unsure` (`no_rule`). The Investigate eval gains
-  `--rules`, a rule table frozen before 20 new held-out cases were written,
-  and the raw runs. On the held-out cases the rules did not raise the pass
-  rate (granite4:micro 29 → 30/60), and the original cases overstate the
-  models (45/60 there); see MODELS_AND_LATENCY.md.
-- **App SDK 0.9.0.** Publishes the Look step of an AI workflow —
-  `opennvr_app_sdk.agent.run_look()` with `DecisionSpec`, `Decision`,
-  `Limits` and the trace rows (#651, by @Emart29) — and the registry's
-  `open_vocab_detection` task in the validator's known set, both of which
-  0.1.8 shipped on `main` without a PyPI release. Additive; nothing in
-  0.8.0 changes.
-- **App SDK 0.10.0.** Publishes the Investigate step:
-  `opennvr_app_sdk.agent.run_investigate()`, `resume()`, `Suspended` and
-  `Tool` (#670, #674, by @Emart29), which `main` carried since 0.9.0
-  without a PyPI release. Additive; nothing in 0.9.0 changes.
-- **The SDK runs an Investigate step.** `run_investigate()` calls the
-  step's tools, then decides in a separate call (RFC #620). Every call goes
-  through one gate: tools off the step's list or `unavailable` are refused,
-  bad arguments go back to the model, and a tool that moves things cannot be
-  built at all. A tool in `ask` mode suspends the step with its state as
-  plain JSON; `resume()` carries on, after a restart if need be, and the
-  time spent waiting for a person is not counted.
-
-### Changed
-
-- **`:latest` is the last release.** The core, detect-pipeline and
-  camera-agent images now move `:latest` only on a `v*` release tag; it
-  used to follow every merge to `main` as well, so an install with no
-  `CORE_TAG` pin could pick up untested builds on its next pull. Use
-  `:main` for the bleeding edge. Catalog app images keep their old policy,
-  because the app catalog advertises `:latest`.
-- **The Investigate cases answer like the real tools.** A failure analysis
-  of granite4:micro's failing runs found fixtures that answered made-up event
-  ids and a search default that hid visits; both now behave as the tools do,
-  with a test. granite4:micro stays at 45/60; qwen3:1.7b goes from 21 to 16,
-  having been rewarded for inventing ids. The remaining failures are the
-  model deciding against its own evidence (MODELS_AND_LATENCY.md).
-- **The Investigate eval runs the SDK's `run_investigate()`.** The harness
-  kept its own copy of the step loop, and the two drifted: a rewording in
-  the library cost granite4:micro 7 runs in 60 before the copy could show
-  it (#674). Now the gate measures the code that ships; the harness keeps
-  only the fixture tools and the scoring. `--combined` is gone (its finding,
-  that the decision needs its own call, is in MODELS_AND_LATENCY.md).
-
-### Fixed
 
 - **VAAPI decode on Intel iGPUs actually works.** The detect-pipeline image
   carried only Mesa's AMD VA-API driver, so `DETECT_HWACCEL=vaapi` on any
@@ -291,6 +309,7 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to software decode — while core promoted those cameras to the main
   stream. The image now ships Debian's `intel-media-va-driver` (iHD);
   verified H264/HEVC hardware decode on Arrow Lake.
+
 - **The "today" search tests no longer fail just after midnight.** The API
   parsed "today" against the wall clock while the rows were stamped a few
   minutes earlier, so a run near local midnight put them on yesterday
@@ -4478,7 +4497,8 @@ address in the README.
 
 ---
 
-[Unreleased]: https://github.com/open-nvr/open-nvr/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/open-nvr/open-nvr/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/open-nvr/open-nvr/compare/v0.1.8...v0.1.9
 [0.1.4]: https://github.com/open-nvr/open-nvr/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/open-nvr/open-nvr/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/open-nvr/open-nvr/compare/v0.1.1...v0.1.2
