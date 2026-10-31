@@ -27,7 +27,7 @@ import { useCameraStatusConnected } from '../hooks/useCameraStatus'
 import { extractApiError } from '../lib/apiError'
 import { useSnackbar } from '../components/Snackbar'
 import { usePermissions } from '../hooks/usePermissions'
-import { Camera as CameraIcon, CameraOff, ChevronDown, Download, LayoutGrid, List, PauseCircle, Pencil, Play, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
+import { Camera as CameraIcon, CameraOff, Download, LayoutGrid, List, PauseCircle, Pencil, Play, PlayCircle, Plus, Search as SearchIcon, Trash2, Unplug, Upload, Video } from 'lucide-react'
 import { Badge, Button, EmptyState, Skeleton, Table, THead, TBody, TR, TH, TD } from '../components/ui'
 import { Checkbox, Field, Input, Select } from '../components/ui/form'
 import { IconButton, PageTitleBar, TITLE_ACTION_CLASS, TITLE_PANEL_BODY_CLASS } from '../components/ui/layout'
@@ -1093,28 +1093,19 @@ export function Cameras() {
           {/* Only once there is a location to pick: on a recorder where
               no camera has one, the menu would offer nothing. */}
           {(locations?.locations.length ?? 0) > 0 && (
-            // The browser's own arrow sat flush against the right border;
-            // draw one with the same inset the search icon has on the left.
-            <div className="relative w-52 max-w-full">
-              <select
-                value={location}
-                onChange={(e) => { setPage(1); setLocation(e.target.value) }}
-                aria-label={t('camera.location')}
-                title={t('camera.location')}
-                className="h-9 w-full appearance-none border border-[var(--border)] bg-[var(--bg-2)] pl-3 pr-9 text-[13px] outline-none transition-colors focus:border-[var(--accent)] truncate"
-              >
-                <option value="">{t('camera.allLocations')}</option>
-                {locations!.locations.map((l) => (
-                  <option key={l.location} value={l.location}>{l.location} ({l.count})</option>
-                ))}
-                {locations!.none > 0 && <option value={NO_LOCATION}>{t('camera.noLocation')} ({locations!.none})</option>}
-              </select>
-              <ChevronDown
-                size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-dim)]"
-                aria-hidden="true"
-              />
-            </div>
+            <select
+              value={location}
+              onChange={(e) => { setPage(1); setLocation(e.target.value) }}
+              aria-label={t('camera.location')}
+              title={t('camera.location')}
+              className="h-9 w-52 max-w-full border border-[var(--border)] bg-[var(--bg-2)] pl-3 text-[13px] outline-none transition-colors focus:border-[var(--accent)] truncate"
+            >
+              <option value="">{t('camera.allLocations')}</option>
+              {locations!.locations.map((l) => (
+                <option key={l.location} value={l.location}>{l.location} ({l.count})</option>
+              ))}
+              {locations!.none > 0 && <option value={NO_LOCATION}>{t('camera.noLocation')} ({locations!.none})</option>}
+            </select>
           )}
           {/* All / Active / Inactive, each with its count under the current
               search and location. */}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The edits the tour editor and a running wall's Arrange mode make to one
+ * The edits the tour editor makes to one
  * page's camera list, as pure functions (app/tests/tourArrange.test.mjs).
  *
  * A page's cameras are one list in tile order: position `i` is tile `i`.

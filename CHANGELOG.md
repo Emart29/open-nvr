@@ -16,6 +16,18 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   First run, `qwen3-vl:2b-instruct` on CPU: 26/58 at full size (18 steps
   out of time), 35/58 at 768 px with p95 52 s; strangers taken for guards
   is the failure to fix (MODELS_AND_LATENCY.md).
+- **Tour editor redesign.** The tour's name, on/off and summary sit on one
+  row, and its settings open in a dialog. Each page shows how many of its tiles
+  have cameras, the top bar counts how many of your cameras are on the tour, and
+  **Save tour** warns when some are left out. The camera list says where each
+  camera is used, marks those **Not on tour**, and highlights the camera on a
+  clicked tile. **Add remaining** replaces **Add all**, so adding never repeats
+  a camera. A full page offers to put the camera on a new page, removing a page
+  with cameras asks first, and the preview is drawn as the screen it stands for.
+  From 1280 px wide the editor fits the window and its lists scroll inside
+  themselves. A running wall has one **Edit this page** button in place of
+  **Arrange** and **Edit this tour**: it opens that page in the same editor,
+  with **Edit whole tour** for the rest, and comes back to the wall on that page.
 - **Accelerate: safe defaults and no crash on a missing accelerator.** On the
   `intel` flavour each adapter follows its own `<NAME>_ONNX_PROVIDERS`, then
   `ADAPTER_ONNX_PROVIDERS`, then a default that is an accelerator only where
@@ -49,6 +61,37 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Ventuno Q (QCS8275): see `docs/HARDWARE.md`.
 
 ### Fixed
+
+- **Dropdown arrows sat flush against the right edge** on every page. One
+  global rule now draws them, in place of the per-page workarounds.
+
+- **`start.sh` checks the Compose version and puts every container back on
+  every network it declares.** Compose 2.24.x — what Ubuntu 24.04's
+  `docker-compose-v2` package ships — attaches a container's networks one at
+  a time after creating it and randomly drops one (docker/compose#11533,
+  fixed in 2.26.1). On the Ventuno Q benchmark board `opennvr-core` came up
+  on `opennvr_apps` only: 1,900 "could not translate host name db" errors in
+  45 minutes while its health check stayed green, and `nats` lost
+  `opennvr_apps` the same way. Pre-flight now warns below 2.26.1 with the
+  upgrade path, and after every `up` the resolved config is compared with
+  what Docker actually attached; a missing secondary network is reconnected
+  and said out loud. Services with a single network, in a profile or overlay
+  this run was not told about, or in `network_mode`, are left alone.
+  `tests/host-hardening/test_compose_networks.sh` (12 checks, fake `docker`
+  on PATH).
+
+- **The MediaMTX signing key pair no longer tears itself on first start.**
+  On a fresh install MediaMTX fetched the JWKS while the first stream token
+  was minted; both threads saw no key files, both generated a pair, and the
+  two unlocked writes interleaved — the public key on disk belonged to a
+  private key that no longer existed, so every live view was rejected until
+  someone rewrote the file by hand (hit on the Ventuno Q benchmark board).
+  Key creation now runs under a thread lock plus a file lock on the keys
+  volume, each file is written to a temp name and renamed into place, and a
+  pair that is already torn (or a public file that is missing or corrupt) is
+  repaired from the private key on load instead of minting tokens MediaMTX
+  rejects. `server/services/mediamtx_jwt_service.py`, nine tests in
+  `server/tests/test_mediamtx_jwt_keys.py`.
 
 - **`start.sh` read `.env` values with their inline comments.** `get_env_var`
   returned `auto   # auto (cvdnn …)` for the `DETECT_ONNX_BACKEND=auto` line
