@@ -171,6 +171,7 @@ class FlavourlessRegistry(FakeRegistry):
 
         tag = ref.rsplit(":", 1)[-1]
         if any(tag.endswith(s) for s in ("-intel", "-qualcomm", "-nvidia", "-rocm")):
+            self.asked.append(ref)
             raise urllib.error.HTTPError(ref, 404, "Not Found", {}, None)
         return super().resolve(ref)
 
